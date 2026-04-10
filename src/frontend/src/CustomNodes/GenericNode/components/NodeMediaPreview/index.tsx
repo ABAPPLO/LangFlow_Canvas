@@ -1,11 +1,58 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useFlowStore from "@/stores/flowStore";
 import type { NodeDataType } from "@/types/flow";
 import { extractMediaUrls } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
+import type { MediaUrl } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
+
+const COLLAPSE_THRESHOLD = 4;
+
+function MediaGrid({ items }: { items: MediaUrl[] }) {
+  const images = items.filter((u) => u.type === "image");
+  const videos = items.filter((u) => u.type === "video");
+  const audios = items.filter((u) => u.type === "audio");
+
+  return (
+    <div className="flex flex-col gap-2">
+      {images.length > 0 && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {images.map((item, i) => (
+            <img
+              key={`img-${i}`}
+              src={item.url}
+              alt={`preview-${i}`}
+              className="max-h-[140px] w-full rounded-md object-contain"
+            />
+          ))}
+        </div>
+      )}
+      {videos.map((item, i) => (
+        <video
+          key={`vid-${i}`}
+          src={item.url}
+          controls
+          className="max-h-[160px] max-w-full rounded-md"
+        />
+      ))}
+      {audios.map((item, i) => (
+        <div
+          key={`aud-${i}`}
+          className="flex items-center gap-2 rounded-md border p-1.5"
+        >
+          <ForwardedIconComponent
+            name="Music"
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          />
+          <audio src={item.url} controls className="h-7 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function NodeMediaPreview({ data }: { data: NodeDataType }) {
   const flowPool = useFlowStore((state) => state.flowPool);
+  const [expanded, setExpanded] = useState(false);
 
   const mediaUrls = useMemo(() => {
     const flowPoolNode = (flowPool[data.id] ?? [])[
@@ -13,7 +60,6 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
     ];
     if (!flowPoolNode?.data?.outputs) return [];
 
-    // Collect results from all outputs
     const allMessages: unknown[] = [];
     for (const output of Object.values(
       flowPoolNode.data.outputs as Record<string, { message?: unknown }>,
@@ -32,47 +78,22 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
 
   if (mediaUrls.length === 0) return null;
 
+  const needsCollapse = mediaUrls.length > COLLAPSE_THRESHOLD;
+  const visibleItems = expanded ? mediaUrls : mediaUrls.slice(0, COLLAPSE_THRESHOLD);
+
   return (
     <div className="border-t px-3 py-2">
-      <div className="flex flex-col gap-2">
-        {mediaUrls.map((item, index) => {
-          if (item.type === "image") {
-            return (
-              <img
-                key={index}
-                src={item.url}
-                alt={`preview-${index}`}
-                className="max-h-[200px] max-w-full rounded-md object-contain"
-              />
-            );
-          }
-          if (item.type === "video") {
-            return (
-              <video
-                key={index}
-                src={item.url}
-                controls
-                className="max-h-[200px] max-w-full rounded-md"
-              />
-            );
-          }
-          if (item.type === "audio") {
-            return (
-              <div
-                key={index}
-                className="flex items-center gap-2 rounded-md border p-2"
-              >
-                <ForwardedIconComponent
-                  name="Music"
-                  className="h-4 w-4 text-muted-foreground"
-                />
-                <audio src={item.url} controls className="h-8 w-full" />
-              </div>
-            );
-          }
-          return null;
-        })}
-      </div>
+      <MediaGrid items={visibleItems} />
+      {needsCollapse && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1.5 w-full rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {expanded
+            ? `收起`
+            : `展开全部 (${mediaUrls.length})`}
+        </button>
+      )}
     </div>
   );
 }
