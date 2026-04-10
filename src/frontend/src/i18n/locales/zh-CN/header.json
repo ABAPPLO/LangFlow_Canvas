@@ -1,0 +1,24 @@
+{
+  "version": "版本",
+  "latest": "(最新)",
+  "updateAvailable": "(有更新)",
+  "settings": "设置",
+  "adminPage": "管理页面",
+  "docs": "文档",
+  "github": "GitHub",
+  "discord": "Discord",
+  "x": "X",
+  "theme": "主题",
+  "language": "语言",
+  "logout": "退出登录",
+  "notifications": "通知",
+  "notificationsAndErrors": "通知和错误",
+  "help": {
+    "docs": "文档",
+    "shortcuts": "快捷键",
+    "reportBug": "报告问题",
+    "getDesktop": "获取 Langflow 桌面版",
+    "enableSmartGuides": "启用智能引导",
+    "showInspector": "显示检查面板"
+  }
+}

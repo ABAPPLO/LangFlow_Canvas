@@ -1,6 +1,7 @@
 import { DialogClose } from "@radix-ui/react-dialog";
 import * as Form from "@radix-ui/react-form";
 import React, { type ReactNode, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -129,6 +130,7 @@ const Footer: React.FC<{
   centered?: boolean;
   className?: string;
 }> = ({ children, submit, close, centered, className }) => {
+  const { t } = useTranslation("modals");
   return (
     <div
       className={cn(
@@ -148,7 +150,7 @@ const Footer: React.FC<{
                 type="button"
                 data-testid="btn-cancel-modal"
               >
-                Cancel
+                {t("cancel")}
               </Button>
             </DialogClose>
             <Button
@@ -169,7 +171,7 @@ const Footer: React.FC<{
       {close && (
         <DialogClose asChild>
           <Button data-testid="btn-close-modal" type="button">
-            Close
+            {t("close")}
           </Button>
         </DialogClose>
       )}

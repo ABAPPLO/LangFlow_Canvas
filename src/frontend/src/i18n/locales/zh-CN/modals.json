@@ -1,0 +1,24 @@
+{
+  "cancel": "取消",
+  "close": "关闭",
+  "save": "保存",
+  "delete": "删除",
+  "deleteConfirmation": {
+    "title": "删除",
+    "description": "此操作将永久删除{{item}}。",
+    "cannotUndo": "此操作不可撤销。",
+    "flow": "流程"
+  },
+  "unsavedChanges": {
+    "title": "未保存的更改",
+    "message": "您有未保存的更改，确定要离开吗？",
+    "discard": "放弃更改"
+  },
+  "replace": {
+    "title": "替换",
+    "message": "这将替换现有内容。"
+  },
+  "checkAndSave": "检查并保存",
+  "caution": "注意",
+  "discardChangesConfirm": "确定要不保存更改就退出吗？"
+}

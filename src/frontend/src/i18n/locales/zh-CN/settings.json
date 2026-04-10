@@ -1,0 +1,18 @@
+{
+  "title": "设置",
+  "description": "管理 Langflow 的通用设置。",
+  "general": "通用",
+  "mcpServers": "MCP 服务器",
+  "globalVariables": "全局变量",
+  "modelProviders": "模型提供商",
+  "shortcuts": "快捷键",
+  "messages": "消息",
+  "apiKeys": "API 密钥",
+  "profile": "个人资料",
+  "theme": "主题",
+  "language": "语言",
+  "darkMode": "深色模式",
+  "lightMode": "浅色模式",
+  "apiSavedSuccess": "API 密钥保存成功",
+  "apiSaveError": "API 密钥保存失败"
+}

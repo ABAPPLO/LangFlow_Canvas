@@ -1,5 +1,6 @@
 import { cloneDeep } from "lodash";
 import { useContext, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 import {
   EDIT_PASSWORD_ALERT_LIST,
@@ -30,6 +31,7 @@ import PasswordFormComponent from "./components/PasswordForm";
 import ProfilePictureFormComponent from "./components/ProfilePictureForm";
 
 export const GeneralPage = () => {
+  const { t } = useTranslation("settings");
   const { scrollId } = useParams();
 
   const [inputState, setInputState] = useState<patchUserInputStateType>(
@@ -107,7 +109,7 @@ export const GeneralPage = () => {
 
   const { mutate } = usePostAddApiKey({
     onSuccess: () => {
-      setSuccessData({ title: "API key saved successfully" });
+      setSuccessData({ title: t("apiSavedSuccess") });
       setHasApiKey(true);
       setValidApiKey(true);
       setLoadingApiKey(false);
@@ -115,7 +117,7 @@ export const GeneralPage = () => {
     },
     onError: (error) => {
       setErrorData({
-        title: "API key save error",
+        title: t("apiSaveError"),
         list: [(error as any)?.response?.data?.detail],
       });
       setHasApiKey(false);

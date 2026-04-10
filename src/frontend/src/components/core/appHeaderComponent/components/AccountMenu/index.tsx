@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { FaDiscord, FaGithub } from "react-icons/fa";
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
 import {
@@ -21,9 +22,11 @@ import {
   HeaderMenuItems,
   HeaderMenuToggle,
 } from "../HeaderMenu";
+import { LanguageSwitcher } from "../LanguageSwitcher";
 import ThemeButtons from "../ThemeButtons";
 
 export const AccountMenu = () => {
+  const { t } = useTranslation("header");
   const version = useDarkStore((state) => state.version);
   const latestVersion = useDarkStore((state) => state.latestVersion);
   const navigate = useCustomNavigate();
@@ -67,7 +70,7 @@ export const AccountMenu = () => {
                   id="menu_version_button"
                   className="text-sm"
                 >
-                  Version
+                  {t("version")}
                 </span>
                 <div
                   className={cn(
@@ -77,7 +80,7 @@ export const AccountMenu = () => {
                   )}
                 >
                   {version}{" "}
-                  {isLatestVersion ? "(latest)" : "(update available)"}
+                  {isLatestVersion ? t("latest") : t("updateAvailable")}
                 </div>
               </div>
             </div>
@@ -93,7 +96,7 @@ export const AccountMenu = () => {
                 data-testid="menu_settings_button"
                 id="menu_settings_button"
               >
-                Settings
+                {t("settings")}
               </span>
             </HeaderMenuItemButton>
 
@@ -108,7 +111,7 @@ export const AccountMenu = () => {
                     data-testid="menu_admin_page_button"
                     id="menu_admin_page_button"
                   >
-                    Admin Page
+                    {t("adminPage")}
                   </span>
                 </HeaderMenuItemButton>
               </div>
@@ -118,7 +121,7 @@ export const AccountMenu = () => {
               href={ENABLE_DATASTAX_LANGFLOW ? DATASTAX_DOCS_URL : DOCS_URL}
             >
               <span data-testid="menu_docs_button" id="menu_docs_button">
-                Docs
+                {t("docs")}
               </span>
             </HeaderMenuItemLink>
           </div>
@@ -167,10 +170,15 @@ export const AccountMenu = () => {
             </div>
           </div>
 
+          <div className="flex items-center justify-between px-4 py-[6.5px] text-sm">
+            <span className="">{t("language")}</span>
+            <LanguageSwitcher />
+          </div>
+
           {!autoLogin && (
             <div>
               <HeaderMenuItemButton onClick={handleLogout} icon="log-out">
-                Logout
+                {t("logout")}
               </HeaderMenuItemButton>
             </div>
           )}

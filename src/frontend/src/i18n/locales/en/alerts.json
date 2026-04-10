@@ -1,0 +1,19 @@
+{
+  "missedErrorAlert": "Oops! Looks like you missed something",
+  "bugAlert": "Something went wrong, please try again",
+  "flowBuildSuccessAlert": "Flow built successfully",
+  "signinErrorAlert": "There was an error signing in. Please try again.",
+  "invalidFileSizeAlert": "The file size is too large. Please select a file smaller than {{maxSizeMB}}MB.",
+  "uploadSuccessAlert": "Uploaded successfully",
+  "uploadErrorAlert": "Error uploading file",
+  "deleteSuccessAlert": "Deleted successfully",
+  "deleteErrorAlert": "Error deleting",
+  "saveSuccessAlert": "Saved successfully",
+  "saveErrorAlert": "Error saving",
+  "copySuccessAlert": "Copied to clipboard",
+  "shareSuccessAlert": "{{type}} shared successfully!",
+  "shareErrorAlert": "Error sharing {{type}}",
+  "variableCreatedAlert": "Variable {{name}} created successfully",
+  "variableUpdatedAlert": "Variable {{name}} updated successfully",
+  "variableErrorAlert": "Error {{action}} variable"
+}

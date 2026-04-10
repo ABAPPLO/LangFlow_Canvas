@@ -1,0 +1,12 @@
+{
+  "node": {
+    "updateAvailable": "Update available",
+    "updateReady": "Update ready",
+    "legacy": "Legacy",
+    "noReplacement": "No direct replacement."
+  },
+  "mediaPreview": {
+    "collapse": "Collapse",
+    "expandAll": "Expand all ({{count}})"
+  }
+}

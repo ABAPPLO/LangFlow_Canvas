@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/utils";
 
@@ -14,6 +15,7 @@ export default function NodeUpdateComponent({
   loadingUpdate: boolean;
   setDismissAll: (value: boolean) => void;
 }) {
+  const { t } = useTranslation("flow");
   return (
     <div
       className={cn(
@@ -27,7 +29,8 @@ export default function NodeUpdateComponent({
         )}
       />
       <div className="mb-px flex-1 truncate text-mmd font-medium">
-        {showNode && (hasBreakingChange ? "Update available" : "Update ready")}
+        {showNode &&
+          (hasBreakingChange ? t("updateAvailable") : t("updateReady"))}
       </div>
 
       <Button
@@ -38,10 +41,10 @@ export default function NodeUpdateComponent({
           e.stopPropagation();
           setDismissAll(true);
         }}
-        aria-label="Dismiss warning bar"
+        aria-label={t("dismissWarningBar")}
         data-testid="dismiss-warning-bar"
       >
-        Dismiss
+        {t("dismiss")}
       </Button>
       <Button
         size="sm"
@@ -53,7 +56,7 @@ export default function NodeUpdateComponent({
         loading={loadingUpdate}
         data-testid={hasBreakingChange ? "review-button" : "update-button"}
       >
-        {hasBreakingChange ? "Review" : "Update"}
+        {hasBreakingChange ? t("review") : t("update")}
       </Button>
     </div>
   );

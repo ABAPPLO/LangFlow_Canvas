@@ -1,0 +1,18 @@
+{
+  "title": "Settings",
+  "description": "Manage the general settings for Langflow.",
+  "general": "General",
+  "mcpServers": "MCP Servers",
+  "globalVariables": "Global Variables",
+  "modelProviders": "Model Providers",
+  "shortcuts": "Shortcuts",
+  "messages": "Messages",
+  "apiKeys": "API Keys",
+  "profile": "Profile",
+  "theme": "Theme",
+  "language": "Language",
+  "darkMode": "Dark Mode",
+  "lightMode": "Light Mode",
+  "apiSavedSuccess": "API key saved successfully",
+  "apiSaveError": "API key save error"
+}

@@ -1,0 +1,22 @@
+{
+  "title": "登录 Langflow",
+  "username": "用户名",
+  "password": "密码",
+  "usernamePlaceholder": "用户名",
+  "passwordPlaceholder": "密码",
+  "usernameRequired": "请输入用户名",
+  "passwordRequired": "请输入密码",
+  "signIn": "登录",
+  "noAccount": "还没有账号？",
+  "signUp": "注册",
+  "signUpTitle": "注册 Langflow",
+  "createAccount": "创建账号",
+  "alreadyHaveAccount": "已有账号？",
+  "signInLink": "登录",
+  "confirmPassword": "确认密码",
+  "passwordMismatch": "两次输入的密码不一致",
+  "passwordsDoNotMatch": "两次输入的密码不一致",
+  "pleaseEnterAPassword": "请输入密码",
+  "pleaseConfirmPassword": "请确认密码",
+  "signUpButton": "注册"
+}

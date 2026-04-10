@@ -1,9 +1,10 @@
 import { memo, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useFlowStore from "@/stores/flowStore";
 import type { NodeDataType } from "@/types/flow";
-import { extractMediaUrls } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
 import type { MediaUrl } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
+import { extractMediaUrls } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
 
 const COLLAPSE_THRESHOLD = 4;
 
@@ -53,6 +54,7 @@ function MediaGrid({ items }: { items: MediaUrl[] }) {
 function NodeMediaPreview({ data }: { data: NodeDataType }) {
   const flowPool = useFlowStore((state) => state.flowPool);
   const [expanded, setExpanded] = useState(false);
+  const { t } = useTranslation("components");
 
   const mediaUrls = useMemo(() => {
     const flowPoolNode = (flowPool[data.id] ?? [])[
@@ -79,7 +81,9 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
   if (mediaUrls.length === 0) return null;
 
   const needsCollapse = mediaUrls.length > COLLAPSE_THRESHOLD;
-  const visibleItems = expanded ? mediaUrls : mediaUrls.slice(0, COLLAPSE_THRESHOLD);
+  const visibleItems = expanded
+    ? mediaUrls
+    : mediaUrls.slice(0, COLLAPSE_THRESHOLD);
 
   return (
     <div className="border-t px-3 py-2">
@@ -90,8 +94,8 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
           className="mt-1.5 w-full rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           {expanded
-            ? `收起`
-            : `展开全部 (${mediaUrls.length})`}
+            ? t("mediaPreview.collapse")
+            : t("mediaPreview.expandAll", { count: mediaUrls.length })}
         </button>
       )}
     </div>

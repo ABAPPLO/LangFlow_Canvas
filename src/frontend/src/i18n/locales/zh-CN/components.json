@@ -1,0 +1,12 @@
+{
+  "node": {
+    "updateAvailable": "有更新可用",
+    "updateReady": "更新就绪",
+    "legacy": "旧版",
+    "noReplacement": "无直接替代。"
+  },
+  "mediaPreview": {
+    "collapse": "收起",
+    "expandAll": "展开全部 ({{count}})"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "title": "Sign in to Langflow",
+  "username": "Username",
+  "password": "Password",
+  "usernamePlaceholder": "Username",
+  "passwordPlaceholder": "Password",
+  "usernameRequired": "Please enter your username",
+  "passwordRequired": "Please enter your password",
+  "signIn": "Sign in",
+  "noAccount": "Don't have an account?",
+  "signUp": "Sign Up",
+  "signUpTitle": "Sign up for Langflow",
+  "createAccount": "Create an account",
+  "alreadyHaveAccount": "Already have an account?",
+  "signInLink": "Sign in",
+  "confirmPassword": "Confirm your password",
+  "passwordMismatch": "Passwords don't match",
+  "passwordsDoNotMatch": "Passwords do not match",
+  "pleaseEnterAPassword": "Please enter a password",
+  "pleaseConfirmPassword": "Please confirm your password",
+  "signUpButton": "Sign up"
+}

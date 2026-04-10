@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import useFlowStore from "@/stores/flowStore";
 import { cn } from "@/utils/utils";
@@ -22,6 +23,7 @@ export default function NodeLegacyComponent({
     setFilterEdge([]);
   };
 
+  const { t } = useTranslation("flow");
   const foundComponents = useGetReplacementComponents(replacement);
 
   return (
@@ -32,7 +34,9 @@ export default function NodeLegacyComponent({
     >
       <div className="flex items-center gap-3 w-full">
         <div className="h-2.5 w-2.5 rounded-full bg-warning" />
-        <div className="mb-px flex-1 truncate text-mmd font-medium">Legacy</div>
+        <div className="mb-px flex-1 truncate text-mmd font-medium">
+          {t("legacy")}
+        </div>
 
         <Button
           variant="ghost"
@@ -42,10 +46,10 @@ export default function NodeLegacyComponent({
             e.stopPropagation();
             setDismissAll(true);
           }}
-          aria-label="Dismiss warning bar"
+          aria-label={t("dismissWarningBar")}
           data-testid="dismiss-warning-bar"
         >
-          Dismiss
+          {t("dismiss")}
         </Button>
       </div>
       <div className="text-mmd text-muted-foreground w-full">
@@ -54,7 +58,7 @@ export default function NodeLegacyComponent({
         replacement.length > 0 &&
         foundComponents.some((component) => component) ? (
           <span className="block items-center">
-            Use{" "}
+            {t("use")}{" "}
             {foundComponents.map((component, index) => (
               <>
                 {component && (
@@ -75,7 +79,7 @@ export default function NodeLegacyComponent({
             .
           </span>
         ) : (
-          "No direct replacement."
+          t("noReplacement")
         )}
       </div>
     </div>

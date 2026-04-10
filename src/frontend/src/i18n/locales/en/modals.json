@@ -1,0 +1,24 @@
+{
+  "cancel": "Cancel",
+  "close": "Close",
+  "save": "Save",
+  "delete": "Delete",
+  "deleteConfirmation": {
+    "title": "Delete",
+    "description": "This will permanently delete the {{item}}.",
+    "cannotUndo": "This can't be undone.",
+    "flow": "flow"
+  },
+  "unsavedChanges": {
+    "title": "Unsaved Changes",
+    "message": "You have unsaved changes. Are you sure you want to leave?",
+    "discard": "Discard Changes"
+  },
+  "replace": {
+    "title": "Replace",
+    "message": "This will replace the existing content."
+  },
+  "checkAndSave": "Check & Save",
+  "caution": "Caution",
+  "discardChangesConfirm": "Are you sure you want to exit without saving your changes?"
+}

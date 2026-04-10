@@ -1,0 +1,19 @@
+{
+  "missedErrorAlert": "看起来您遗漏了一些内容",
+  "bugAlert": "出了点问题，请重试",
+  "flowBuildSuccessAlert": "流程构建成功",
+  "signinErrorAlert": "登录失败，请重试。",
+  "invalidFileSizeAlert": "文件大小超出限制，请选择小于 {{maxSizeMB}}MB 的文件。",
+  "uploadSuccessAlert": "上传成功",
+  "uploadErrorAlert": "上传文件失败",
+  "deleteSuccessAlert": "删除成功",
+  "deleteErrorAlert": "删除失败",
+  "saveSuccessAlert": "保存成功",
+  "saveErrorAlert": "保存失败",
+  "copySuccessAlert": "已复制到剪贴板",
+  "shareSuccessAlert": "{{type}}分享成功！",
+  "shareErrorAlert": "分享{{type}}失败",
+  "variableCreatedAlert": "变量 {{name}} 创建成功",
+  "variableUpdatedAlert": "变量 {{name}} 更新成功",
+  "variableErrorAlert": "{{action}}变量失败"
+}

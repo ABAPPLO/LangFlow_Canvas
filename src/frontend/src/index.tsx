@@ -1,4 +1,5 @@
 import ReactDOM from "react-dom/client";
+import "./i18n";
 import reportWebVitals from "./reportWebVitals";
 
 import "./style/classes.css";

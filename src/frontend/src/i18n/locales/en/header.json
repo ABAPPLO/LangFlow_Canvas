@@ -1,0 +1,24 @@
+{
+  "version": "Version",
+  "latest": "(latest)",
+  "updateAvailable": "(update available)",
+  "settings": "Settings",
+  "adminPage": "Admin Page",
+  "docs": "Docs",
+  "github": "GitHub",
+  "discord": "Discord",
+  "x": "X",
+  "theme": "Theme",
+  "language": "Language",
+  "logout": "Logout",
+  "notifications": "Notifications",
+  "notificationsAndErrors": "Notifications and errors",
+  "help": {
+    "docs": "Docs",
+    "shortcuts": "Shortcuts",
+    "reportBug": "Report a bug",
+    "getDesktop": "Get Langflow Desktop",
+    "enableSmartGuides": "Enable smart guides",
+    "showInspector": "Show Inspector Panel"
+  }
+}
