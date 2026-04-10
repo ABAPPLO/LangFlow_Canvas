@@ -27,6 +27,12 @@ const AUDIO_EXTENSIONS = [
   ".wma",
 ];
 
+const ALL_MEDIA_EXTENSIONS = [
+  ...IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
+  ...AUDIO_EXTENSIONS,
+];
+
 /**
  * Determine the media type of a URL based on its extension or data URI prefix.
  */
@@ -58,8 +64,23 @@ export function getMediaType(url: string): MediaType | null {
 }
 
 /**
+ * Check if a URL looks like a local file path (absolute Unix/Windows path).
+ */
+function isLocalFilePath(url: string): boolean {
+  return url.startsWith("/") || /^[A-Za-z]:\\/.test(url);
+}
+
+/**
+ * Rewrite a local file path to use the backend proxy endpoint.
+ */
+function rewriteLocalPath(url: string): string {
+  return `/api/v1/files/local${url}`;
+}
+
+/**
  * Extract media URLs from component output data.
  * Handles strings (including newline-separated), arrays, and dicts with common URL fields.
+ * Local file paths are rewritten to use the backend proxy endpoint.
  */
 export function extractMediaUrls(value: unknown): MediaUrl[] {
   if (value == null) return [];
@@ -74,7 +95,10 @@ export function extractMediaUrls(value: unknown): MediaUrl[] {
     for (const url of urls) {
       const mediaType = getMediaType(url);
       if (mediaType) {
-        result.push({ url, type: mediaType });
+        result.push({
+          url: isLocalFilePath(url) ? rewriteLocalPath(url) : url,
+          type: mediaType,
+        });
       }
     }
     return result;
@@ -101,9 +125,13 @@ export function extractMediaUrls(value: unknown): MediaUrl[] {
     const result: MediaUrl[] = [];
     for (const key of urlKeys) {
       if (typeof dict[key] === "string") {
-        const mediaType = getMediaType(dict[key] as string);
+        const rawUrl = dict[key] as string;
+        const mediaType = getMediaType(rawUrl);
         if (mediaType) {
-          result.push({ url: dict[key] as string, type: mediaType });
+          result.push({
+            url: isLocalFilePath(rawUrl) ? rewriteLocalPath(rawUrl) : rawUrl,
+            type: mediaType,
+          });
         }
       }
     }

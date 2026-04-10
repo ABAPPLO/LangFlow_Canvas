@@ -303,6 +303,53 @@ async def list_profile_pictures(
     return {"files": results}
 
 
+@router.get("/local/{file_path:path}")
+async def serve_local_file(file_path: str):
+    """Serve a local media file for browser rendering (used by Media Preview).
+
+    Only serves files with recognized media extensions (image/video/audio).
+    Validates path to prevent traversal attacks.
+    """
+    import re
+
+    if not file_path:
+        raise HTTPException(status_code=400, detail="File path is required")
+
+    # Reject path traversal
+    if ".." in file_path.split("/"):
+        raise HTTPException(status_code=400, detail="Path traversal is not allowed")
+
+    resolved = Path(file_path).resolve()
+
+    # Must be an absolute path
+    if not str(resolved).startswith("/"):
+        raise HTTPException(status_code=400, detail="Only absolute paths are allowed")
+
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    extension = resolved.suffix.lower()
+    if not extension:
+        raise HTTPException(status_code=400, detail="File has no extension")
+
+    try:
+        content_type = build_content_type_from_extension(extension.lstrip("."))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if not content_type or not content_type.startswith(("image", "video", "audio")):
+        raise HTTPException(status_code=400, detail=f"Unsupported media type: {extension}")
+
+    try:
+        file_content = await anyio.Path(resolved).read_bytes()
+        return StreamingResponse(BytesIO(file_content), media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/list/{flow_id}")
 async def list_files(
     flow: Annotated[Flow, Depends(get_flow)],
