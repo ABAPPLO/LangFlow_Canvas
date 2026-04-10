@@ -210,7 +210,7 @@ jobs:
           ref: ${{ inputs.ref || inputs.main_version || github.ref }}
           persist-credentials: true
       - name: "Setup Environment"
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -389,7 +389,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || inputs.main_version || github.ref }}
       - name: "Setup Environment"
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"

@@ -61,7 +61,7 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -155,7 +155,7 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -248,7 +248,7 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -329,7 +329,7 @@ jobs:
     if: ${{ always() && inputs.push_to_registry && (needs.build-nightly-base.result == 'success' || needs.build-nightly-main.result == 'success' || needs.build-nightly-main-all.result == 'success') }}
     steps:
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
