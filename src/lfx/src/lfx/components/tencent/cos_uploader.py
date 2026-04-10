@@ -69,21 +69,21 @@ class COSUploaderComponent(Component):
             raise ImportError(msg) from e
 
         config = CosConfig(
-            Region=self.region,
-            SecretId=self.secret_id,
-            SecretKey=self.secret_key,
+            Region=self.region.strip(),
+            SecretId=self.secret_id.strip(),
+            SecretKey=self.secret_key.strip(),
         )
         return CosS3Client(config)
 
     def _build_key(self, file_path: str) -> str:
         filename = Path(file_path).name
-        prefix = self.cos_prefix or ""
+        prefix = (self.cos_prefix or "").strip()
         if prefix and not prefix.endswith("/"):
             prefix += "/"
         return f"{prefix}{filename}"
 
     def _build_url(self, key: str) -> str:
-        return f"https://{self.bucket_name}.cos.{self.region}.myqcloud.com/{key}"
+        return f"https://{self.bucket_name.strip()}.cos.{self.region.strip()}.myqcloud.com/{key}"
 
     def upload_files(self) -> str:
         if not self.file_paths:
@@ -101,7 +101,7 @@ class COSUploaderComponent(Component):
 
             key = self._build_key(fp)
             client.upload_file(
-                Bucket=self.bucket_name,
+                Bucket=self.bucket_name.strip(),
                 Key=key,
                 LocalFilePath=str(p),
                 ACL=self.acl,
