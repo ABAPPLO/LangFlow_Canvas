@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Langflow is a visual workflow builder for AI-powered agents. It has a Python/FastAPI backend, React/TypeScript frontend, and a lightweight executor CLI (lfx).
+Langflow is a visual workflow builder for AI-powered agents. It has a Python/FastAPI backend, React/TypeScript frontend, and a lightweight executor CLI (lfx). This is a customized fork with additional features including i18n (Chinese/English), media preview components, and Tencent Cloud COS integration.
 
 ## Prerequisites
 
@@ -59,6 +59,14 @@ make tests_frontend                # Playwright e2e tests
 make alembic-revision message="Description"  # Create migration
 make alembic-upgrade                         # Apply migrations
 make alembic-downgrade                       # Rollback one version
+make alembic-current                         # Show current revision
+make alembic-check                           # Check migration status
+```
+
+### Component Index
+```bash
+make build_component_index        # Rebuild component index after component changes
+uv run python scripts/build_component_index.py  # Or run directly
 ```
 
 ## Architecture
@@ -79,13 +87,15 @@ src/
 │       ├── components/    # UI components
 │       ├── stores/        # Zustand state management
 │       └── icons/         # Component icons
-└── lfx/                   # Lightweight executor CLI
+├── lfx/                   # Lightweight executor CLI
+└── sdk/                   # SDK package
 ```
 
 ### Key Packages
 - **langflow**: Main package with all integrations
 - **langflow-base**: Core framework (api, services, graph engine)
 - **lfx**: Standalone CLI for running flows (`lfx serve`, `lfx run`)
+- **sdk**: SDK package for programmatic access
 
 ### Service Layer
 Backend services in `src/backend/base/langflow/services/`:
@@ -103,6 +113,7 @@ Components live in `src/backend/base/langflow/components/`. To add a new compone
 2. Define `display_name`, `description`, `icon`, `inputs`, `outputs`
 3. Add to `__init__.py` (alphabetical order)
 4. Run with `LFX_DEV=1 make backend` for hot reload
+5. After finalizing, rebuild the component index: `make build_component_index`
 
 **CRITICAL: Never rename a component's class name.** The class name serves as an identifier used to match components in saved flows and to flag them for updates in the UI. Renaming it will break existing flows that use that component.
 
@@ -155,6 +166,7 @@ Required fixtures: `component_class`, `default_kwargs`, `file_names_mapping`
 - Database tests may fail in batch but pass individually
 - Pre-commit hooks require `uv run git commit`
 - Always use `uv run` when running Python commands
+- Use `MockLanguageModel` from `tests.unit.mock_language_model` for testing without external APIs
 
 ### Graph Testing Pattern
 
@@ -194,7 +206,13 @@ This updates: `pyproject.toml`, `src/backend/base/pyproject.toml`, `src/frontend
 
 Documentation uses Docusaurus and lives in `docs/`:
 ```bash
-cd docs
-yarn install
-yarn start        # Dev server on port 3000 (prompts for 3001 if 3000 is in use)
+make docs              # Start docs dev server (port 3030)
+make docs_build        # Build for production
+```
+
+## Storybook
+
+```bash
+make storybook         # Run Storybook dev server (port 6006)
+make storybook_build   # Build static Storybook
 ```

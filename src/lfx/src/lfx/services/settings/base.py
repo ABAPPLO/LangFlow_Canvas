@@ -191,13 +191,29 @@ class Settings(BaseSettings):
     like_webhook_url: str | None = "https://api.langflow.store/flows/trigger/64275852-ec00-45c1-984e-3bff814732da"
 
     storage_type: str = "local"
-    """Storage type for file storage. Defaults to 'local'. Supports 'local' and 's3'."""
+    """Storage type for file storage. Defaults to 'local'. Supports 'local', 's3', 'cos', and 'oss'."""
     object_storage_bucket_name: str | None = "langflow-bucket"
     """Object storage bucket name for file storage. Defaults to 'langflow-bucket'."""
     object_storage_prefix: str | None = "files"
     """Object storage prefix for file storage. Defaults to 'files'."""
     object_storage_tags: dict[str, str] | None = None
     """Object storage tags for file storage."""
+
+    # Tencent Cloud COS credentials
+    cos_region: str | None = None
+    """COS region, e.g., ap-guangzhou, ap-beijing."""
+    cos_secret_id: str | None = None
+    """Tencent Cloud API SecretId."""
+    cos_secret_key: str | None = None
+    """Tencent Cloud API SecretKey."""
+
+    # Alibaba Cloud OSS credentials
+    oss_endpoint: str | None = None
+    """OSS endpoint, e.g., https://oss-cn-hangzhou.aliyuncs.com."""
+    oss_access_key_id: str | None = None
+    """Alibaba Cloud AccessKey ID."""
+    oss_access_key_secret: str | None = None
+    """Alibaba Cloud AccessKey Secret."""
 
     celery_enabled: bool = False
 
