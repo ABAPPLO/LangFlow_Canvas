@@ -310,10 +310,12 @@ async def serve_local_file(file_path: str):
     Only serves files with recognized media extensions (image/video/audio).
     Validates path to prevent traversal attacks.
     """
-    import re
-
     if not file_path:
         raise HTTPException(status_code=400, detail="File path is required")
+
+    # Ensure absolute path - browser normalizes // to / stripping the leading slash
+    if not file_path.startswith("/"):
+        file_path = "/" + file_path
 
     # Reject path traversal
     if ".." in file_path.split("/"):

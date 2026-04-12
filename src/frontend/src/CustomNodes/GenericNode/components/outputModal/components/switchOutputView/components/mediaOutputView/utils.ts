@@ -140,3 +140,15 @@ export function extractMediaUrls(value: unknown): MediaUrl[] {
 
   return [];
 }
+
+/**
+ * Deduplicate media URLs by their final (rewritten) URL string.
+ */
+export function dedupeMediaUrls(urls: MediaUrl[]): MediaUrl[] {
+  const seen = new Set<string>();
+  return urls.filter((item) => {
+    if (seen.has(item.url)) return false;
+    seen.add(item.url);
+    return true;
+  });
+}

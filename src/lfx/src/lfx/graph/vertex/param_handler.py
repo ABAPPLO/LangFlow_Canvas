@@ -211,8 +211,35 @@ class ParameterHandler:
 
         # Store the table data as-is for now
         # The actual column processing will happen in the loading phase
-        if isinstance(val, list) and all(isinstance(item, dict) for item in val):
-            params[field_name] = val
+        if isinstance(val, list):
+            if all(isinstance(item, dict) for item in val):
+                params[field_name] = val
+            elif all(hasattr(item, "data") and isinstance(item.data, dict) for item in val):
+                params[field_name] = [item.data for item in val]
+            else:
+                msg = f"Invalid value type {type(val)} for table field {field_name}"
+                raise ValueError(msg)
+        elif isinstance(val, pd.DataFrame):
+            params[field_name] = val.to_dict(orient="records")
+        elif isinstance(val, dict):
+            params[field_name] = [val]
+        elif hasattr(val, "data") and isinstance(val.data, dict):
+            params[field_name] = [val.data]
+        elif isinstance(val, str):
+            import json
+
+            try:
+                parsed = json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                msg = f"Invalid value type {type(val)} for table field {field_name}"
+                raise ValueError(msg) from None
+            if isinstance(parsed, dict):
+                params[field_name] = [parsed]
+            elif isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
+                params[field_name] = parsed
+            else:
+                msg = f"Invalid value type {type(val)} for table field {field_name}"
+                raise ValueError(msg)
         else:
             msg = f"Invalid value type {type(val)} for table field {field_name}"
             raise ValueError(msg)

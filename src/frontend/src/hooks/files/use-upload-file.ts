@@ -44,7 +44,7 @@ const useUploadFile = ({
 
       // Filter files by supported types when using folder selection
       let validFiles = filesToUpload;
-      if (webkitdirectory && types) {
+      if (webkitdirectory && types?.length > 0) {
         validFiles = filesToUpload.filter((file) => {
           const fileExtension = file.name.split(".").pop()?.toLowerCase();
           return fileExtension && types.includes(fileExtension);
@@ -62,7 +62,7 @@ const useUploadFile = ({
         // Check if file extension is allowed (for non-folder selection)
         if (!webkitdirectory) {
           const fileExtension = file.name.split(".").pop()?.toLowerCase();
-          if (!fileExtension || (types && !types.includes(fileExtension))) {
+          if (!fileExtension || (types?.length && !types.includes(fileExtension))) {
             throw new Error(
               `File type ${fileExtension} not allowed. Allowed types: ${types?.join(", ")}`,
             );

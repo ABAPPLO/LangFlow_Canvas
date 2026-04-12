@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from lfx.components.files_and_knowledge.file import FileComponent
     from lfx.components.files_and_knowledge.retrieval import KnowledgeBaseComponent
     from lfx.components.files_and_knowledge.save_file import SaveToFileComponent
+    from lfx.components.files_and_knowledge.upload_file import UploadFileComponent
 
 
 _dynamic_imports = {
@@ -16,6 +17,7 @@ _dynamic_imports = {
     "FileComponent": "file",
     "KnowledgeBaseComponent": "retrieval",
     "SaveToFileComponent": "save_file",
+    "UploadFileComponent": "upload_file",
 }
 
 __all__ = [
@@ -23,6 +25,7 @@ __all__ = [
     "FileComponent",
     "KnowledgeBaseComponent",
     "SaveToFileComponent",
+    "UploadFileComponent",
 ]
 
 

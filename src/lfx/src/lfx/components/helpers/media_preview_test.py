@@ -12,7 +12,9 @@ class MediaPreviewTestComponent(Component):
         TableInput(
             name="media_list",
             display_name="Media List",
-            info="List of media items to preview. Each row should have a 'url' field. The 'type' field (image/video/audio) is auto-detected from the URL extension but can be overridden.",
+            info="List of media items to preview. Each item should have a 'url' field. "
+            "The 'type' field (image/video/audio) is auto-detected from the URL extension.",
+            input_types=["DataFrame", "Table", "Data"],
         ),
     ]
     outputs = [
@@ -31,4 +33,9 @@ class MediaPreviewTestComponent(Component):
                     result.append({"url": str(url), **{k: v for k, v in item.items() if k != "url"}})
             elif isinstance(item, str) and item.strip():
                 result.append({"url": item.strip()})
+            elif hasattr(item, "data") and isinstance(item.data, dict):
+                d = item.data
+                url = d.get("url") or d.get("media_url") or d.get("src") or d.get("path") or ""
+                if url:
+                    result.append({"url": str(url), **{k: v for k, v in d.items() if k != "url"}})
         return result

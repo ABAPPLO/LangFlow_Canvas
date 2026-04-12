@@ -4,7 +4,7 @@ import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useFlowStore from "@/stores/flowStore";
 import type { NodeDataType } from "@/types/flow";
 import type { MediaUrl } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
-import { extractMediaUrls } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
+import { extractMediaUrls, dedupeMediaUrls } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
 
 const COLLAPSE_THRESHOLD = 4;
 
@@ -75,7 +75,7 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
       }
     }
 
-    return extractMediaUrls(allMessages);
+    return dedupeMediaUrls(extractMediaUrls(allMessages));
   }, [flowPool, data.id]);
 
   if (mediaUrls.length === 0) return null;
