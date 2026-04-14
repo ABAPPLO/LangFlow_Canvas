@@ -8,7 +8,7 @@ Langflow is a visual workflow builder for AI-powered agents. It has a Python/Fas
 
 ## Prerequisites
 
-- **Python:** 3.10-3.13
+- **Python:** 3.10–3.13
 - **uv:** >=0.4 (Python package manager)
 - **Node.js:** >=20.19.0 (v22.12 LTS recommended)
 - **npm:** v10.9+
@@ -38,7 +38,7 @@ LFX_DEV=mistral,openai make backend       # Load only specific modules
 ### Code Quality
 ```bash
 make format_backend    # Format Python (ruff) - run FIRST before lint
-make format_frontend   # Format TypeScript (biome)
+make format_frontend   # Format TypeScript/JS (biome)
 make format            # Both
 make lint              # mypy type checking
 ```
@@ -79,7 +79,7 @@ src/
 │   │   ├── api/           # FastAPI routes (v1/, v2/)
 │   │   ├── components/    # Built-in Langflow components
 │   │   ├── services/      # Service layer (auth, database, cache, etc.)
-│   │   ├── graph/         # Flow graph execution engine
+│   │   ├── graph/         # Re-exports from lfx (Graph, Vertex, Edge)
 │   │   └── custom/        # Custom component framework
 │   └── tests/             # Backend tests
 ├── frontend/              # React/TypeScript UI
@@ -87,14 +87,14 @@ src/
 │       ├── components/    # UI components
 │       ├── stores/        # Zustand state management
 │       └── icons/         # Component icons
-├── lfx/                   # Lightweight executor CLI
+├── lfx/                   # Lightweight executor CLI (owns Graph/Vertex/Edge)
 └── sdk/                   # SDK package
 ```
 
 ### Key Packages
 - **langflow**: Main package with all integrations
-- **langflow-base**: Core framework (api, services, graph engine)
-- **lfx**: Standalone CLI for running flows (`lfx serve`, `lfx run`)
+- **langflow-base**: Core framework (api, services, graph re-exports from lfx)
+- **lfx**: Standalone CLI for running flows (`lfx serve`, `lfx run`); owns the graph execution engine
 - **sdk**: SDK package for programmatic access
 
 ### Service Layer
@@ -140,11 +140,18 @@ class MyComponent(Component):
 ```
 
 ### Component Testing
-Tests go in `src/backend/tests/unit/components/`. Use base classes:
-- `ComponentTestBaseWithClient` - Components needing API access
-- `ComponentTestBaseWithoutClient` - Pure logic components
+Tests go in `src/backend/tests/unit/components/`. Use base classes from `src/backend/tests/base.py`:
 
-Required fixtures: `component_class`, `default_kwargs`, `file_names_mapping`
+| Base Class | Creates `client`? | Use Case |
+|------------|-------------------|----------|
+| `ComponentTestBaseWithClient` | Yes | Components needing API access during `run()` |
+| `ComponentTestBaseWithoutClient` | No | Pure-logic components with no API calls |
+
+Required fixtures: `component_class`, `default_kwargs`, `file_names_mapping` (list of `VersionComponentMapping` dicts for backward compat testing).
+
+The base classes auto-provide tests: `test_latest_version`, `test_all_versions_have_a_file_name_defined`, and parametrized `test_component_versions`.
+
+For testing without external APIs, use `MockLanguageModel` from `tests.unit.mock_language_model`.
 
 ## Frontend Development
 
@@ -152,34 +159,44 @@ Required fixtures: `component_class`, `default_kwargs`, `file_names_mapping`
 - **Zustand** for state management
 - **@xyflow/react** for graph visualization
 - **Tailwind CSS** for styling
+- **Biome** for formatting (not ESLint)
 
 ### Custom Icons
 1. Create SVG component in `src/frontend/src/icons/YourIcon/`
-2. Export with `forwardRef` and `isDark` prop support
-3. Add to `lazyIconImports.ts`
+2. Export with `forwardRef` and `isDark` prop for light/dark mode
+3. Add to `lazyIconImports.ts` — key must match backend `icon` string exactly
 4. Set `icon = "YourIcon"` in Python component
+
+If no custom icon exists, use a [Lucide icon](https://lucide.dev/icons) name.
 
 ## Testing Notes
 
-- `@pytest.mark.api_key_required` - Tests requiring external API keys
-- `@pytest.mark.no_blockbuster` - Skip blockbuster plugin
+- `@pytest.mark.api_key_required` — tests requiring external API keys
+- `@pytest.mark.no_blockbuster` — skip blockbuster plugin
+- `@pytest.mark.noclient` — skip client fixture creation
 - Database tests may fail in batch but pass individually
 - Pre-commit hooks require `uv run git commit`
 - Always use `uv run` when running Python commands
-- Use `MockLanguageModel` from `tests.unit.mock_language_model` for testing without external APIs
 
 ### Graph Testing Pattern
+```python
+from tests.unit.build_utils import create_flow, build_flow, get_build_events, consume_and_assert_stream
 
-Proper Graph tests follow this pattern:
-1. Build graph with connected components
-2. Connect them via `.set()` calls
-3. Call `async_start` and iterate over the results
-4. Validate the results
+# 1. Create flow from JSON, 2. Build it, 3. Consume event stream, 4. Validate
+flow_id = await create_flow(client, json_flow, logged_in_headers)
+build_response = await build_flow(client, flow_id, logged_in_headers)
+events = await get_build_events(client, job_id, logged_in_headers)
+await consume_and_assert_stream(events, job_id)
+```
 
-### Testing Best Practices
-
-- Avoid mocking in tests when possible
-- Prefer real integrations for more reliable tests
+### API Testing Pattern
+```python
+# client fixture provides async httpx.AsyncClient with in-memory SQLite
+# logged_in_headers fixture provides authenticated headers
+async def test_endpoint(client, logged_in_headers):
+    response = await client.post("api/v1/flows/", json=data, headers=logged_in_headers)
+    assert response.status_code == 201
+```
 
 ## Version Management
 ```bash
