@@ -40,6 +40,23 @@ def _to_str(value: Any) -> str | None:
     return str(value) or None
 
 
+def _ensure_openai_base_url(base_url: str) -> str:
+    """Ensure base_url includes /v1 suffix for OpenAI-compatible providers.
+
+    The OpenAI SDK default base_url is https://api.openai.com/v1/ (includes /v1).
+    When users provide a gateway URL like http://host:port, we need to append /v1
+    so the SDK constructs correct API paths (e.g., /v1/chat/completions).
+    """
+    if not base_url:
+        return base_url
+    url = base_url.rstrip("/")
+    # Already has /v1 suffix (or /v1/something) — keep as-is
+    if url.endswith("/v1") or "/v1/" in base_url:
+        return base_url if base_url.endswith("/") else base_url + "/"
+    # Append /v1/ for bare host:port URLs
+    return url + "/v1/"
+
+
 def get_model_name(llm, display_name: str | None = "Custom"):
     attributes_to_check = ["model_name", "model", "model_id", "deployment_name"]
 

@@ -302,6 +302,15 @@ class LCModelComponent(Component):
                 self.status = result
             else:
                 self.status = result
+        except AttributeError as e:
+            if "model_dump" in str(e):
+                msg = (
+                    f"The model provider returned an invalid response (expected a ChatCompletion object, got a string). "
+                    f"This usually means the API endpoint is unreachable, the API key is invalid, or the base URL is incorrect. "
+                    f"Please check your model provider configuration. Original error: {e}"
+                )
+                raise ValueError(msg) from e
+            raise
         except Exception as e:
             if message := self._get_exception_message(e):
                 raise ValueError(message) from e

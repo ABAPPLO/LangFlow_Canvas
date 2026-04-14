@@ -22,7 +22,7 @@ from lfx.base.models.model_metadata import (
     MODEL_PROVIDER_METADATA,
     get_provider_param_mapping,
 )
-from lfx.base.models.model_utils import _to_str, replace_with_live_models
+from lfx.base.models.model_utils import _ensure_openai_base_url, _to_str, replace_with_live_models
 from lfx.base.models.ollama_constants import (
     OLLAMA_EMBEDDING_MODELS_DETAILED,
     OLLAMA_MODELS_DETAILED,
@@ -1671,6 +1671,12 @@ def get_llm(
                 _to_str(component_values.get(mapping_field)) or provider_vars.get(var_key) or os.environ.get(var_key)
             )
             if value:
+                # For OpenAI-compatible providers using base_url, ensure /v1 suffix
+                # The OpenAI SDK expects base_url to include /v1 (e.g., https://api.openai.com/v1/)
+                # If the user provides http://host:port (without /v1), the SDK would construct
+                # wrong URLs like /chat/completions instead of /v1/chat/completions
+                if lc_param == "base_url" and model_class_name == "ChatOpenAI":
+                    value = _ensure_openai_base_url(value)
                 kwargs[lc_param] = value
 
     # WatsonX-specific validation: URL and project_id must both be present if either is
