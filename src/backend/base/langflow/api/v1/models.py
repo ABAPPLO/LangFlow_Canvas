@@ -4,6 +4,7 @@ import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from lfx.base.models.model_metadata import MODEL_PROVIDER_METADATA
 from lfx.base.models.model_utils import replace_with_live_models
 from lfx.base.models.unified_models import (
     get_model_provider_metadata,
@@ -214,6 +215,18 @@ async def list_models(
         model_type=model_type,
         **metadata_filters,
     )
+
+    # Include providers from metadata that have no static model entries
+    # (e.g., NewAPI which relies entirely on live model fetching)
+    existing_providers = {pd.get("provider") for pd in filtered_models}
+    for provider_name, meta in MODEL_PROVIDER_METADATA.items():
+        if provider_name not in existing_providers:
+            filtered_models.append({
+                "provider": provider_name,
+                "models": [],
+                "num_models": 0,
+                **meta,
+            })
 
     # Add configured and enabled status to each provider
     for provider_dict in filtered_models:

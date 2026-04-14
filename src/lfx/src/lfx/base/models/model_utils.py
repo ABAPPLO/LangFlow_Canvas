@@ -187,6 +187,74 @@ async def get_ollama_embedding_models(base_url: str) -> list[str]:
 
 
 # ============================================================================
+# NewAPI Model Fetching Functions
+# ============================================================================
+
+
+def get_newapi_models(base_url: str, api_key: str) -> list[str]:
+    """Fetch available models from NewAPI gateway via GET /v1/models.
+
+    Args:
+        base_url: The base URL of the NewAPI gateway (e.g., "https://api.example.com").
+        api_key: The API key for authentication.
+
+    Returns:
+        A sorted list of model IDs available on the gateway.
+
+    Raises:
+        ValueError: If there is an issue with the API request or response.
+    """
+    try:
+        base_url = base_url.rstrip("/")
+        url = f"{base_url}/v1/models"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        models = [m["id"] for m in data.get("data", []) if m.get("id")]
+        return sorted(models)
+    except requests.RequestException as e:
+        msg = f"Could not get models from NewAPI gateway at {base_url}."
+        logger.exception(msg)
+        raise ValueError(msg) from e
+
+
+def fetch_live_newapi_models(user_id: UUID | str | None, model_type: str = "llm") -> list[dict]:
+    """Fetch live NewAPI models from the configured gateway.
+
+    Args:
+        user_id: The user ID to look up the NewAPI credentials
+        model_type: "llm" or "embeddings"
+
+    Returns:
+        List of model metadata dicts, or empty list if unable to fetch
+    """
+    base_url = get_provider_variable_value(user_id, "NEWAPI_BASE_URL")
+    api_key = get_provider_variable_value(user_id, "NEWAPI_API_KEY")
+    if not base_url or not api_key:
+        return []
+
+    try:
+        model_names = get_newapi_models(base_url, api_key)
+
+        # Convert to model metadata format
+        return [
+            create_model_metadata(
+                provider="NewAPI",
+                name=name,
+                icon="Globe",
+                model_type=model_type if model_type == "llm" else "embeddings",
+                tool_calling=model_type == "llm",
+                default=i < MIN_DEFAULT_MODELS,
+            )
+            for i, name in enumerate(model_names)
+        ]
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not fetch live NewAPI %s models from %s", model_type, base_url)
+        return []
+
+
+# ============================================================================
 # WatsonX Model Fetching Functions
 # ============================================================================
 
@@ -381,6 +449,8 @@ def get_live_models_for_provider(
         return fetch_live_ollama_models(user_id, model_type)
     if provider == "IBM WatsonX":
         return fetch_live_watsonx_models(user_id, model_type)
+    if provider == "NewAPI":
+        return fetch_live_newapi_models(user_id, model_type)
     return []
 
 

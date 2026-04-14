@@ -47,7 +47,7 @@ def create_model_metadata(
     )
 
 
-LIVE_MODEL_PROVIDERS: list[str] = ["Ollama", "IBM WatsonX"]
+LIVE_MODEL_PROVIDERS: list[str] = ["Ollama", "IBM WatsonX", "NewAPI"]
 
 # Provider metadata configuration
 # Defines the variables (credentials, URLs, etc.) required for each model provider
@@ -280,6 +280,47 @@ MODEL_PROVIDER_METADATA: dict[str, Any] = {
         "mapping": {
             "model_class": "ChatWatsonx",
             "model_param": "model_id",
+        },
+    },
+    "NewAPI": {
+        "icon": "Globe",
+        "max_tokens_field_name": "max_tokens",
+        "variables": [
+            {
+                "variable_name": "NewAPI API Key",
+                "variable_key": "NEWAPI_API_KEY",
+                "required": True,
+                "is_secret": True,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "api_key",
+                "component_metadata": {
+                    "mapping_field": "api_key",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to NEWAPI_API_KEY environment variable",
+                },
+            },
+            {
+                "variable_name": "NewAPI Base URL",
+                "variable_key": "NEWAPI_BASE_URL",
+                "required": True,
+                "is_secret": False,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "base_url",
+                "component_metadata": {
+                    "mapping_field": "newapi_base_url",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to NEWAPI_BASE_URL environment variable",
+                },
+            },
+        ],
+        "api_docs_url": "https://docs.newapi.pro",
+        "mapping": {
+            "model_class": "ChatOpenAI",
+            "model_param": "model",
         },
     },
 }

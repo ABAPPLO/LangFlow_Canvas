@@ -71,6 +71,7 @@ EMBEDDING_PROVIDER_CLASS_MAPPING: dict[str, str] = {
     "Ollama": "OllamaEmbeddings",
     "IBM WatsonX": "WatsonxEmbeddings",
     "IBM watsonx.ai": "WatsonxEmbeddings",  # Alias used by MODEL_PROVIDERS_DICT
+    "NewAPI": "OpenAIEmbeddings",
 }
 
 _model_class_cache: dict[str, type] = {}
@@ -830,6 +831,15 @@ def validate_model_provider_key(provider: str, variables: dict[str, str], model_
                 logger.error(msg)
                 raise ValueError(msg)
 
+        elif provider == "NewAPI":
+            from lfx.base.models.model_utils import get_newapi_models
+
+            base_url = variables.get("NEWAPI_BASE_URL")
+            api_key = variables.get("NEWAPI_API_KEY")
+            if not base_url or not api_key:
+                return
+            get_newapi_models(base_url, api_key)
+
             if model_name:
                 available_models = [m.get("name") for m in data["models"]]
                 # Exact match or match with :latest
@@ -1353,6 +1363,17 @@ def get_embedding_model_options(
             "space_id": "space_id",
             "request_timeout": "request_timeout",
         },
+        "NewAPI": {
+            "model": "model",
+            "api_key": "api_key",
+            "api_base": "base_url",
+            "dimensions": "dimensions",
+            "chunk_size": "chunk_size",
+            "request_timeout": "timeout",
+            "max_retries": "max_retries",
+            "show_progress_bar": "show_progress_bar",
+            "model_kwargs": "model_kwargs",
+        },
     }
 
     # Track which providers have models
@@ -1534,6 +1555,7 @@ def get_llm(
     openai_base_url=None,
     anthropic_base_url=None,
     google_base_url=None,
+    newapi_base_url=None,
 ) -> Any:
     # Coerce provider-specific string params (Message/Data may leak through StrInput)
     ollama_base_url = _to_str(ollama_base_url)
@@ -1542,6 +1564,7 @@ def get_llm(
     openai_base_url = _to_str(openai_base_url)
     anthropic_base_url = _to_str(anthropic_base_url)
     google_base_url = _to_str(google_base_url)
+    newapi_base_url = _to_str(newapi_base_url)
 
     # Check if model is already a BaseLanguageModel instance (from a connection)
     try:
@@ -1634,6 +1657,7 @@ def get_llm(
         "openai_base_url": openai_base_url,
         "anthropic_base_url": anthropic_base_url,
         "google_base_url": google_base_url,
+        "newapi_base_url": newapi_base_url,
     }
     provider_vars = get_all_variables_for_provider(user_id, provider)
 

@@ -84,6 +84,13 @@ class LanguageModelComponent(LCModelComponent):
             show=False,
             real_time_refresh=True,
         ),
+        StrInput(
+            name="newapi_base_url",
+            display_name="NewAPI Base URL",
+            info="Base URL of your NewAPI gateway (NewAPI only)",
+            show=False,
+            real_time_refresh=True,
+        ),
         MessageInput(
             name="input_value",
             display_name="Input",
@@ -133,6 +140,7 @@ class LanguageModelComponent(LCModelComponent):
             openai_base_url=getattr(self, "openai_base_url", None),
             anthropic_base_url=getattr(self, "anthropic_base_url", None),
             google_base_url=getattr(self, "google_base_url", None),
+            newapi_base_url=getattr(self, "newapi_base_url", None),
         )
 
     def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):
