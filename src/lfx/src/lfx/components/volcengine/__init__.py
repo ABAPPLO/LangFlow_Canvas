@@ -6,12 +6,14 @@ from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
     from .seedance import SeedanceVideoComponent
+    from .seedream import SeedreamImageComponent
 
 _dynamic_imports = {
     "SeedanceVideoComponent": "seedance",
+    "SeedreamImageComponent": "seedream",
 }
 
-__all__ = ["SeedanceVideoComponent"]
+__all__ = ["SeedanceVideoComponent", "SeedreamImageComponent"]
 
 
 def __getattr__(attr_name: str) -> Any:
