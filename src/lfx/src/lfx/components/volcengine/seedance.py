@@ -15,7 +15,7 @@ from lfx.io import Output
 from lfx.schema.data import Data
 from lfx.schema.message import Message
 
-BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/contents/generations"
+BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks"
 
 MODE_TEXT = "Text to Video"
 MODE_FIRST_FRAME = "First Frame"
@@ -64,15 +64,18 @@ class SeedanceVideoComponent(Component):
             info="Volcengine API Key.",
             required=True,
         ),
-        DropdownInput(
+        MessageTextInput(
+            name="base_url",
+            display_name="Base URL",
+            info="API base URL. Leave empty to use the default Volcengine endpoint.",
+            value=BASE_URL,
+            advanced=True,
+        ),
+        MessageTextInput(
             name="model",
             display_name="Model",
-            info="Seedance model version.",
-            options=[
-                "doubao-seedance-2-0-pro-260128",
-                "doubao-seedance-2-0-260128",
-            ],
-            value="doubao-seedance-2-0-pro-260128",
+            info="Model ID, e.g. doubao-seedance-2-0-260128.",
+            value="doubao-seedance-2-0-260128",
         ),
         DropdownInput(
             name="mode",
@@ -183,7 +186,7 @@ class SeedanceVideoComponent(Component):
             name="max_wait_time",
             display_name="Max Wait Time (s)",
             info="Maximum seconds to wait for task completion.",
-            value=600,
+            value=1800,
             advanced=True,
         ),
     ]
@@ -306,8 +309,10 @@ class SeedanceVideoComponent(Component):
         """Submit a video generation task and return the task ID."""
         payload = self._build_request_body()
 
-        resp = client.post(BASE_URL, json=payload)
-        resp.raise_for_status()
+        resp = client.post(self.base_url, json=payload)
+        if resp.status_code >= 400:
+            self.log(f"API error {resp.status_code}: {resp.text}", "ERROR")
+            resp.raise_for_status()
         data = resp.json()
 
         task_id = data.get("id", "")
@@ -319,7 +324,7 @@ class SeedanceVideoComponent(Component):
 
     def _poll_task(self, client: httpx.Client, task_id: str) -> dict:
         """Poll task status until completion or timeout."""
-        url = f"{BASE_URL}/{task_id}"
+        url = f"{self.base_url}/{task_id}"
         max_retries = self.max_wait_time // self.poll_interval
         consecutive_errors = 0
         max_consecutive_errors = 5
@@ -376,15 +381,20 @@ class SeedanceVideoComponent(Component):
 
     def _extract_video_url(self, data: dict) -> str:
         """Extract video URL from the task response."""
-        for item in data.get("content", []):
-            if item.get("type") == "video_url":
-                return item.get("video_url", {}).get("url", "")
-            if item.get("type") == "url":
-                return item.get("url", "")
+        # Standard response: content.video_url
+        content = data.get("content")
+        if isinstance(content, dict):
+            url = content.get("video_url", "")
+            if url:
+                return url
 
-        for item in data.get("data", []):
-            if "url" in item:
-                return item["url"]
+        # Fallback: content as a list of items
+        if isinstance(content, list):
+            for item in content:
+                if item.get("type") == "video_url":
+                    return item.get("video_url", {}).get("url", "")
+                if item.get("type") == "url":
+                    return item.get("url", "")
 
         return ""
 
@@ -396,9 +406,9 @@ class SeedanceVideoComponent(Component):
         }
 
         try:
-            with httpx.Client(headers=headers, timeout=30) as client:
+            with httpx.Client(headers=headers, timeout=30, trust_env=False) as client:
                 self.status = "Submitting video generation task..."
-                self.log(f"Submitting task with model: {self.model}, mode: {self.mode}")
+                self.log(f"Submitting task to {self.base_url}, model: {self.model}, mode: {self.mode}")
 
                 task_id = self._create_task(client)
                 self._task_id = task_id
@@ -420,6 +430,17 @@ class SeedanceVideoComponent(Component):
 
         except (TaskError, TaskTimeoutError):
             raise
+        except httpx.HTTPStatusError as e:
+            error_detail = ""
+            try:
+                error_detail = e.response.text
+            except Exception:
+                pass
+            error_msg = f"HTTP {e.response.status_code}: {error_detail}"
+            self.log(error_msg, "ERROR")
+            self._task_id = None
+            self._task_info = None
+            return Message(text=f"Error: {error_msg}")
         except (httpx.HTTPError, ValueError, KeyError) as e:
             self.log(f"Error: {e}", "ERROR")
             self._task_id = None
