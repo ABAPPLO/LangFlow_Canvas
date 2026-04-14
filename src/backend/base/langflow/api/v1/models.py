@@ -26,6 +26,7 @@ router = APIRouter(prefix="/models", tags=["Models"], include_in_schema=False)
 # Variable names for storing disabled models and default models
 DISABLED_MODELS_VAR = "__disabled_models__"
 ENABLED_MODELS_VAR = "__enabled_models__"
+CUSTOM_MODELS_VAR = "__custom_models__"
 DEFAULT_LANGUAGE_MODEL_VAR = "__default_language_model__"
 DEFAULT_EMBEDDING_MODEL_VAR = "__default_embedding_model__"
 
@@ -121,6 +122,25 @@ class ValidateProviderResponse(BaseModel):
     error: str | None = None
 
 
+class CustomModelRequest(BaseModel):
+    """Request model for adding/removing a custom model."""
+
+    provider: str
+    model_name: str
+
+    @field_validator("provider", "model_name")
+    @classmethod
+    def validate_non_empty_string(cls, v: str) -> str:
+        """Ensure strings are non-empty and reasonable length."""
+        if not v or not v.strip():
+            msg = "Field cannot be empty"
+            raise ValueError(msg)
+        if len(v) > MAX_STRING_LENGTH:
+            msg = f"Field exceeds maximum length of {MAX_STRING_LENGTH} characters"
+            raise ValueError(msg)
+        return v.strip()
+
+
 @router.get("/providers", status_code=200, dependencies=[Depends(get_current_active_user)])
 async def list_model_providers() -> list[str]:
     """Return available model providers."""
@@ -208,6 +228,20 @@ async def list_models(
     # Replace static models with live models for providers that support it
     configured_providers = {p for p, configured in provider_configured_status.items() if configured}
     replace_with_live_models(filtered_models, current_user.id, configured_providers, model_type)
+
+    # Merge custom models into the catalog
+    custom_models = await _get_custom_models(session=session, current_user=current_user)
+    for provider_dict in filtered_models:
+        prov_name = provider_dict.get("provider")
+        if prov_name in custom_models:
+            existing_names = {m.get("model_name") for m in provider_dict.get("models", [])}
+            for custom_name in custom_models[prov_name]:
+                if custom_name not in existing_names:
+                    provider_dict.setdefault("models", []).append({
+                        "model_name": custom_name,
+                        "metadata": {"is_custom": True, "model_type": model_type or "llm"},
+                    })
+                    existing_names.add(custom_name)
 
     # Sort providers:
     # 1. Provider with default model first
@@ -518,6 +552,175 @@ async def _save_model_list_variable(
             status_code=500,
             detail="Failed to save model configuration. Please try again later.",
         ) from e
+
+
+async def _get_custom_models(session: DbSession, current_user: CurrentActiveUser) -> dict[str, list[str]]:
+    """Helper function to get custom models per provider.
+
+    Returns:
+        Dict mapping provider names to lists of custom model names.
+    """
+    variable_service = get_variable_service()
+    if not isinstance(variable_service, DatabaseVariableService):
+        return {}
+
+    try:
+        var = await variable_service.get_variable_object(
+            user_id=current_user.id, name=CUSTOM_MODELS_VAR, session=session
+        )
+        if var.value and var.value.strip():
+            parsed = json.loads(var.value)
+            if isinstance(parsed, dict):
+                return {k: v for k, v in parsed.items() if isinstance(v, list)}
+    except ValueError:
+        pass
+    except (json.JSONDecodeError, TypeError):
+        logger.debug("Failed to parse custom models for user %s", current_user.id)
+    return {}
+
+
+async def _save_custom_models(
+    variable_service: DatabaseVariableService,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    custom_models: dict[str, list[str]],
+) -> None:
+    """Save custom models dict to database variable."""
+    from langflow.services.database.models.variable.model import VariableUpdate
+
+    models_json = json.dumps(custom_models)
+
+    try:
+        existing_var = await variable_service.get_variable_object(
+            user_id=current_user.id, name=CUSTOM_MODELS_VAR, session=session
+        )
+        if existing_var is None or existing_var.id is None:
+            msg = f"Variable {CUSTOM_MODELS_VAR} not found"
+            raise ValueError(msg)
+
+        await variable_service.update_variable_fields(
+            user_id=current_user.id,
+            variable_id=existing_var.id,
+            variable=VariableUpdate(id=existing_var.id, name=CUSTOM_MODELS_VAR, value=models_json, type=GENERIC_TYPE),
+            session=session,
+        )
+    except ValueError:
+        if custom_models:
+            await variable_service.create_variable(
+                user_id=current_user.id,
+                name=CUSTOM_MODELS_VAR,
+                value=models_json,
+                type_=GENERIC_TYPE,
+                session=session,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to save custom models for user %s", current_user.id)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save custom models. Please try again later.",
+        ) from e
+
+
+@router.get("/custom_models", status_code=200)
+async def get_custom_models_endpoint(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+):
+    """Get custom model names for each provider."""
+    custom_models = await _get_custom_models(session=session, current_user=current_user)
+    return {"custom_models": custom_models}
+
+
+@router.post("/custom_models", status_code=200)
+async def add_custom_model(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    request: CustomModelRequest,
+):
+    """Add a custom model name to a provider."""
+    # Validate provider exists
+    available_providers = get_model_providers()
+    if request.provider not in available_providers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider: {request.provider}. Available: {', '.join(available_providers)}",
+        )
+
+    variable_service = get_variable_service()
+    if not isinstance(variable_service, DatabaseVariableService):
+        raise HTTPException(
+            status_code=500,
+            detail="Variable service is not an instance of DatabaseVariableService",
+        )
+
+    custom_models = await _get_custom_models(session=session, current_user=current_user)
+    provider_models = custom_models.get(request.provider, [])
+
+    if request.model_name in provider_models:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Model '{request.model_name}' already exists for provider {request.provider}",
+        )
+
+    provider_models.append(request.model_name)
+    custom_models[request.provider] = provider_models
+
+    await _save_custom_models(variable_service, session, current_user, custom_models)
+
+    logger.info(
+        "User %s added custom model '%s' to provider %s",
+        current_user.id,
+        request.model_name,
+        request.provider,
+    )
+
+    return {"custom_models": custom_models}
+
+
+@router.delete("/custom_models", status_code=200)
+async def remove_custom_model(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    request: CustomModelRequest,
+):
+    """Remove a custom model name from a provider."""
+    variable_service = get_variable_service()
+    if not isinstance(variable_service, DatabaseVariableService):
+        raise HTTPException(
+            status_code=500,
+            detail="Variable service is not an instance of DatabaseVariableService",
+        )
+
+    custom_models = await _get_custom_models(session=session, current_user=current_user)
+    provider_models = custom_models.get(request.provider, [])
+
+    if request.model_name not in provider_models:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{request.model_name}' not found in custom models for provider {request.provider}",
+        )
+
+    provider_models.remove(request.model_name)
+    if provider_models:
+        custom_models[request.provider] = provider_models
+    else:
+        custom_models.pop(request.provider, None)
+
+    await _save_custom_models(variable_service, session, current_user, custom_models)
+
+    logger.info(
+        "User %s removed custom model '%s' from provider %s",
+        current_user.id,
+        request.model_name,
+        request.provider,
+    )
+
+    return {"custom_models": custom_models}
 
 
 @router.get("/enabled_models", status_code=200)

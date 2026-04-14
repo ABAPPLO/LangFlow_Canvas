@@ -767,7 +767,7 @@ def validate_model_provider_key(provider: str, variables: dict[str, str], model_
             api_key = variables.get("OPENAI_API_KEY")
             if not api_key:
                 return
-            llm = ChatOpenAI(api_key=api_key, model_name=first_model, max_tokens=1)
+            llm = ChatOpenAI(api_key=api_key, model_name=first_model, max_tokens=1, request_timeout=30)
             llm.invoke("test")
 
         elif provider == "Anthropic":
@@ -776,7 +776,7 @@ def validate_model_provider_key(provider: str, variables: dict[str, str], model_
             api_key = variables.get("ANTHROPIC_API_KEY")
             if not api_key:
                 return
-            llm = ChatAnthropic(anthropic_api_key=api_key, model=first_model, max_tokens=1)
+            llm = ChatAnthropic(anthropic_api_key=api_key, model=first_model, max_tokens=1, timeout=30)
             llm.invoke("test")
 
         elif provider == "Google Generative AI":
@@ -785,7 +785,12 @@ def validate_model_provider_key(provider: str, variables: dict[str, str], model_
             api_key = variables.get("GOOGLE_API_KEY")
             if not api_key:
                 return
-            llm = ChatGoogleGenerativeAI(google_api_key=api_key, model=first_model, max_tokens=1)
+            llm = ChatGoogleGenerativeAI(
+                google_api_key=api_key,
+                model=first_model,
+                max_tokens=1,
+                request_options={"timeout": 30},
+            )
             llm.invoke("test")
 
         elif provider == "IBM WatsonX":
@@ -802,6 +807,7 @@ def validate_model_provider_key(provider: str, variables: dict[str, str], model_
                 model_id=first_model,
                 project_id=project_id,
                 params={"max_new_tokens": 1},
+                timeout=30,
             )
             llm.invoke("test")
 
@@ -1006,6 +1012,37 @@ def get_language_model_options(
     if enabled_providers:
         replace_with_live_models(all_models, user_id, enabled_providers, "llm", model_provider_metadata)
 
+    # Get custom models for this user
+    custom_models: dict[str, list[str]] = {}
+    if user_id:
+        try:
+
+            async def _get_custom_models():
+                async with session_scope() as session:
+                    variable_service = get_variable_service()
+                    if variable_service is None:
+                        return {}
+                    from langflow.services.variable.service import DatabaseVariableService
+
+                    if not isinstance(variable_service, DatabaseVariableService):
+                        return {}
+                    import json as _json
+
+                    for var in await variable_service.get_all(
+                        user_id=UUID(user_id) if isinstance(user_id, str) else user_id,
+                        session=session,
+                    ):
+                        if var.name == "__custom_models__" and var.value:
+                            with contextlib.suppress(_json.JSONDecodeError, TypeError):
+                                parsed = _json.loads(var.value)
+                                if isinstance(parsed, dict):
+                                    return {k: v for k, v in parsed.items() if isinstance(v, list)}
+                    return {}
+
+            custom_models = run_until_complete(_get_custom_models())
+        except Exception:  # noqa: BLE001, S110
+            pass
+
     options = []
 
     # Track which providers have models
@@ -1079,6 +1116,45 @@ def get_language_model_options(
                 option["metadata"]["project_id_param"] = param_mapping["project_id_param"]
 
             options.append(option)
+
+    # Merge custom models into options
+    if custom_models:
+        existing_option_names = {opt["name"] for opt in options}
+        for provider_name, model_names in custom_models.items():
+            # Only add custom models for enabled providers
+            if enabled_providers and provider_name not in enabled_providers:
+                continue
+            param_mapping = get_provider_param_mapping(provider_name)
+            provider_meta = model_provider_metadata.get(provider_name, {})
+            icon = provider_meta.get("icon", "Bot")
+            for custom_name in model_names:
+                if custom_name in existing_option_names:
+                    continue
+                option_metadata = {
+                    "context_length": 128000,
+                    "model_class": param_mapping.get("model_class", "ChatOpenAI"),
+                    "model_name_param": param_mapping.get("model_param", "model"),
+                    "api_key_param": param_mapping.get("api_key_param", "api_key"),
+                    "is_custom": True,
+                }
+                if "max_tokens_field_name" in provider_meta:
+                    option_metadata["max_tokens_field_name"] = provider_meta["max_tokens_field_name"]
+                if "base_url_param" in param_mapping:
+                    option_metadata["base_url_param"] = param_mapping["base_url_param"]
+                if "url_param" in param_mapping:
+                    option_metadata["url_param"] = param_mapping["url_param"]
+                if "project_id_param" in param_mapping:
+                    option_metadata["project_id_param"] = param_mapping["project_id_param"]
+                options.append(
+                    {
+                        "name": custom_name,
+                        "icon": icon,
+                        "category": provider_name,
+                        "provider": provider_name,
+                        "metadata": option_metadata,
+                    }
+                )
+                existing_option_names.add(custom_name)
 
     # Add disabled providers (providers that exist in metadata but have no enabled models)
     if user_id:
@@ -1455,11 +1531,17 @@ def get_llm(
     watsonx_url=None,
     watsonx_project_id=None,
     ollama_base_url=None,
+    openai_base_url=None,
+    anthropic_base_url=None,
+    google_base_url=None,
 ) -> Any:
     # Coerce provider-specific string params (Message/Data may leak through StrInput)
     ollama_base_url = _to_str(ollama_base_url)
     watsonx_url = _to_str(watsonx_url)
     watsonx_project_id = _to_str(watsonx_project_id)
+    openai_base_url = _to_str(openai_base_url)
+    anthropic_base_url = _to_str(anthropic_base_url)
+    google_base_url = _to_str(google_base_url)
 
     # Check if model is already a BaseLanguageModel instance (from a connection)
     try:
@@ -1543,35 +1625,35 @@ def get_llm(
     if provider in ["OpenAI", "Anthropic"]:
         kwargs["stream_usage"] = True
 
-    # Add provider-specific parameters
+    # Add provider-specific parameters (base_url, url, project_id)
+    # Resolve all URL-like and ID-like variables from metadata dynamically
+    component_values = {
+        "base_url_ibm_watsonx": watsonx_url,
+        "project_id": watsonx_project_id,
+        "ollama_base_url": ollama_base_url,
+        "openai_base_url": openai_base_url,
+        "anthropic_base_url": anthropic_base_url,
+        "google_base_url": google_base_url,
+    }
+    provider_vars = get_all_variables_for_provider(user_id, provider)
+
+    for var in model_provider_metadata.get(provider, {}).get("variables", []):
+        lc_param = var.get("langchain_param", "")
+        mapping_field = var.get("component_metadata", {}).get("mapping_field", "")
+        var_key = var.get("variable_key", "")
+
+        if lc_param in ("base_url", "url", "project_id"):
+            value = (
+                _to_str(component_values.get(mapping_field)) or provider_vars.get(var_key) or os.environ.get(var_key)
+            )
+            if value:
+                kwargs[lc_param] = value
+
+    # WatsonX-specific validation: URL and project_id must both be present if either is
     if provider == "IBM WatsonX":
-        # For watsonx, url and project_id are required parameters
-        # Try database first, then component values, then environment variables
-        url_param = metadata.get("url_param", "url")
-        project_id_param = metadata.get("project_id_param", "project_id")
-
-        # Get all provider variables from database
-        provider_vars = get_all_variables_for_provider(user_id, provider)
-
-        # Priority: component value > database value > env var
-        watsonx_url_value = (
-            watsonx_url if watsonx_url else provider_vars.get("WATSONX_URL") or os.environ.get("WATSONX_URL")
-        )
-        watsonx_project_id_value = (
-            watsonx_project_id
-            if watsonx_project_id
-            else provider_vars.get("WATSONX_PROJECT_ID") or os.environ.get("WATSONX_PROJECT_ID")
-        )
-
-        has_url = bool(watsonx_url_value)
-        has_project_id = bool(watsonx_project_id_value)
-
-        if has_url and has_project_id:
-            # Both provided - add them to kwargs
-            kwargs[url_param] = watsonx_url_value
-            kwargs[project_id_param] = watsonx_project_id_value
-        elif has_url or has_project_id:
-            # Only one provided - this is a misconfiguration
+        has_url = any(k == "url" for k in kwargs)
+        has_project_id = any(k == "project_id" for k in kwargs)
+        if has_url != has_project_id:
             missing = "project ID (WATSONX_PROJECT_ID)" if has_url else "URL (WATSONX_URL)"
             provided = "URL" if has_url else "project ID"
             msg = (
@@ -1580,22 +1662,6 @@ def get_llm(
                 f"Please configure the missing value in the component or set the environment variable."
             )
             raise ValueError(msg)
-        # else: neither provided - let ChatWatsonx handle it (will fail with its own error)
-    elif provider == "Ollama":
-        # For Ollama, handle custom base_url with database > component > env var fallback
-        base_url_param = metadata.get("base_url_param", "base_url")
-
-        # Get all provider variables from database
-        provider_vars = get_all_variables_for_provider(user_id, provider)
-
-        # Priority: component value > database value > env var
-        ollama_base_url_value = (
-            ollama_base_url
-            if ollama_base_url
-            else provider_vars.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_BASE_URL")
-        )
-        if ollama_base_url_value:
-            kwargs[base_url_param] = ollama_base_url_value
 
     try:
         return model_class(**kwargs)
@@ -1713,9 +1779,17 @@ def update_model_options_in_build_config(
     cached = component.cache.get(cache_key, {"options": []})
     build_config[model_field_name]["options"] = cached["options"]
 
-    # Set default value on initial load when field is empty
-    # Fetch from user's default model setting in the database
-    if not field_value or field_value == "":
+    # Set default value on initial load when model field is empty
+    # Check the actual model field value, not the triggering field's value.
+    # This prevents resetting the model selection when a non-model field
+    # (e.g., anthropic_base_url) triggers update_build_config with an empty value.
+    current_model_value = build_config.get(model_field_name, {}).get("value")
+    model_field_is_empty = (
+        not current_model_value
+        or current_model_value == ""
+        or (isinstance(current_model_value, list) and len(current_model_value) == 0)
+    )
+    if model_field_is_empty:
         options = cached.get("options", [])
         if options:
             # Determine model type based on cache_key_prefix

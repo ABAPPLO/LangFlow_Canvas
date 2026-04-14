@@ -63,6 +63,27 @@ class LanguageModelComponent(LCModelComponent):
             show=False,
             real_time_refresh=True,
         ),
+        StrInput(
+            name="openai_base_url",
+            display_name="OpenAI Base URL",
+            info="Custom base URL for OpenAI API (optional, for proxies or compatible endpoints)",
+            show=False,
+            real_time_refresh=True,
+        ),
+        StrInput(
+            name="anthropic_base_url",
+            display_name="Anthropic Base URL",
+            info="Custom base URL for Anthropic API (optional, for proxies or compatible endpoints)",
+            show=False,
+            real_time_refresh=True,
+        ),
+        StrInput(
+            name="google_base_url",
+            display_name="Google Base URL",
+            info="Custom base URL for Google Generative AI API (optional, for proxies or compatible endpoints)",
+            show=False,
+            real_time_refresh=True,
+        ),
         MessageInput(
             name="input_value",
             display_name="Input",
@@ -109,6 +130,9 @@ class LanguageModelComponent(LCModelComponent):
             watsonx_url=getattr(self, "base_url_ibm_watsonx", None),
             watsonx_project_id=getattr(self, "project_id", None),
             ollama_base_url=getattr(self, "ollama_base_url", None),
+            openai_base_url=getattr(self, "openai_base_url", None),
+            anthropic_base_url=getattr(self, "anthropic_base_url", None),
+            google_base_url=getattr(self, "google_base_url", None),
         )
 
     def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):

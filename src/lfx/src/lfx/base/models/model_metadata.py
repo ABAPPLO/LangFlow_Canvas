@@ -87,7 +87,22 @@ MODEL_PROVIDER_METADATA: dict[str, Any] = {
                     "advanced": True,
                     "info": "Falls back to OPENAI_API_KEY environment variable",
                 },
-            }
+            },
+            {
+                "variable_name": "OpenAI Base URL",
+                "variable_key": "OPENAI_BASE_URL",
+                "required": False,
+                "is_secret": False,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "base_url",
+                "component_metadata": {
+                    "mapping_field": "openai_base_url",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to OPENAI_BASE_URL environment variable",
+                },
+            },
         ],
         "api_docs_url": "https://platform.openai.com/docs/overview",
         "mapping": {
@@ -113,7 +128,22 @@ MODEL_PROVIDER_METADATA: dict[str, Any] = {
                     "advanced": True,
                     "info": "Falls back to ANTHROPIC_API_KEY environment variable",
                 },
-            }
+            },
+            {
+                "variable_name": "Anthropic Base URL",
+                "variable_key": "ANTHROPIC_BASE_URL",
+                "required": False,
+                "is_secret": False,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "base_url",
+                "component_metadata": {
+                    "mapping_field": "anthropic_base_url",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to ANTHROPIC_BASE_URL environment variable",
+                },
+            },
         ],
         "api_docs_url": "https://console.anthropic.com/docs",
         "mapping": {
@@ -139,7 +169,22 @@ MODEL_PROVIDER_METADATA: dict[str, Any] = {
                     "advanced": True,
                     "info": "Falls back to GOOGLE_API_KEY environment variable",
                 },
-            }
+            },
+            {
+                "variable_name": "Google Base URL",
+                "variable_key": "GOOGLE_BASE_URL",
+                "required": False,
+                "is_secret": False,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "base_url",
+                "component_metadata": {
+                    "mapping_field": "google_base_url",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to GOOGLE_BASE_URL environment variable",
+                },
+            },
         ],
         "api_docs_url": "https://aistudio.google.com/app/apikey",
         "mapping": {
