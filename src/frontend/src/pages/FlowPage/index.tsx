@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBlocker, useParams } from "react-router-dom";
+import { AssistantWidget } from "@/components/core/assistantChat";
 import { FlowPageSlidingContainerContent } from "@/components/core/playgroundComponent/sliding-container/components/flow-page-sliding-container";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import {
@@ -334,6 +335,7 @@ export default function FlowPage({ view }: { view?: boolean }): JSX.Element {
           )}
         </>
       )}
+      <AssistantWidget />
     </>
   );
 }
