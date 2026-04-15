@@ -2,6 +2,10 @@ import time
 
 import httpx
 
+from lfx.base.models.unified_models import (
+    get_language_model_options,
+    update_model_options_in_build_config,
+)
 from lfx.custom import Component
 from lfx.inputs import (
     BoolInput,
@@ -17,18 +21,23 @@ from lfx.schema.message import Message
 MODE_TEXT = "Text to Video"
 MODE_IMAGE = "Image to Video"
 MODE_FIRST_LAST = "First & Last Frame"
+MODE_MULTIMODAL = "Multimodal"
 
-MODE_OPTIONS = [MODE_TEXT, MODE_IMAGE, MODE_FIRST_LAST]
+MODE_OPTIONS = [MODE_TEXT, MODE_IMAGE, MODE_FIRST_LAST, MODE_MULTIMODAL]
 
 MODE_SPECIFIC_FIELDS = [
     "image_url",
     "last_frame_url",
+    "ref_image_urls",
+    "ref_video_urls",
+    "ref_audio_urls",
 ]
 
 MODE_FIELD_MAP: dict[str, list[str]] = {
     MODE_TEXT: [],
     MODE_IMAGE: ["image_url"],
     MODE_FIRST_LAST: ["image_url", "last_frame_url"],
+    MODE_MULTIMODAL: ["ref_image_urls", "ref_video_urls", "ref_audio_urls"],
 }
 
 
@@ -86,6 +95,27 @@ class VideoGenerationComponent(Component):
             name="last_frame_url",
             display_name="Last Frame Image URL",
             info="URL of the last frame image.",
+            dynamic=True,
+            show=False,
+        ),
+        MultilineInput(
+            name="ref_image_urls",
+            display_name="Reference Image URLs",
+            info="One URL per line (max 9 images).",
+            dynamic=True,
+            show=False,
+        ),
+        MultilineInput(
+            name="ref_video_urls",
+            display_name="Reference Video URLs",
+            info="One URL per line (max 3 videos).",
+            dynamic=True,
+            show=False,
+        ),
+        MultilineInput(
+            name="ref_audio_urls",
+            display_name="Reference Audio URLs",
+            info="One URL per line (max 3 audios).",
             dynamic=True,
             show=False,
         ),
@@ -157,6 +187,16 @@ class VideoGenerationComponent(Component):
         self._task_info: dict | None = None
 
     def update_build_config(self, build_config, field_value, field_name=None):
+        # Load model options from Model Providers
+        build_config = update_model_options_in_build_config(
+            component=self,
+            build_config=build_config,
+            cache_key_prefix="video_model_options",
+            get_options_func=get_language_model_options,
+            field_name=field_name,
+            field_value=field_value,
+        )
+
         if field_name == "generation_mode":
             for f in MODE_SPECIFIC_FIELDS:
                 if f in build_config:
@@ -257,7 +297,40 @@ class VideoGenerationComponent(Component):
                     }
                 )
 
+        elif mode == MODE_MULTIMODAL:
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": url},
+                    "role": "reference_image",
+                }
+                for url in self._parse_urls(self.ref_image_urls)
+            )
+            content.extend(
+                {
+                    "type": "video_url",
+                    "video_url": {"url": url},
+                    "role": "reference_video",
+                }
+                for url in self._parse_urls(self.ref_video_urls)
+            )
+            content.extend(
+                {
+                    "type": "audio_url",
+                    "audio_url": {"url": url},
+                    "role": "reference_audio",
+                }
+                for url in self._parse_urls(self.ref_audio_urls)
+            )
+
         return content
+
+    @staticmethod
+    def _parse_urls(text: str) -> list[str]:
+        """Parse a multiline text into a list of non-empty URLs."""
+        if not text:
+            return []
+        return [line.strip() for line in text.splitlines() if line.strip()]
 
     def _build_request_body(self) -> dict:
         """Build the API request body."""
