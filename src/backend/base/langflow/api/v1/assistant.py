@@ -344,155 +344,87 @@ async def assistant_chat(
             yield _sse_event("error", {"error": "Model does not support tool calling."})
             return
 
-        # Build conversation messages
-        messages: list[dict] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+        # Build conversation using LangChain message objects for correct format handling
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+        lc_messages: list = [
+            SystemMessage(content=SYSTEM_PROMPT),
         ]
-        messages.extend({"role": msg.role, "content": msg.content} for msg in body.history)
-        messages.append({"role": "user", "content": body.message})
+        lc_messages.extend(
+            HumanMessage(content=msg.content) if msg.role == "user" else AIMessage(content=msg.content)
+            for msg in body.history
+        )
+        lc_messages.append(HumanMessage(content=body.message))
 
         yield _sse_event("connected", {"status": "ok"})
 
         max_iterations = 10
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
             try:
-                # Check if client disconnected
                 if await request.is_disconnected():
                     break
 
-                # Call LLM with streaming
-                full_text = ""
+                logger.info(f"Assistant chat: iteration {iteration + 1}, {len(lc_messages)} messages")
+
+                # Use ainvoke for clean message format handling.
+                # Streaming text tokens are sacrificed, but tool_call reliability is gained.
+                ai_response: AIMessage = await llm_with_tools.ainvoke(lc_messages)
+
+                # Stream text content to frontend
+                text_content = ""
+                if isinstance(ai_response.content, str):
+                    text_content = ai_response.content
+                elif isinstance(ai_response.content, list):
+                    for block in ai_response.content:
+                        if isinstance(block, str):
+                            text_content += block
+                        elif isinstance(block, dict) and block.get("type") == "text":
+                            text_content += block.get("text", "")
+                        elif hasattr(block, "text"):
+                            text_content += block.text
+
+                if text_content:
+                    yield _sse_event("token", {"text": text_content})
+
+                # Add AI response to message history
+                lc_messages.append(ai_response)
+
+                # Extract tool calls — support both OpenAI and Anthropic formats
                 tool_calls: list[dict] = []
-                logger.info(f"Assistant chat: calling LLM astream_events with {len(messages)} messages")
-
-                async for event in llm_with_tools.astream_events(
-                    messages,
-                    version="v2",
-                ):
-                    kind = event.get("event", "")
-
-                    if kind == "on_chat_model_stream":
-                        chunk = event["data"]["chunk"]
-                        # Text content
-                        if hasattr(chunk, "content") and chunk.content:
-                            if isinstance(chunk.content, str) and chunk.content:
-                                full_text += chunk.content
-                                yield _sse_event("token", {"text": chunk.content})
-                            elif isinstance(chunk.content, list):
-                                for block in chunk.content:
-                                    if isinstance(block, dict) and block.get("type") == "text":
-                                        text = block.get("text", "")
-                                        if text:
-                                            full_text += text
-                                            yield _sse_event("token", {"text": text})
-
-                        # Tool use blocks in stream
-                        if hasattr(chunk, "content") and isinstance(chunk.content, list):
-                            for block in chunk.content:
-                                if isinstance(block, dict) and block.get("type") == "tool_use":
-                                    tool_idx = block.get("index", len(tool_calls))
-                                    while len(tool_calls) <= tool_idx:
-                                        tool_calls.append({})
-                                    if "id" in block and not tool_calls[tool_idx].get("id"):
-                                        tool_calls[tool_idx]["id"] = block["id"]
-                                    if "name" in block:
-                                        tool_calls[tool_idx]["name"] = block["name"]
-                                    if "input" in block:
-                                        tool_calls[tool_idx].setdefault("input", {})
-                                        tool_calls[tool_idx]["input"].update(block["input"])
-
-                        # OpenAI-style tool_calls in chunk
-                        if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
-                            for tc_chunk in chunk.tool_call_chunks:
-                                is_dict = isinstance(tc_chunk, dict)
-                                tc_id = (
-                                    tc_chunk.get("id", "")
-                                    if is_dict
-                                    else getattr(tc_chunk, "id", "")
-                                )
-                                tc_name = (
-                                    tc_chunk.get("name", "")
-                                    if is_dict
-                                    else getattr(tc_chunk, "name", "")
-                                )
-                                tc_args = (
-                                    tc_chunk.get("args", "")
-                                    if is_dict
-                                    else getattr(tc_chunk, "args", "")
-                                )
-                                if tc_name:
-                                    existing = next(
-                                        (tc for tc in tool_calls if tc.get("name") == tc_name),
-                                        None,
-                                    )
-                                    if not existing:
-                                        existing = {
-                                            "id": tc_id or str(uuid.uuid4()),
-                                            "name": tc_name,
-                                            "input": {},
-                                        }
-                                        tool_calls.append(existing)
-                                    if tc_args and isinstance(tc_args, dict):
-                                        existing["input"].update(tc_args)
-
-                    elif kind == "on_chat_model_end":
-                        response = event["data"]["output"]
-                        # Collect tool calls from final response
-                        if hasattr(response, "tool_calls") and response.tool_calls:
-                            for tc in response.tool_calls:
-                                if isinstance(tc, dict):
-                                    tool_calls.append({
-                                        "id": tc.get("id", str(uuid.uuid4())),
-                                        "name": tc.get("name", ""),
-                                        "input": tc.get("args", {}),
-                                    })
-                                else:
-                                    tool_calls.append({
-                                        "id": getattr(tc, "id", str(uuid.uuid4())),
-                                        "name": getattr(tc, "name", ""),
-                                        "input": getattr(tc, "args", {}),
-                                    })
-                        elif hasattr(response, "content") and isinstance(response.content, list):
-                            tool_calls.extend(
-                                {
-                                    "id": block.id,
-                                    "name": block.name,
-                                    "input": block.input if hasattr(block, "input") else {},
-                                }
-                                for block in response.content
-                                if hasattr(block, "type") and block.type == "tool_use"
-                            )
-
-                # If we have text, add assistant message
-                if full_text:
-                    messages.append({"role": "assistant", "content": full_text})
+                if hasattr(ai_response, "tool_calls") and ai_response.tool_calls:
+                    for tc in ai_response.tool_calls:
+                        if isinstance(tc, dict):
+                            tool_calls.append({
+                                "id": tc.get("id", str(uuid.uuid4())),
+                                "name": tc.get("name", ""),
+                                "input": tc.get("args", {}),
+                            })
+                        else:
+                            tool_calls.append({
+                                "id": getattr(tc, "id", str(uuid.uuid4())),
+                                "name": getattr(tc, "name", ""),
+                                "input": getattr(tc, "args", {}),
+                            })
+                elif isinstance(ai_response.content, list):
+                    tool_calls.extend(
+                        {
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input if hasattr(block, "input") else {},
+                        }
+                        for block in ai_response.content
+                        if hasattr(block, "type") and block.type == "tool_use"
+                    )
 
                 # No tool calls — we're done
                 if not tool_calls:
                     break
 
-                # Process tool calls
-                assistant_msg_content: list[dict] = []
-                if full_text:
-                    assistant_msg_content.append({"type": "text", "text": full_text})
-                assistant_msg_content.extend(
-                    {
-                        "type": "tool_use",
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "input": tc.get("input", {}),
-                    }
-                    for tc in tool_calls
-                )
-                if messages and messages[-1].get("role") == "assistant":
-                    messages[-1] = {"role": "assistant", "content": assistant_msg_content}
-                else:
-                    messages.append({"role": "assistant", "content": assistant_msg_content})
-
+                # Execute each tool call and collect results
                 for tc in tool_calls:
                     tool_name = tc["name"]
                     tool_input = tc.get("input", {})
-                    tool_id = tc.get("id", str(uuid.uuid4()))
+                    tool_id = tc["id"]
 
                     yield _sse_event("tool_start", {
                         "name": tool_name,
@@ -513,11 +445,11 @@ async def assistant_chat(
                     if canvas_data:
                         yield _sse_event("canvas_update", canvas_data)
 
-                    messages.append({
-                        "role": "tool",
-                        "content": result_text,
-                        "tool_call_id": tool_id,
-                    })
+                    # Append ToolMessage with matching tool_call_id
+                    lc_messages.append(ToolMessage(
+                        content=result_text,
+                        tool_call_id=tool_id,
+                    ))
 
             except asyncio.CancelledError:
                 break
