@@ -13,7 +13,6 @@ from lfx.inputs import (
     IntInput,
     MessageTextInput,
     MultilineInput,
-    SecretStrInput,
 )
 from lfx.io import MessageInput, ModelInput, Output
 from lfx.schema.data import Data
@@ -63,13 +62,6 @@ class VideoGenerationComponent(Component):
             info="Select a video generation model from your configured providers.",
             real_time_refresh=True,
             required=True,
-        ),
-        SecretStrInput(
-            name="api_key",
-            display_name="API Key",
-            info="API key. Falls back to Model Providers settings.",
-            required=False,
-            advanced=True,
         ),
         MessageInput(
             name="input_value",
@@ -239,12 +231,12 @@ class VideoGenerationComponent(Component):
         model_name = model_info.get("name", "")
         provider = model_info.get("provider", "")
 
-        # Resolve API key: component input → Model Providers → env var
-        api_key = get_api_key_for_provider(self.user_id, provider, self.api_key)
+        # Resolve API key from Model Providers
+        api_key = get_api_key_for_provider(self.user_id, provider)
         if not api_key:
             msg = (
                 f"{provider} API key is required. "
-                "Please provide it in the component or configure it in Model Providers."
+                "Please configure it in Model Providers."
             )
             raise ValueError(msg)
 

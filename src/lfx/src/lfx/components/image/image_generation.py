@@ -9,7 +9,6 @@ from lfx.inputs import (
     DropdownInput,
     IntInput,
     MessageTextInput,
-    SecretStrInput,
 )
 from lfx.io import MessageInput, ModelInput, Output
 from lfx.schema.data import Data
@@ -34,13 +33,6 @@ class ImageGenerationComponent(Component):
             info="Select an image generation model from your configured providers.",
             real_time_refresh=True,
             required=True,
-        ),
-        SecretStrInput(
-            name="api_key",
-            display_name="API Key",
-            info="API key. Falls back to Model Providers settings.",
-            required=False,
-            advanced=True,
         ),
         MessageInput(
             name="input_value",
@@ -151,11 +143,11 @@ class ImageGenerationComponent(Component):
         provider = model_info.get("provider", "")
 
         # Resolve API key
-        api_key = get_api_key_for_provider(self.user_id, provider, self.api_key)
+        api_key = get_api_key_for_provider(self.user_id, provider)
         if not api_key:
             msg = (
                 f"{provider} API key is required. "
-                "Please provide it in the component or configure it in Model Providers."
+                "Please configure it in Model Providers."
             )
             raise ValueError(msg)
 
