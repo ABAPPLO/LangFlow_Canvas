@@ -328,14 +328,21 @@ async def assistant_chat(
     executor = ToolExecutor(flow_id=body.flow_id, user_id=user_id)
 
     async def event_generator() -> AsyncGenerator[str, None]:
+        logger.info(f"Assistant chat: creating LLM for model={body.selected_model.get('name')}")
         try:
             llm = _create_llm(body.selected_model, user_id)
-        except (ValueError, ImportError) as e:
-            yield _sse_event("error", {"error": f"Failed to create model: {e}"})
+        except (ValueError, ImportError, KeyError, TypeError, RuntimeError, OSError):
+            logger.exception("Assistant chat: failed to create LLM")
+            yield _sse_event("error", {"error": "Failed to create model. Check model configuration and API key."})
             return
 
-        # Bind tools to the LLM
-        llm_with_tools = llm.bind_tools(TOOL_DEFINITIONS)
+        logger.info("Assistant chat: binding tools to LLM")
+        try:
+            llm_with_tools = llm.bind_tools(TOOL_DEFINITIONS)
+        except (ValueError, NotImplementedError, TypeError, AttributeError):
+            logger.exception("Assistant chat: bind_tools failed")
+            yield _sse_event("error", {"error": "Model does not support tool calling."})
+            return
 
         # Build conversation messages
         messages: list[dict] = [
@@ -356,6 +363,7 @@ async def assistant_chat(
                 # Call LLM with streaming
                 full_text = ""
                 tool_calls: list[dict] = []
+                logger.info(f"Assistant chat: calling LLM astream_events with {len(messages)} messages")
 
                 async for event in llm_with_tools.astream_events(
                     messages,
@@ -513,8 +521,8 @@ async def assistant_chat(
 
             except asyncio.CancelledError:
                 break
-            except (ValueError, KeyError, RuntimeError) as e:
-                logger.error(f"Assistant chat error: {e}")
+            except (ValueError, KeyError, TypeError, RuntimeError, OSError) as e:
+                logger.exception(f"Assistant chat error: {e}")
                 yield _sse_event("error", {"error": str(e)})
                 break
 

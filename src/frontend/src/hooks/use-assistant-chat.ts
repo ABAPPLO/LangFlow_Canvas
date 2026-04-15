@@ -7,9 +7,22 @@ interface SSEMessage {
   data: string;
 }
 
-function parseSSE(text: string): SSEMessage[] {
+/**
+ * Parse complete SSE messages from text. Only parses blocks ending with \n\n.
+ * Returns parsed messages and the remaining unparsed text.
+ */
+function parseSSE(text: string): { messages: SSEMessage[]; remaining: string } {
   const messages: SSEMessage[] = [];
-  const blocks = text.split("\n\n").filter(Boolean);
+
+  // Find the last complete SSE block boundary
+  const lastBoundary = text.lastIndexOf("\n\n");
+  if (lastBoundary === -1) {
+    return { messages: [], remaining: text };
+  }
+
+  const completeText = text.slice(0, lastBoundary);
+  const remaining = text.slice(lastBoundary + 2);
+  const blocks = completeText.split("\n\n").filter(Boolean);
 
   for (const block of blocks) {
     let event = "message";
@@ -26,8 +39,10 @@ function parseSSE(text: string): SSEMessage[] {
     }
   }
 
-  return messages;
+  return { messages, remaining };
 }
+
+const STREAM_TIMEOUT_MS = 60_000; // 60s timeout for no data
 
 export function useAssistantChat() {
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -89,6 +104,16 @@ export function useAssistantChat() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Timeout timer: abort if no data received for STREAM_TIMEOUT_MS
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const resetTimeout = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          controller.abort();
+        }, STREAM_TIMEOUT_MS);
+      };
+      resetTimeout();
+
       try {
         const response = await fetch("/api/v1/assistant/chat", {
           method: "POST",
@@ -108,14 +133,12 @@ export function useAssistantChat() {
           updateLastAssistantMessage(
             `Error: ${response.status} - ${errorText}`,
           );
-          setLoading(false);
           return;
         }
 
         const reader = response.body?.getReader();
         if (!reader) {
           updateLastAssistantMessage("Error: No response stream");
-          setLoading(false);
           return;
         }
 
@@ -126,19 +149,11 @@ export function useAssistantChat() {
           const { done, value } = await reader.read();
           if (done) break;
 
+          resetTimeout();
           buffer += decoder.decode(value, { stream: true });
-          const sseMessages = parseSSE(buffer);
 
-          // Keep incomplete data in buffer
-          // SSE messages end with \n\n, if buffer doesn't end with that, keep partial
-          if (!buffer.endsWith("\n\n")) {
-            const lastBlock = buffer.lastIndexOf("\n\n");
-            if (lastBlock !== -1) {
-              buffer = buffer.slice(lastBlock + 2);
-            }
-          } else {
-            buffer = "";
-          }
+          const { messages: sseMessages, remaining } = parseSSE(buffer);
+          buffer = remaining;
 
           for (const msg of sseMessages) {
             try {
@@ -156,7 +171,7 @@ export function useAssistantChat() {
 
         // Process any remaining buffer
         if (buffer.trim()) {
-          const sseMessages = parseSSE(buffer);
+          const { messages: sseMessages } = parseSSE(buffer + "\n\n");
           for (const msg of sseMessages) {
             try {
               const data = JSON.parse(msg.data);
@@ -181,10 +196,19 @@ export function useAssistantChat() {
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          return; // Aborted by user, don't show error
+          // Check if it was a timeout abort vs user abort
+          const lastMsg = useAssistantChatStore.getState().messages;
+          const lastAssistant = lastMsg[lastMsg.length - 1];
+          if (lastAssistant?.isStreaming && !lastAssistant.content) {
+            updateLastAssistantMessage(
+              "Request timed out. The model may be unavailable or the API endpoint is unreachable.",
+            );
+          }
+          return;
         }
         updateLastAssistantMessage(`Error: ${err}`);
       } finally {
+        if (timeoutId) clearTimeout(timeoutId);
         setLoading(false);
         abortControllerRef.current = null;
       }
