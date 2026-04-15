@@ -368,7 +368,10 @@ async def assistant_chat(
 
                 # Use ainvoke for clean message format handling.
                 # Streaming text tokens are sacrificed, but tool_call reliability is gained.
-                ai_response: AIMessage = await llm_with_tools.ainvoke(lc_messages)
+                ai_response: AIMessage = await asyncio.wait_for(
+                    llm_with_tools.ainvoke(lc_messages),
+                    timeout=120,
+                )
 
                 # Stream text content to frontend
                 text_content = ""
@@ -453,7 +456,7 @@ async def assistant_chat(
 
             except asyncio.CancelledError:
                 break
-            except (ValueError, KeyError, TypeError, RuntimeError, OSError) as e:
+            except Exception as e:  # noqa: BLE001
                 logger.exception(f"Assistant chat error: {e}")
                 yield _sse_event("error", {"error": str(e)})
                 break

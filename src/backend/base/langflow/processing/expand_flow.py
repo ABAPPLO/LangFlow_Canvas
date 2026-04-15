@@ -245,6 +245,67 @@ def _expand_edge(
     }
 
 
+def _assign_positions(nodes: list[dict[str, Any]], edges: list) -> None:
+    """Assign x,y positions to nodes that lack them.
+
+    Uses a simple topological left-to-right layout based on edges.
+    Nodes with no edges are placed in a row at the bottom.
+    """
+    node_spacing_x = 300
+    node_spacing_y = 200
+    start_x = 100
+    start_y = 100
+
+    # Check if all nodes already have positions
+    if all(n.get("position") is not None for n in nodes):
+        return
+
+    # Build adjacency for topological ordering
+    node_ids = {n["id"] for n in nodes}
+    in_degree: dict[str, int] = dict.fromkeys(node_ids, 0)
+    children: dict[str, list[str]] = {nid: [] for nid in node_ids}
+
+    for edge in edges:
+        src = edge.source
+        tgt = edge.target
+        if src in node_ids and tgt in node_ids:
+            in_degree[tgt] += 1
+            children[src].append(tgt)
+
+    # Topological sort (BFS)
+    from collections import deque
+
+    queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
+    layers: list[list[str]] = []
+
+    while queue:
+        layer = []
+        for _ in range(len(queue)):
+            nid = queue.popleft()
+            layer.append(nid)
+            for child in children[nid]:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+        if layer:
+            layers.append(layer)
+
+    # Handle any remaining nodes (cycles)
+    placed = {nid for layer in layers for nid in layer}
+    remaining = [nid for nid in node_ids if nid not in placed]
+    if remaining:
+        layers.append(remaining)
+
+    # Assign positions based on layers
+    node_map = {n["id"]: s for s in nodes for n in [s]}
+    for col_idx, layer in enumerate(layers):
+        for row_idx, nid in enumerate(layer):
+            node_map[nid]["position"] = {
+                "x": start_x + col_idx * node_spacing_x,
+                "y": start_y + row_idx * node_spacing_y,
+            }
+
+
 def expand_compact_flow(
     compact_data: dict[str, Any],
     all_types_dict: dict[str, Any],
@@ -280,6 +341,9 @@ def expand_compact_flow(
     for compact_node in flow_data.nodes:
         expanded = _expand_node(compact_node, flat_components)
         expanded_nodes[compact_node.id] = expanded
+
+    # Assign auto-layout positions for nodes missing position
+    _assign_positions(list(expanded_nodes.values()), flow_data.edges)
 
     # Expand edges
     expanded_edges = []
