@@ -11,6 +11,7 @@ from lfx.inputs import (
     BoolInput,
     DropdownInput,
     IntInput,
+    MessageTextInput,
     MultilineInput,
     SecretStrInput,
 )
@@ -98,24 +99,36 @@ class VideoGenerationComponent(Component):
             dynamic=True,
             show=False,
         ),
-        MultilineInput(
+        MessageTextInput(
             name="ref_image_urls",
             display_name="Reference Image URLs",
-            info="One URL per line (max 9 images).",
+            info="Click '+' to add reference image URLs (max 9).",
+            is_list=True,
+            list_add_label="Add Image URL",
+            placeholder="Enter an image URL...",
+            input_types=[],
             dynamic=True,
             show=False,
         ),
-        MultilineInput(
+        MessageTextInput(
             name="ref_video_urls",
             display_name="Reference Video URLs",
-            info="One URL per line (max 3 videos).",
+            info="Click '+' to add reference video URLs (max 3).",
+            is_list=True,
+            list_add_label="Add Video URL",
+            placeholder="Enter a video URL...",
+            input_types=[],
             dynamic=True,
             show=False,
         ),
-        MultilineInput(
+        MessageTextInput(
             name="ref_audio_urls",
             display_name="Reference Audio URLs",
-            info="One URL per line (max 3 audios).",
+            info="Click '+' to add reference audio URLs (max 3).",
+            is_list=True,
+            list_add_label="Add Audio URL",
+            placeholder="Enter an audio URL...",
+            input_types=[],
             dynamic=True,
             show=False,
         ),
@@ -299,38 +312,19 @@ class VideoGenerationComponent(Component):
 
         elif mode == MODE_MULTIMODAL:
             content.extend(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": url},
-                    "role": "reference_image",
-                }
-                for url in self._parse_urls(self.ref_image_urls)
+                {"type": "image_url", "image_url": {"url": url}, "role": "reference_image"}
+                for url in self.ref_image_urls or []
             )
             content.extend(
-                {
-                    "type": "video_url",
-                    "video_url": {"url": url},
-                    "role": "reference_video",
-                }
-                for url in self._parse_urls(self.ref_video_urls)
+                {"type": "video_url", "video_url": {"url": url}, "role": "reference_video"}
+                for url in self.ref_video_urls or []
             )
             content.extend(
-                {
-                    "type": "audio_url",
-                    "audio_url": {"url": url},
-                    "role": "reference_audio",
-                }
-                for url in self._parse_urls(self.ref_audio_urls)
+                {"type": "audio_url", "audio_url": {"url": url}, "role": "reference_audio"}
+                for url in self.ref_audio_urls or []
             )
 
         return content
-
-    @staticmethod
-    def _parse_urls(text: str) -> list[str]:
-        """Parse a multiline text into a list of non-empty URLs."""
-        if not text:
-            return []
-        return [line.strip() for line in text.splitlines() if line.strip()]
 
     def _build_request_body(self) -> dict:
         """Build the API request body."""
