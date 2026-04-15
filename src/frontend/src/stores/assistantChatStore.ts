@@ -38,12 +38,23 @@ interface AssistantChatState {
 
 let messageCounter = 0;
 
+const MODEL_CONFIG_KEY = "assistant_model_config";
+
+function loadSavedModelConfig(): Record<string, unknown> | null {
+  try {
+    const saved = localStorage.getItem(MODEL_CONFIG_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const useAssistantChatStore = create<AssistantChatState>((set) => ({
   isOpen: false,
   isExpanded: false,
   messages: [],
   isLoading: false,
-  modelConfig: null,
+  modelConfig: loadSavedModelConfig(),
 
   toggleOpen: () => set((state) => ({ isOpen: !state.isOpen })),
 
@@ -118,5 +129,16 @@ export const useAssistantChatStore = create<AssistantChatState>((set) => ({
 
   clearMessages: () => set({ messages: [] }),
 
-  setModelConfig: (config) => set({ modelConfig: config }),
+  setModelConfig: (config) => {
+    try {
+      if (config) {
+        localStorage.setItem(MODEL_CONFIG_KEY, JSON.stringify(config));
+      } else {
+        localStorage.removeItem(MODEL_CONFIG_KEY);
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+    set({ modelConfig: config });
+  },
 }));
