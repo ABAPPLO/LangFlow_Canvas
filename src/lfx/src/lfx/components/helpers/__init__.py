@@ -12,8 +12,6 @@ if TYPE_CHECKING:
     from lfx.components.helpers.create_list import CreateListComponent
     from lfx.components.helpers.current_date import CurrentDateComponent
     from lfx.components.helpers.id_generator import IDGeneratorComponent
-    from lfx.components.helpers.media_preview_simple import MediaPreviewSimpleComponent
-    from lfx.components.helpers.media_preview_test import MediaPreviewTestComponent
     from lfx.components.helpers.memory import MemoryComponent
     from lfx.components.helpers.output_parser import OutputParserComponent
     from lfx.components.helpers.store_message import MessageStoreComponent
@@ -23,8 +21,6 @@ _dynamic_imports = {
     "CreateListComponent": "create_list",
     "CurrentDateComponent": "current_date",
     "IDGeneratorComponent": "id_generator",
-    "MediaPreviewSimpleComponent": "media_preview_simple",
-    "MediaPreviewTestComponent": "media_preview_test",
     "MemoryComponent": "memory",
     "OutputParserComponent": "output_parser",
     "MessageStoreComponent": "store_message",
@@ -35,8 +31,6 @@ __all__ = [
     "CreateListComponent",
     "CurrentDateComponent",
     "IDGeneratorComponent",
-    "MediaPreviewSimpleComponent",
-    "MediaPreviewTestComponent",
     "MemoryComponent",
     "MessageStoreComponent",
     "OutputParserComponent",
