@@ -110,6 +110,14 @@ def _expand_node(
             # Add as new field if not in template
             template[field_name] = {"value": field_value}
 
+    # Set 'selected' on each output so frontend cleanEdges can reconstruct
+    # correct handle IDs. Frontend uses: output.selected ?? output.types[0]
+    for out in template_data.get("outputs", []):
+        if isinstance(out, dict) and "types" in out and "selected" not in out:
+            types = out["types"]
+            if types:
+                out["selected"] = types[0]
+
     return {
         "id": compact_node.id,
         "type": "genericNode",
@@ -211,12 +219,16 @@ def _expand_edge(
 
     source_type = source_node["data"]["type"]
 
+    # Only use the first type for output_types to match frontend DOM handle
+    # Frontend NodeOutputParameter uses: [output.selected ?? output.types[0]]
+    single_output_types = [output_types[0]] if output_types else output_types
+
     # Build handle data objects
     source_handle_data = _build_source_handle_data(
         compact_edge.source,
         source_type,
         compact_edge.source_output,
-        output_types,
+        single_output_types,
     )
     target_handle_data = _build_target_handle_data(
         compact_edge.target,

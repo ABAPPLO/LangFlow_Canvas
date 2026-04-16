@@ -4,7 +4,12 @@ import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useFlowStore from "@/stores/flowStore";
 import type { NodeDataType } from "@/types/flow";
 import type { MediaUrl } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
-import { extractMediaUrls, dedupeMediaUrls } from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
+import {
+  extractMediaUrls,
+  dedupeMediaUrls,
+  extractTextContent,
+  dedupeAndTruncateText,
+} from "../outputModal/components/switchOutputView/components/mediaOutputView/utils";
 
 const COLLAPSE_THRESHOLD = 4;
 
@@ -51,16 +56,42 @@ function MediaGrid({ items }: { items: MediaUrl[] }) {
   );
 }
 
+function TextPreview({ texts }: { texts: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleTexts = expanded ? texts : texts.slice(0, 2);
+
+  return (
+    <div className="flex flex-col gap-1">
+      {visibleTexts.map((text, i) => (
+        <div
+          key={`txt-${i}`}
+          className="rounded-md border bg-muted/30 px-2 py-1 text-xs text-muted-foreground whitespace-pre-wrap break-words"
+        >
+          {text}
+        </div>
+      ))}
+      {texts.length > 2 && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          +{texts.length - 2} more
+        </button>
+      )}
+    </div>
+  );
+}
+
 function NodeMediaPreview({ data }: { data: NodeDataType }) {
   const flowPool = useFlowStore((state) => state.flowPool);
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation("components");
 
-  const mediaUrls = useMemo(() => {
+  const { mediaUrls, textItems } = useMemo(() => {
     const flowPoolNode = (flowPool[data.id] ?? [])[
       (flowPool[data.id]?.length ?? 1) - 1
     ];
-    if (!flowPoolNode?.data?.outputs) return [];
+    if (!flowPoolNode?.data?.outputs) return { mediaUrls: [], textItems: [] };
 
     const allMessages: unknown[] = [];
     for (const output of Object.values(
@@ -75,10 +106,17 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
       }
     }
 
-    return dedupeMediaUrls(extractMediaUrls(allMessages));
+    const urls = dedupeMediaUrls(extractMediaUrls(allMessages));
+    const texts = dedupeAndTruncateText(
+      extractTextContent(allMessages).filter(
+        (t) => !urls.some((u) => t.includes(u.url)),
+      ),
+    );
+
+    return { mediaUrls: urls, textItems: texts };
   }, [flowPool, data.id]);
 
-  if (mediaUrls.length === 0) return null;
+  if (mediaUrls.length === 0 && textItems.length === 0) return null;
 
   const needsCollapse = mediaUrls.length > COLLAPSE_THRESHOLD;
   const visibleItems = expanded
@@ -87,16 +125,21 @@ function NodeMediaPreview({ data }: { data: NodeDataType }) {
 
   return (
     <div className="border-t px-3 py-2">
-      <MediaGrid items={visibleItems} />
-      {needsCollapse && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-1.5 w-full rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          {expanded
-            ? t("mediaPreview.collapse")
-            : t("mediaPreview.expandAll", { count: mediaUrls.length })}
-        </button>
+      {textItems.length > 0 && <TextPreview texts={textItems} />}
+      {mediaUrls.length > 0 && (
+        <>
+          <MediaGrid items={visibleItems} />
+          {needsCollapse && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="mt-1.5 w-full rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {expanded
+                ? t("mediaPreview.collapse")
+                : t("mediaPreview.expandAll", { count: mediaUrls.length })}
+            </button>
+          )}
+        </>
       )}
     </div>
   );
