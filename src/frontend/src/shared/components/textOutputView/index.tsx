@@ -17,7 +17,7 @@ const TextOutputView = ({
     <>
       {" "}
       <Textarea
-        className={`w-full resize-none custom-scroll ${left ? "min-h-32" : "h-full"}`}
+        className={`w-full resize-none custom-scroll ${left ? "min-h-32" : "min-h-32 flex-1"}`}
         placeholder={"Empty"}
         readOnly
         value={value}

@@ -173,7 +173,7 @@ const SwitchOutputView: React.FC<SwitchOutputViewProps> = ({
       </Case>
 
       <Case condition={resultType === "text" && !isToolOutput}>
-        <div className="relative">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           {mediaUrls.length > 0 && showRaw && (
             <button
               onClick={() => setShowRaw(false)}
