@@ -56,7 +56,7 @@ export const switchCaseModalSize = (size: string) => {
       height = "";
       break;
     case "large":
-      minWidth = "min-w-[85vw]";
+      minWidth = "min-w-[85vw] max-w-[85vw]";
       height = "h-[80vh]";
       break;
     case "templates":
@@ -74,7 +74,7 @@ export const switchCaseModalSize = (size: string) => {
       break;
 
     case "md-thin":
-      minWidth = "min-w-[85vw]";
+      minWidth = "min-w-[85vw] max-w-[85vw]";
       height = "h-[90vh]";
       break;
 
@@ -84,7 +84,7 @@ export const switchCaseModalSize = (size: string) => {
       break;
 
     case "large-h-full":
-      minWidth = "min-w-[80vw]";
+      minWidth = "min-w-[80vw] max-w-[80vw]";
       height = "";
       break;
 

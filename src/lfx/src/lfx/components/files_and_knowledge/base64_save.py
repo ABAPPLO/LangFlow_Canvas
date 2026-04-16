@@ -10,6 +10,7 @@ import uuid
 from lfx.custom import Component
 from lfx.io import DropdownInput, HandleInput, MessageTextInput, Output
 from lfx.log.logger import logger
+from lfx.schema.image import IMAGE_ENDPOINT, Image
 from lfx.schema.message import Message
 from lfx.services.deps import get_storage_service
 
@@ -36,6 +37,9 @@ _MIME_TO_EXT: dict[str, str] = {
 }
 
 FORMAT_OPTIONS = list({ext.lstrip("."): ext for ext in _MIME_TO_EXT.values()}.keys())
+
+_MIN_BASE64_LENGTH = 20
+_MIN_EXTRACT_BASE64_LENGTH = 80
 
 
 def _parse_data_uri(value: str) -> tuple[str, str]:
@@ -100,27 +104,45 @@ class Base64SaveComponent(Component):
         data = self.data_input
 
         if isinstance(data, Message):
-            # Message may have text with base64 or files
             texts = []
             if data.text:
                 texts.append(str(data.text))
-            return texts
+            return self._extract_from_texts(texts)
 
         if isinstance(data, list):
-            return [str(item) for item in data if item]
+            return self._extract_from_texts([str(item) for item in data if item])
 
         if isinstance(data, str):
-            return [data]
+            return self._extract_from_texts([data])
 
         if hasattr(data, "data") and isinstance(data.data, dict):
-            # Data object - look for common keys
             for key in ("base64", "image", "data", "content", "url"):
                 val = data.data.get(key)
                 if isinstance(val, str) and val:
-                    return [val]
-            return [str(data.data)]
+                    return self._extract_from_texts([val])
+            return self._extract_from_texts([str(data.data)])
 
-        return [str(data)]
+        return self._extract_from_texts([str(data)])
+
+    def _extract_from_texts(self, texts: list[str]) -> list[str]:
+        """Extract data URI and standalone base64 chunks from mixed text."""
+        results: list[str] = []
+        for text in texts:
+            # 1. Extract data URIs: data:image/png;base64,xxxxx
+            data_uris = [m.group(0) for m in _DATA_URI_RE.finditer(text)]
+            results.extend(data_uris)
+
+            # 2. If no data URIs found, try the whole text as raw base64
+            if not data_uris and text.strip():
+                stripped = re.sub(r"\s+", "", text)
+                if re.fullmatch(r"[A-Za-z0-9+/]+=*", stripped) and len(stripped) > _MIN_BASE64_LENGTH:
+                    results.append(text.strip())
+                else:
+                    # Extract long base64-like substrings from mixed text
+                    pattern = rf"[A-Za-z0-9+/]{{{_MIN_EXTRACT_BASE64_LENGTH},}}={{0,2}}"
+                    results.extend(m.group(0) for m in re.finditer(pattern, text))
+
+        return results
 
     def _detect_extension(self, b64_str: str) -> str:
         """Detect file extension from data URI or user config."""
@@ -152,7 +174,8 @@ class Base64SaveComponent(Component):
             return Message(text="No base64 data found in input.")
 
         saved_paths: list[str] = []
-        files: list[str] = []
+        files: list[str | Image] = []
+        urls: list[str] = []
 
         for b64_str in b64_strings:
             # Handle multi-line or whitespace in base64
@@ -177,16 +200,18 @@ class Base64SaveComponent(Component):
             )
 
             path = f"{flow_id}/{file_name}"
+            url = f"{IMAGE_ENDPOINT}{path}"
             saved_paths.append(path)
-            files.append(path)
+            files.append(Image(path=path))
+            urls.append(url)
             logger.debug(f"Saved base64 file: {path} ({len(file_bytes)} bytes)")
 
         if not saved_paths:
             self.status = "No valid base64 data could be decoded."
             return Message(text="No valid base64 data could be decoded.")
 
-        # Build result text
-        result_text = saved_paths[0] if len(saved_paths) == 1 else "\n".join(saved_paths)
+        # Build result text with accessible URLs
+        result_text = urls[0] if len(urls) == 1 else "\n".join(urls)
 
         self.status = f"Saved {len(saved_paths)} file(s) to storage."
 
