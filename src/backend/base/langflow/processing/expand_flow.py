@@ -195,9 +195,11 @@ def _expand_edge(
     )
     output_types = source_output.get("types", []) if source_output else []
 
-    # If no outputs defined, use base_classes
+    # Fallback: use base_classes, then first output's types
     if not output_types:
         output_types = source_node_data.get("base_classes", [])
+    if not output_types and source_outputs:
+        output_types = source_outputs[0].get("types", [])
 
     # Find input types and field type from target node template
     target_template = target_node_data.get("template", {})

@@ -298,7 +298,6 @@ function handleSSEEvent(
       const edges = data.edges as Array<Record<string, unknown>>;
       if (nodes) {
         const flowStore = useFlowStore.getState();
-        // Merge: add new nodes, update existing by id, preserve others
         const currentNodes = flowStore.nodes;
         const currentEdges = flowStore.edges;
 
@@ -308,8 +307,8 @@ function handleSSEEvent(
           ...(nodes as never[]),
         ];
 
-        flowStore.setNodes(mergedNodes as never);
-
+        // Merge edges BEFORE setNodes so that cleanEdges (triggered by setNodes)
+        // validates against the complete edge set including assistant's new edges.
         if (edges) {
           const newEdgeMap = new Map(edges.map((e) => [e.id as string, e]));
           const mergedEdges = [
@@ -318,6 +317,9 @@ function handleSSEEvent(
           ];
           flowStore.setEdges(mergedEdges as never);
         }
+
+        // Now setNodes — cleanEdges inside will validate mergedEdges
+        flowStore.setNodes(mergedNodes as never);
       }
       break;
     }
