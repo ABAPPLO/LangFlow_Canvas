@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
+    from lfx.components.files_and_knowledge.base64_save import Base64SaveComponent
     from lfx.components.files_and_knowledge.directory import DirectoryComponent
     from lfx.components.files_and_knowledge.file import FileComponent
     from lfx.components.files_and_knowledge.retrieval import KnowledgeBaseComponent
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 
 _dynamic_imports = {
+    "Base64SaveComponent": "base64_save",
     "DirectoryComponent": "directory",
     "FileComponent": "file",
     "KnowledgeBaseComponent": "retrieval",
@@ -21,6 +23,7 @@ _dynamic_imports = {
 }
 
 __all__ = [
+    "Base64SaveComponent",
     "DirectoryComponent",
     "FileComponent",
     "KnowledgeBaseComponent",
