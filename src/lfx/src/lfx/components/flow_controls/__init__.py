@@ -7,6 +7,7 @@ from lfx.components._importing import import_mod
 if TYPE_CHECKING:
     from lfx.components.flow_controls.conditional_router import ConditionalRouterComponent
     from lfx.components.flow_controls.data_conditional_router import DataConditionalRouterComponent
+    from lfx.components.flow_controls.field_loop import FieldLoopComponent
     from lfx.components.flow_controls.flow_tool import FlowToolComponent
     from lfx.components.flow_controls.listen import ListenComponent
     from lfx.components.flow_controls.loop import LoopComponent
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 _dynamic_imports = {
     "ConditionalRouterComponent": "conditional_router",
     "DataConditionalRouterComponent": "data_conditional_router",
+    "FieldLoopComponent": "field_loop",
     "FlowToolComponent": "flow_tool",
     "ListenComponent": "listen",
     "LoopComponent": "loop",
@@ -30,6 +32,7 @@ _dynamic_imports = {
 __all__ = [
     "ConditionalRouterComponent",
     "DataConditionalRouterComponent",
+    "FieldLoopComponent",
     "FlowToolComponent",
     "ListenComponent",
     "LoopComponent",
