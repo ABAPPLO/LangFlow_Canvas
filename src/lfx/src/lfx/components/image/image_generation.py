@@ -50,11 +50,11 @@ class ImageGenerationComponent(Component):
         MessageTextInput(
             name="image_urls",
             display_name="Reference Image URLs",
-            info="Click '+' to add reference image URLs.",
+            info="Reference image URLs. Supports manual input or connection from other components.",
             is_list=True,
             list_add_label="Add Image URL",
             placeholder="Enter an image URL...",
-            input_types=[],
+            input_types=["Message", "Text"],
             dynamic=True,
             show=False,
         ),
@@ -173,6 +173,32 @@ class ImageGenerationComponent(Component):
 
         return api_key, base_url + "/", model_name
 
+    def _resolve_image_urls(self) -> list[str]:
+        """Normalize image_urls to a flat list of URL strings.
+
+        Handles: list of strings, single string (newline-separated),
+        Message objects, and mixed lists.
+        """
+        raw = self.image_urls
+        if not raw:
+            return []
+
+        urls: list[str] = []
+        if isinstance(raw, str):
+            urls.extend(line.strip() for line in raw.splitlines() if line.strip())
+        elif isinstance(raw, Message):
+            text = raw.get_text()
+            urls.extend(line.strip() for line in text.splitlines() if line.strip())
+        elif isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, str) and item.strip():
+                    urls.extend(line.strip() for line in item.splitlines() if line.strip())
+                elif isinstance(item, Message):
+                    text = item.get_text()
+                    urls.extend(line.strip() for line in text.splitlines() if line.strip())
+
+        return urls
+
     def generate_image(self) -> Message:
         """Generate an image using the selected model via OpenAI-compatible API."""
         api_key, base_url, model_name = self._resolve_credentials()
@@ -196,8 +222,9 @@ class ImageGenerationComponent(Component):
 
         # Add reference images for Text + Image(s) mode
         if self.generation_mode == MODE_TEXT_IMAGE and self.image_urls:
-            urls = self.image_urls
-            payload["image"] = urls if len(urls) > 1 else urls[0]
+            urls = self._resolve_image_urls()
+            if urls:
+                payload["image"] = urls if len(urls) > 1 else urls[0]
 
         headers = {
             "Authorization": f"Bearer {api_key}",

@@ -1,7 +1,17 @@
 from pathlib import Path
 
 from lfx.custom import Component
-from lfx.io import DropdownInput, MultilineInput, Output, SecretStrInput, StrInput
+from lfx.io import (
+    DropdownInput,
+    MessageTextInput,
+    MultilineInput,
+    Output,
+    SecretStrInput,
+    StrInput,
+)
+
+MODE_BATCH = "Batch Upload"
+MODE_SINGLE = "Single Upload"
 
 
 class COSUploaderComponent(Component):
@@ -42,22 +52,26 @@ class COSUploaderComponent(Component):
             advanced=True,
         ),
         DropdownInput(
-            name="mode",
-            display_name="Mode",
-            options=["Batch", "Single"],
-            value="Batch",
-            info="Batch：多行路径输入，多行 URL 输出；Single：单个文件路径输入，单个 URL 输出。",
+            name="upload_mode",
+            display_name="Upload Mode",
+            info="Batch：多文件路径手动填写；Single：单文件，支持组件连线输入。",
+            options=[MODE_BATCH, MODE_SINGLE],
+            value=MODE_BATCH,
+            real_time_refresh=True,
         ),
         MultilineInput(
             name="file_paths",
             display_name="File Paths",
             info="本地文件路径，每行一个。支持绝对路径和相对路径。",
-            show=False,
+            dynamic=True,
+            show=True,
         ),
-        StrInput(
+        MessageTextInput(
             name="file_path",
             display_name="File Path",
-            info="单个本地文件路径。支持绝对路径和相对路径。",
+            info="单个文件路径，支持手动输入或从其他组件连线。",
+            input_types=["Message", "Text"],
+            dynamic=True,
             show=False,
         ),
         DropdownInput(
@@ -70,15 +84,7 @@ class COSUploaderComponent(Component):
     ]
     outputs = [
         Output(display_name="URLs", name="urls", method="upload_files"),
-        Output(display_name="URL", name="url", method="upload_single"),
     ]
-
-    def update_build_config(self, build_config, field_value, field_name=None):
-        if field_name == "mode":
-            is_single = field_value == "Single"
-            build_config["file_paths"]["show"] = not is_single
-            build_config["file_path"]["show"] = is_single
-        return build_config
 
     def _cos_client(self):
         try:
@@ -107,13 +113,21 @@ class COSUploaderComponent(Component):
     def _build_url(self, key: str) -> str:
         return f"https://{self.bucket_name.strip()}.cos.{self.region.strip()}.myqcloud.com/{key}"
 
-    def _upload_one(self, client, fp: str) -> str | None:
-        p = Path(fp).expanduser().resolve()
+    def update_build_config(self, build_config, field_value, field_name=None):
+        if field_name == "upload_mode":
+            is_single = field_value == MODE_SINGLE
+            build_config["file_paths"]["show"] = not is_single
+            build_config["file_path"]["show"] = is_single
+        return build_config
+
+    def _upload_one(self, client, file_path: str) -> str | None:
+        """Upload a single file and return its URL, or None on failure."""
+        p = Path(file_path).expanduser().resolve()
         if not p.exists():
-            self.status = f"File not found: {fp}"
+            self.status = f"File not found: {file_path}"
             return None
 
-        key = self._build_key(fp)
+        key = self._build_key(file_path)
         client.upload_file(
             Bucket=self.bucket_name.strip(),
             Key=key,
@@ -123,27 +137,31 @@ class COSUploaderComponent(Component):
         return self._build_url(key)
 
     def upload_files(self) -> str:
+        mode = getattr(self, "upload_mode", MODE_BATCH)
+
+        if mode == MODE_SINGLE:
+            path = self.file_path
+            if not path:
+                return ""
+            from lfx.schema.message import Message
+
+            if isinstance(path, Message):
+                path = path.get_text()
+            path = str(path).strip()
+
+            client = self._cos_client()
+            url = self._upload_one(client, path)
+            if url:
+                self.status = f"Uploaded: {url}"
+            return url or ""
+
+        # Batch mode
         if not self.file_paths:
             return ""
 
         client = self._cos_client()
         paths = [p.strip() for p in self.file_paths.splitlines() if p.strip()]
-        urls = []
+        urls = [u for fp in paths if (u := self._upload_one(client, fp))]
 
-        for fp in paths:
-            url = self._upload_one(client, fp)
-            if url:
-                urls.append(url)
-
+        self.status = f"Uploaded {len(urls)} file(s)"
         return "\n".join(urls)
-
-    def upload_single(self) -> str:
-        if not self.file_path:
-            return ""
-
-        client = self._cos_client()
-        url = self._upload_one(client, self.file_path.strip())
-        if not url:
-            return ""
-        self.status = url
-        return url
