@@ -26,7 +26,7 @@ class FieldLoopComponent(Component):
         "Each field gets its own output port and downstream processing chain."
     )
     documentation: str = "https://docs.langflow.org/field-loop"
-    icon = "iterate"
+    icon = "table-2"
     name = "FieldLoop"
 
     inputs = [
