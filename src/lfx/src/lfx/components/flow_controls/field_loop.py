@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 from lfx.base.flow_controls.loop_utils import (
@@ -128,13 +129,20 @@ class FieldLoopComponent(Component):
         return Data(text="")
 
     def _get_field_configs(self, fields: list[str]) -> list[dict]:
-        """Identify loop body configuration for each field."""
+        """Identify loop body configuration for each field.
+
+        Supports two wiring patterns:
+        1. Feedback loop: downstream component feeds back to this loop (standard Loop behavior)
+        2. One-way chain: downstream component does NOT feed back (Field Loop specific)
+        """
         if not hasattr(self, "_vertex") or self._vertex is None:
             return []
 
         configs = []
         for i, field_name in enumerate(fields):
             output_name = f"field_{i + 1}"
+
+            # Try standard loop body detection first (works with feedback)
             body_vertices = get_loop_body_vertices(
                 vertex=self._vertex,
                 graph=self.graph,
@@ -151,6 +159,10 @@ class FieldLoopComponent(Component):
             )
             end_vertex = self.get_incoming_edge_by_target_param(output_name)
 
+            # If no feedback loop found, discover downstream chain forward
+            if not body_vertices and start_edge:
+                body_vertices, end_vertex = self._traverse_downstream(start_vertex)
+
             configs.append({
                 "field_name": field_name,
                 "output_name": output_name,
@@ -161,6 +173,61 @@ class FieldLoopComponent(Component):
             })
 
         return configs
+
+    def _traverse_downstream(self, start_vertex_id: str | None) -> tuple[set[str], str | None]:
+        """BFS forward from a field's first downstream vertex to discover the full chain.
+
+        Returns (vertex_ids, end_vertex_id). The end vertex is the last node
+        in the chain (no successors within the discovered set).
+        """
+        if not start_vertex_id:
+            return set(), None
+
+        visited: set[str] = {self._vertex.id}
+        queue = deque([start_vertex_id])
+        vertices: set[str] = set()
+
+        while queue:
+            current = queue.popleft()
+            if current in visited:
+                continue
+            visited.add(current)
+            vertices.add(current)
+
+            for successor_id in self.graph.successor_map.get(current, []):
+                if successor_id not in visited:
+                    queue.append(successor_id)
+
+        # Also include predecessors of discovered vertices (e.g. LLM model deps)
+        self._add_predecessors(vertices)
+
+        # End vertex: the one with no successors inside the chain
+        end_vertex = start_vertex_id
+        for vid in vertices:
+            successors = self.graph.successor_map.get(vid, [])
+            if not any(s in vertices for s in successors):
+                end_vertex = vid
+
+        return vertices, end_vertex
+
+    def _add_predecessors(self, vertices: set[str]) -> None:
+        """Recursively add all predecessors of vertices to include dependencies (e.g. LLM models)."""
+        visited: set[str] = set()
+        for vid in list(vertices):
+            self._add_preds_recursive(vid, vertices, visited)
+
+    def _add_preds_recursive(self, vertex_id: str, vertices: set[str], visited: set[str]) -> None:
+        """Recursively add predecessors, excluding the loop component itself."""
+        for pred_id, successors in self.graph.successor_map.items():
+            if (
+                vertex_id in successors
+                and pred_id != self._vertex.id
+                and pred_id not in visited
+                and pred_id not in vertices
+            ):
+                visited.add(pred_id)
+                vertices.add(pred_id)
+                self._add_preds_recursive(pred_id, vertices, visited)
 
     async def done_output(self) -> DataFrame:
         """Iterate through rows and execute item + field subgraphs."""
@@ -218,13 +285,13 @@ class FieldLoopComponent(Component):
 
             # Execute per-field loop bodies
             for config in configs:
+                value = row_data.get(config["field_name"], "")
+
                 if not config["body_vertices"]:
-                    value = row_data.get(config["field_name"], "")
-                    field_results[config["field_name"]].append(Data(data={config["field_name"]: value}))
+                    field_results[config["field_name"]].append(Data(text=str(value)))
                     continue
 
-                value = row_data.get(config["field_name"], "")
-                value_data = Data(data={config["field_name"]: value})
+                value_data = Data(text=str(value))
 
                 try:
                     results = await execute_loop_body(
@@ -239,7 +306,7 @@ class FieldLoopComponent(Component):
                     if results:
                         field_results[config["field_name"]].append(results[0])
                     else:
-                        field_results[config["field_name"]].append(Data(data={config["field_name"]: value}))
+                        field_results[config["field_name"]].append(Data(text=str(value)))
                 except Exception as e:
                     from lfx.log.logger import logger
 
@@ -264,8 +331,8 @@ class FieldLoopComponent(Component):
                     results_list = field_results[config["field_name"]]
                     if row_idx < len(results_list):
                         result = results_list[row_idx]
-                        if isinstance(result, Data) and isinstance(result.data, dict):
-                            row.update(result.data)
+                        if isinstance(result, Data):
+                            row[config["field_name"]] = result.text if result.text else str(result.data)
                         else:
                             row[config["field_name"]] = str(result)
                     else:
