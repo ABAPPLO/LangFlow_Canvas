@@ -48,14 +48,13 @@ class ImageGenerationComponent(Component):
             real_time_refresh=True,
         ),
         MessageTextInput(
-            name="image_urls",
+            name="ref_image_url",
             display_name="Reference Image URLs",
-            info="Reference image URLs. Supports manual input or connection from other components.",
-            is_list=True,
-            list_add_label="Add Image URL",
+            info="Reference image URLs. Supports manual input or connection from other components. Click + to add more.",
             placeholder="Enter an image URL...",
             input_types=["Message", "Text"],
-            dynamic=True,
+            is_list=True,
+            list_add_label="Add URL",
             show=False,
         ),
         # --- Generation parameters ---
@@ -121,8 +120,8 @@ class ImageGenerationComponent(Component):
             field_value=field_value,
         )
 
-        if field_name == "generation_mode" and "image_urls" in build_config:
-            build_config["image_urls"]["show"] = field_value == MODE_TEXT_IMAGE
+        if field_name == "generation_mode" and "ref_image_url" in build_config:
+            build_config["ref_image_url"]["show"] = field_value == MODE_TEXT_IMAGE
 
         return build_config
 
@@ -174,28 +173,26 @@ class ImageGenerationComponent(Component):
         return api_key, base_url + "/", model_name
 
     def _resolve_image_urls(self) -> list[str]:
-        """Normalize image_urls to a flat list of URL strings.
-
-        Handles: list of strings, single string (newline-separated),
-        Message objects, and mixed lists.
-        """
-        raw = self.image_urls
-        if not raw:
-            return []
-
+        """Collect URLs from the ref_image_url list field."""
         urls: list[str] = []
-        if isinstance(raw, str):
-            urls.extend(line.strip() for line in raw.splitlines() if line.strip())
+        raw = self.ref_image_url
+        if not raw:
+            return urls
+
+        # is_list=True delivers a list of strings or Messages
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, Message):
+                    text = item.get_text()
+                else:
+                    text = str(item)
+                if text.strip():
+                    urls.extend(line.strip() for line in text.splitlines() if line.strip())
         elif isinstance(raw, Message):
             text = raw.get_text()
             urls.extend(line.strip() for line in text.splitlines() if line.strip())
-        elif isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, str) and item.strip():
-                    urls.extend(line.strip() for line in item.splitlines() if line.strip())
-                elif isinstance(item, Message):
-                    text = item.get_text()
-                    urls.extend(line.strip() for line in text.splitlines() if line.strip())
+        elif isinstance(raw, str) and raw.strip():
+            urls.extend(line.strip() for line in raw.splitlines() if line.strip())
 
         return urls
 
@@ -221,7 +218,7 @@ class ImageGenerationComponent(Component):
         }
 
         # Add reference images for Text + Image(s) mode
-        if self.generation_mode == MODE_TEXT_IMAGE and self.image_urls:
+        if self.generation_mode == MODE_TEXT_IMAGE and self._resolve_image_urls():
             urls = self._resolve_image_urls()
             if urls:
                 payload["image"] = urls if len(urls) > 1 else urls[0]

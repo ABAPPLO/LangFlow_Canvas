@@ -75,10 +75,14 @@ def _import_components() -> tuple[dict, int]:
         RuntimeError: If component import fails
     """
     import asyncio
+    import os
 
     from lfx.interface.components import import_langflow_components
 
     try:
+        # Force full dynamic import to discover all components from disk
+        os.environ["LFX_DEV"] = "1"
+
         # Run the async function
         components_result = asyncio.run(import_langflow_components())
         modules_dict = components_result.get("components", {})
