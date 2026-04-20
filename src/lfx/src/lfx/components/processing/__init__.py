@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from lfx.components.processing.smart_extract import SmartExtractComponent
     from lfx.components.processing.store_message import MessageStoreComponent
     from lfx.components.processing.table_splitter import TableSplitterComponent
+    from lfx.components.processing.text_aggregator import TextAggregatorComponent
 
 _dynamic_imports = {
     "CombineTextComponent": "combine_text",
@@ -39,6 +40,7 @@ _dynamic_imports = {
     "SplitTextComponent": "split_text",
     "MessageStoreComponent": "store_message",
     "TableSplitterComponent": "table_splitter",
+    "TextAggregatorComponent": "text_aggregator",
 }
 
 __all__ = [
@@ -56,6 +58,7 @@ __all__ = [
     "SmartExtractComponent",
     "SplitTextComponent",
     "TableSplitterComponent",
+    "TextAggregatorComponent",
     "TypeConverterComponent",
 ]
 
