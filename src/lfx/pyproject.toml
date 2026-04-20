@@ -46,6 +46,7 @@ dependencies = [
     "markitdown>=0.1.4,<2.0.0",
     "setuptools>=80.0.0,<81.0.0",
     "wheel>=0.46.2,<1.0.0",
+    "cos-python-sdk-v5>=1.9.30,<2.0.0",
 ]
 
 [project.scripts]

@@ -5,13 +5,15 @@ from typing import TYPE_CHECKING, Any
 from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
+    from .video_concat import VideoConcatenatorComponent
     from .video_generation import VideoGenerationComponent
 
 _dynamic_imports = {
+    "VideoConcatenatorComponent": "video_concat",
     "VideoGenerationComponent": "video_generation",
 }
 
-__all__ = ["VideoGenerationComponent"]
+__all__ = ["VideoConcatenatorComponent", "VideoGenerationComponent"]
 
 
 def __getattr__(attr_name: str) -> Any:
