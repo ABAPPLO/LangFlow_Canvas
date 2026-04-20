@@ -19,6 +19,8 @@ MODE_TEXT = "Text to Image"
 MODE_TEXT_IMAGE = "Text + Image(s)"
 MODE_OPTIONS = [MODE_TEXT, MODE_TEXT_IMAGE]
 
+REF_IMAGE_PREFIX = "ref_image_"
+
 
 class SeedreamImageComponent(Component):
     display_name = "Seedream Image"
@@ -60,16 +62,12 @@ class SeedreamImageComponent(Component):
             value=MODE_TEXT,
             real_time_refresh=True,
         ),
-        MessageTextInput(
-            name="image",
-            display_name="Reference Image URLs",
-            info="Reference image URLs. Supports manual input or connection from other components (max 14).",
-            is_list=True,
-            list_add_label="Add Image URL",
-            placeholder="Enter an image URL...",
-            input_types=["Message", "Text"],
-            dynamic=True,
-            show=False,
+        IntInput(
+            name="ref_image_count",
+            display_name="Reference Image Count",
+            info="Number of reference image inputs (max 14). Change to add or remove entries.",
+            value=1,
+            real_time_refresh=True,
         ),
         DropdownInput(
             name="size",
@@ -142,29 +140,78 @@ class SeedreamImageComponent(Component):
         self._generation_info: dict | None = None
 
     def update_build_config(self, build_config, field_value, field_name=None):
-        if field_name == "generation_mode" and "image" in build_config:
-            build_config["image"]["show"] = field_value == MODE_TEXT_IMAGE
+        if field_name == "generation_mode":
+            is_text_image = field_value == MODE_TEXT_IMAGE
+
+            # Remove old dynamic ref image fields when switching modes
+            to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            if is_text_image:
+                count = min(14, max(1, int(build_config.get("ref_image_count", {}).get("value", 1))))
+                for i in range(1, count + 1):
+                    f_name = f"{REF_IMAGE_PREFIX}{i}"
+                    build_config[f_name] = {
+                        "type": "str",
+                        "input_types": ["Message", "Text"],
+                        "name": f_name,
+                        "display_name": f"Image {i}",
+                        "value": "",
+                        "show": True,
+                        "advanced": False,
+                        "multiline": False,
+                        "placeholder": "Enter URL or connect component...",
+                    }
+
+        if field_name == "ref_image_count":
+            # Only create dynamic fields in Text + Image mode
+            mode = build_config.get("generation_mode", {}).get("value", MODE_TEXT)
+            if mode != MODE_TEXT_IMAGE:
+                return build_config
+
+            count = min(14, max(1, int(field_value))) if field_value else 1
+
+            # Remove old dynamic ref image fields
+            to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            for i in range(1, count + 1):
+                f_name = f"{REF_IMAGE_PREFIX}{i}"
+                build_config[f_name] = {
+                    "type": "str",
+                    "input_types": ["Message", "Text"],
+                    "name": f_name,
+                    "display_name": f"Image {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": False,
+                    "placeholder": "Enter URL or connect component...",
+                }
+
         return build_config
 
     def _resolve_image_urls(self) -> list[str]:
-        """Normalize image input to a flat list of URL strings."""
-        raw = getattr(self, "image", None)
-        if not raw:
-            return []
-
+        """Collect URLs from all dynamic reference image fields."""
         urls: list[str] = []
-        if isinstance(raw, str):
-            urls.extend(line.strip() for line in raw.splitlines() if line.strip())
-        elif isinstance(raw, Message):
-            text = raw.get_text()
-            urls.extend(line.strip() for line in text.splitlines() if line.strip())
-        elif isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, str) and item.strip():
-                    urls.extend(line.strip() for line in item.splitlines() if line.strip())
-                elif isinstance(item, Message):
-                    text = item.get_text()
-                    urls.extend(line.strip() for line in text.splitlines() if line.strip())
+        i = 1
+        while True:
+            val = getattr(self, f"{REF_IMAGE_PREFIX}{i}", None)
+            if val is None:
+                break
+            if isinstance(val, Message):
+                text = val.get_text().strip()
+            elif isinstance(val, str):
+                text = val.strip()
+            elif val:
+                text = str(val).strip()
+            else:
+                text = ""
+            if text:
+                urls.extend(line.strip() for line in text.splitlines() if line.strip())
+            i += 1
         return urls
 
     def _build_request_body(self) -> dict:

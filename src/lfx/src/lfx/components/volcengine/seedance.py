@@ -230,7 +230,7 @@ class SeedanceVideoComponent(Component):
             build_config["web_search"]["show"] = mode == MODE_TEXT
 
             is_multimodal = mode == MODE_MULTIMODAL
-            for key in ("ref_image_urls", "ref_image_count", "ref_video_urls", "ref_video_count", "ref_audio_urls", "ref_audio_count"):
+            for key in ("ref_image_urls", "ref_video_urls", "ref_audio_urls"):
                 if key in build_config:
                     build_config[key]["show"] = is_multimodal
 
@@ -246,6 +246,11 @@ class SeedanceVideoComponent(Component):
 
         # Handle ref count changes — create/remove dynamic input handles
         if field_name in ("ref_image_count", "ref_video_count", "ref_audio_count"):
+            # Only create dynamic fields in Multimodal mode
+            mode = build_config.get("mode", {}).get("value", MODE_TEXT)
+            if mode != MODE_MULTIMODAL:
+                return build_config
+
             count = max(0, int(field_value)) if field_value else 0
 
             if field_name == "ref_image_count":

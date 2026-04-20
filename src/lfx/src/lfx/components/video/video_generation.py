@@ -86,8 +86,6 @@ class VideoGenerationComponent(Component):
             info="Number of reference image inputs (max 9).",
             value=1,
             real_time_refresh=True,
-            dynamic=True,
-            show=False,
         ),
         IntInput(
             name="ref_video_count",
@@ -95,8 +93,6 @@ class VideoGenerationComponent(Component):
             info="Number of reference video inputs (max 3).",
             value=1,
             real_time_refresh=True,
-            dynamic=True,
-            show=False,
         ),
         IntInput(
             name="ref_audio_count",
@@ -104,8 +100,6 @@ class VideoGenerationComponent(Component):
             info="Number of reference audio inputs (max 3).",
             value=1,
             real_time_refresh=True,
-            dynamic=True,
-            show=False,
         ),
         # --- Generation parameters ---
         DropdownInput(
@@ -194,9 +188,6 @@ class VideoGenerationComponent(Component):
             build_config["last_frame_url"]["show"] = mode == MODE_FIRST_LAST
 
             is_multimodal = mode == MODE_MULTIMODAL
-            build_config["ref_image_count"]["show"] = is_multimodal
-            build_config["ref_video_count"]["show"] = is_multimodal
-            build_config["ref_audio_count"]["show"] = is_multimodal
 
             # Clear all dynamic ref fields
             for prefix in (REF_IMAGE_PREFIX, REF_VIDEO_PREFIX, REF_AUDIO_PREFIX):
@@ -210,6 +201,11 @@ class VideoGenerationComponent(Component):
 
         # Handle ref count changes
         if field_name in ("ref_image_count", "ref_video_count", "ref_audio_count"):
+            # Only create dynamic fields in Multimodal mode
+            mode = build_config.get("generation_mode", {}).get("value", MODE_TEXT)
+            if mode != MODE_MULTIMODAL:
+                return build_config
+
             count = max(0, int(field_value)) if field_value else 0
 
             if field_name == "ref_image_count":

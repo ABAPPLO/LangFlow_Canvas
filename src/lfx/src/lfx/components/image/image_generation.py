@@ -54,8 +54,6 @@ class ImageGenerationComponent(Component):
             info="Number of reference image inputs. Change to add or remove entries.",
             value=1,
             real_time_refresh=True,
-            dynamic=True,
-            show=False,
         ),
         # --- Generation parameters ---
         DropdownInput(
@@ -122,9 +120,8 @@ class ImageGenerationComponent(Component):
 
         if field_name == "generation_mode":
             is_text_image = field_value == MODE_TEXT_IMAGE
-            build_config["ref_image_count"]["show"] = is_text_image
 
-            # Remove old dynamic ref image fields
+            # Remove old dynamic ref image fields when switching modes
             to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
             for k in to_remove:
                 del build_config[k]
@@ -147,6 +144,11 @@ class ImageGenerationComponent(Component):
 
         if field_name == "ref_image_count":
             count = max(1, int(field_value)) if field_value else 1
+
+            # Only create dynamic fields if in Text + Image mode
+            mode = build_config.get("generation_mode", {}).get("value", MODE_TEXT)
+            if mode != MODE_TEXT_IMAGE:
+                return build_config
 
             # Remove old dynamic ref image fields
             to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
