@@ -24,23 +24,9 @@ MODE_MULTIMODAL = "Multimodal"
 
 MODE_OPTIONS = [MODE_TEXT, MODE_FIRST_FRAME, MODE_FIRST_LAST, MODE_MULTIMODAL]
 
-# Mode-specific fields that are hidden by default
-MODE_SPECIFIC_FIELDS = [
-    "first_frame_url",
-    "last_frame_url",
-    "ref_image_urls",
-    "ref_video_urls",
-    "ref_audio_urls",
-    "web_search",
-]
-
-# Which fields to show for each mode
-MODE_FIELD_MAP: dict[str, list[str]] = {
-    MODE_TEXT: ["web_search"],
-    MODE_FIRST_FRAME: ["first_frame_url"],
-    MODE_FIRST_LAST: ["first_frame_url", "last_frame_url"],
-    MODE_MULTIMODAL: ["ref_image_urls", "ref_video_urls", "ref_audio_urls"],
-}
+REF_IMAGE_PREFIX = "ref_image_"
+REF_VIDEO_PREFIX = "ref_video_"
+REF_AUDIO_PREFIX = "ref_audio_"
 
 
 class TaskError(Exception):
@@ -91,6 +77,72 @@ class SeedanceVideoComponent(Component):
             info="Text prompt for video generation.",
             required=True,
         ),
+        # --- Mode-specific: single URL fields ---
+        MessageTextInput(
+            name="first_frame_url",
+            display_name="First Frame Image URL",
+            info="URL of the first frame image.",
+            dynamic=True,
+            show=False,
+        ),
+        MessageTextInput(
+            name="last_frame_url",
+            display_name="Last Frame Image URL",
+            info="URL of the last frame image.",
+            dynamic=True,
+            show=False,
+        ),
+        BoolInput(
+            name="web_search",
+            display_name="Web Search",
+            info="Enable web search (Text to Video mode only).",
+            value=False,
+            dynamic=True,
+            show=False,
+        ),
+        # --- Multimodal: multiline text input + dynamic handle inputs ---
+        MultilineInput(
+            name="ref_image_urls",
+            display_name="Reference Image URLs",
+            info="One URL per line (max 9 images). Or use the count below to add input handles.",
+            dynamic=True,
+            show=False,
+        ),
+        IntInput(
+            name="ref_image_count",
+            display_name="+ Image Inputs",
+            info="Increase to add connection handles for images (max 9).",
+            value=0,
+            real_time_refresh=True,
+        ),
+        MultilineInput(
+            name="ref_video_urls",
+            display_name="Reference Video URLs",
+            info="One URL per line (max 3 videos). Or use the count below to add input handles.",
+            dynamic=True,
+            show=False,
+        ),
+        IntInput(
+            name="ref_video_count",
+            display_name="+ Video Inputs",
+            info="Increase to add connection handles for videos (max 3).",
+            value=0,
+            real_time_refresh=True,
+        ),
+        MultilineInput(
+            name="ref_audio_urls",
+            display_name="Reference Audio URLs",
+            info="One URL per line (max 3 audios). Or use the count below to add input handles.",
+            dynamic=True,
+            show=False,
+        ),
+        IntInput(
+            name="ref_audio_count",
+            display_name="+ Audio Inputs",
+            info="Increase to add connection handles for audios (max 3).",
+            value=0,
+            real_time_refresh=True,
+        ),
         # --- Generation parameters ---
         DropdownInput(
             name="resolution",
@@ -130,50 +182,6 @@ class SeedanceVideoComponent(Component):
             value=False,
             advanced=True,
         ),
-        # --- Mode-specific fields (hidden by default) ---
-        BoolInput(
-            name="web_search",
-            display_name="Web Search",
-            info="Enable web search (Text to Video mode only).",
-            value=False,
-            dynamic=True,
-            show=False,
-        ),
-        MessageTextInput(
-            name="first_frame_url",
-            display_name="First Frame Image URL",
-            info="URL of the first frame image.",
-            dynamic=True,
-            show=False,
-        ),
-        MessageTextInput(
-            name="last_frame_url",
-            display_name="Last Frame Image URL",
-            info="URL of the last frame image.",
-            dynamic=True,
-            show=False,
-        ),
-        MultilineInput(
-            name="ref_image_urls",
-            display_name="Reference Image URLs",
-            info="One URL per line (max 9 images).",
-            dynamic=True,
-            show=False,
-        ),
-        MultilineInput(
-            name="ref_video_urls",
-            display_name="Reference Video URLs",
-            info="One URL per line (max 3 videos).",
-            dynamic=True,
-            show=False,
-        ),
-        MultilineInput(
-            name="ref_audio_urls",
-            display_name="Reference Audio URLs",
-            info="One URL per line (max 3 audios).",
-            dynamic=True,
-            show=False,
-        ),
         # --- Polling settings ---
         IntInput(
             name="poll_interval",
@@ -212,14 +220,130 @@ class SeedanceVideoComponent(Component):
         self._task_info: dict | None = None
 
     def update_build_config(self, build_config, field_value, field_name=None):
+        # Handle mode switching
         if field_name == "mode":
-            for f in MODE_SPECIFIC_FIELDS:
-                if f in build_config:
-                    build_config[f]["show"] = False
-            for f in MODE_FIELD_MAP.get(field_value, []):
-                if f in build_config:
-                    build_config[f]["show"] = True
+            mode = field_value
+
+            # Show/hide mode-specific fields
+            build_config["first_frame_url"]["show"] = mode in (MODE_FIRST_FRAME, MODE_FIRST_LAST)
+            build_config["last_frame_url"]["show"] = mode == MODE_FIRST_LAST
+            build_config["web_search"]["show"] = mode == MODE_TEXT
+
+            is_multimodal = mode == MODE_MULTIMODAL
+            for key in ("ref_image_urls", "ref_image_count", "ref_video_urls", "ref_video_count", "ref_audio_urls", "ref_audio_count"):
+                if key in build_config:
+                    build_config[key]["show"] = is_multimodal
+
+            # Clear all dynamic ref fields
+            for prefix in (REF_IMAGE_PREFIX, REF_VIDEO_PREFIX, REF_AUDIO_PREFIX):
+                to_remove = [k for k in build_config if k.startswith(prefix) and k[len(prefix):].isdigit()]
+                for k in to_remove:
+                    del build_config[k]
+
+            # Re-create dynamic fields for multimodal mode
+            if is_multimodal:
+                self._create_dynamic_ref_fields(build_config)
+
+        # Handle ref count changes — create/remove dynamic input handles
+        if field_name in ("ref_image_count", "ref_video_count", "ref_audio_count"):
+            count = max(0, int(field_value)) if field_value else 0
+
+            if field_name == "ref_image_count":
+                prefix, label, cap = REF_IMAGE_PREFIX, "Image", 9
+            elif field_name == "ref_video_count":
+                prefix, label, cap = REF_VIDEO_PREFIX, "Video", 3
+            else:
+                prefix, label, cap = REF_AUDIO_PREFIX, "Audio", 3
+
+            count = min(count, cap)
+
+            # Remove old dynamic fields for this prefix
+            to_remove = [k for k in build_config if k.startswith(prefix) and k[len(prefix):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            for i in range(1, count + 1):
+                f_name = f"{prefix}{i}"
+                build_config[f_name] = {
+                    "type": "str",
+                    "input_types": ["Message", "Text"],
+                    "name": f_name,
+                    "display_name": f"{label} {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": False,
+                    "placeholder": f"Enter {label.lower()} URL or connect...",
+                }
+
         return build_config
+
+    def _create_dynamic_ref_fields(self, build_config) -> None:
+        """Create dynamic reference fields based on current count values."""
+        for prefix, count_key, label, cap in [
+            (REF_IMAGE_PREFIX, "ref_image_count", "Image", 9),
+            (REF_VIDEO_PREFIX, "ref_video_count", "Video", 3),
+            (REF_AUDIO_PREFIX, "ref_audio_count", "Audio", 3),
+        ]:
+            count = min(
+                max(0, int(build_config.get(count_key, {}).get("value", 0))),
+                cap,
+            )
+            for i in range(1, count + 1):
+                f_name = f"{prefix}{i}"
+                build_config[f_name] = {
+                    "type": "str",
+                    "input_types": ["Message", "Text"],
+                    "name": f_name,
+                    "display_name": f"{label} {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": False,
+                    "placeholder": f"Enter {label.lower()} URL or connect...",
+                }
+
+    @staticmethod
+    def _parse_multiline(text: str) -> list[str]:
+        """Parse a multiline text into a list of non-empty URLs."""
+        if not text:
+            return []
+        return [line.strip() for line in text.splitlines() if line.strip()]
+
+    def _collect_ref_urls(self, prefix: str) -> list[str]:
+        """Collect URLs from dynamic reference fields with the given prefix."""
+        urls: list[str] = []
+        i = 1
+        while True:
+            val = getattr(self, f"{prefix}{i}", None)
+            if val is None:
+                break
+            if isinstance(val, Message):
+                text = val.get_text().strip()
+            elif isinstance(val, str):
+                text = val.strip()
+            elif val:
+                text = str(val).strip()
+            else:
+                text = ""
+            if text:
+                urls.extend(line.strip() for line in text.splitlines() if line.strip())
+            i += 1
+        return urls
+
+    def _get_all_ref_urls(self, multiline_attr: str, prefix: str) -> list[str]:
+        """Combine URLs from multiline text input + dynamic handle inputs."""
+        urls: list[str] = []
+
+        # From multiline text
+        raw = getattr(self, multiline_attr, "")
+        if raw:
+            urls.extend(self._parse_multiline(raw))
+
+        # From dynamic handle fields
+        urls.extend(self._collect_ref_urls(prefix))
+
+        return urls
 
     def _build_content(self) -> list[dict]:
         """Build the content list based on the selected mode."""
@@ -253,39 +377,26 @@ class SeedanceVideoComponent(Component):
                 })
 
         elif mode == MODE_MULTIMODAL:
-            content.extend(
-                {
+            for url in self._get_all_ref_urls("ref_image_urls", REF_IMAGE_PREFIX):
+                content.append({
                     "type": "image_url",
                     "image_url": {"url": url},
                     "role": "reference_image",
-                }
-                for url in self._parse_urls(self.ref_image_urls)
-            )
-            content.extend(
-                {
+                })
+            for url in self._get_all_ref_urls("ref_video_urls", REF_VIDEO_PREFIX):
+                content.append({
                     "type": "video_url",
                     "video_url": {"url": url},
                     "role": "reference_video",
-                }
-                for url in self._parse_urls(self.ref_video_urls)
-            )
-            content.extend(
-                {
+                })
+            for url in self._get_all_ref_urls("ref_audio_urls", REF_AUDIO_PREFIX):
+                content.append({
                     "type": "audio_url",
                     "audio_url": {"url": url},
                     "role": "reference_audio",
-                }
-                for url in self._parse_urls(self.ref_audio_urls)
-            )
+                })
 
         return content
-
-    @staticmethod
-    def _parse_urls(text: str) -> list[str]:
-        """Parse a multiline text into a list of non-empty URLs."""
-        if not text:
-            return []
-        return [line.strip() for line in text.splitlines() if line.strip()]
 
     def _build_request_body(self) -> dict:
         """Build the full API request body."""
@@ -381,14 +492,12 @@ class SeedanceVideoComponent(Component):
 
     def _extract_video_url(self, data: dict) -> str:
         """Extract video URL from the task response."""
-        # Standard response: content.video_url
         content = data.get("content")
         if isinstance(content, dict):
             url = content.get("video_url", "")
             if url:
                 return url
 
-        # Fallback: content as a list of items
         if isinstance(content, list):
             for item in content:
                 if item.get("type") == "video_url":

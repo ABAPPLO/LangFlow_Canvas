@@ -11,7 +11,6 @@ from lfx.inputs import (
     BoolInput,
     DropdownInput,
     IntInput,
-    MessageTextInput,
     MultilineInput,
 )
 from lfx.io import MessageInput, ModelInput, Output
@@ -25,20 +24,9 @@ MODE_MULTIMODAL = "Multimodal"
 
 MODE_OPTIONS = [MODE_TEXT, MODE_IMAGE, MODE_FIRST_LAST, MODE_MULTIMODAL]
 
-MODE_SPECIFIC_FIELDS = [
-    "image_url",
-    "last_frame_url",
-    "ref_image_urls",
-    "ref_video_urls",
-    "ref_audio_urls",
-]
-
-MODE_FIELD_MAP: dict[str, list[str]] = {
-    MODE_TEXT: [],
-    MODE_IMAGE: ["image_url"],
-    MODE_FIRST_LAST: ["image_url", "last_frame_url"],
-    MODE_MULTIMODAL: ["ref_image_urls", "ref_video_urls", "ref_audio_urls"],
-}
+REF_IMAGE_PREFIX = "ref_image_"
+REF_VIDEO_PREFIX = "ref_video_"
+REF_AUDIO_PREFIX = "ref_audio_"
 
 
 class TaskError(Exception):
@@ -76,7 +64,7 @@ class VideoGenerationComponent(Component):
             value=MODE_TEXT,
             real_time_refresh=True,
         ),
-        # --- Mode-specific fields (hidden by default) ---
+        # --- Image to Video / First & Last Frame ---
         MultilineInput(
             name="image_url",
             display_name="First Frame Image URL",
@@ -91,36 +79,31 @@ class VideoGenerationComponent(Component):
             dynamic=True,
             show=False,
         ),
-        MessageTextInput(
-            name="ref_image_urls",
-            display_name="Reference Image URLs",
-            info="Click '+' to add reference image URLs (max 9).",
-            is_list=True,
-            list_add_label="Add Image URL",
-            placeholder="Enter an image URL...",
-            input_types=[],
+        # --- Multimodal reference counts ---
+        IntInput(
+            name="ref_image_count",
+            display_name="Ref Image Count",
+            info="Number of reference image inputs (max 9).",
+            value=1,
+            real_time_refresh=True,
             dynamic=True,
             show=False,
         ),
-        MessageTextInput(
-            name="ref_video_urls",
-            display_name="Reference Video URLs",
-            info="Click '+' to add reference video URLs (max 3).",
-            is_list=True,
-            list_add_label="Add Video URL",
-            placeholder="Enter a video URL...",
-            input_types=[],
+        IntInput(
+            name="ref_video_count",
+            display_name="Ref Video Count",
+            info="Number of reference video inputs (max 3).",
+            value=1,
+            real_time_refresh=True,
             dynamic=True,
             show=False,
         ),
-        MessageTextInput(
-            name="ref_audio_urls",
-            display_name="Reference Audio URLs",
-            info="Click '+' to add reference audio URLs (max 3).",
-            is_list=True,
-            list_add_label="Add Audio URL",
-            placeholder="Enter an audio URL...",
-            input_types=[],
+        IntInput(
+            name="ref_audio_count",
+            display_name="Ref Audio Count",
+            info="Number of reference audio inputs (max 3).",
+            value=1,
+            real_time_refresh=True,
             dynamic=True,
             show=False,
         ),
@@ -202,21 +185,90 @@ class VideoGenerationComponent(Component):
             field_value=field_value,
         )
 
+        # Handle mode switching
         if field_name == "generation_mode":
-            for f in MODE_SPECIFIC_FIELDS:
-                if f in build_config:
-                    build_config[f]["show"] = False
-            for f in MODE_FIELD_MAP.get(field_value, []):
-                if f in build_config:
-                    build_config[f]["show"] = True
+            mode = field_value
+
+            # Show/hide mode-specific fields
+            build_config["image_url"]["show"] = mode in (MODE_IMAGE, MODE_FIRST_LAST)
+            build_config["last_frame_url"]["show"] = mode == MODE_FIRST_LAST
+
+            is_multimodal = mode == MODE_MULTIMODAL
+            build_config["ref_image_count"]["show"] = is_multimodal
+            build_config["ref_video_count"]["show"] = is_multimodal
+            build_config["ref_audio_count"]["show"] = is_multimodal
+
+            # Clear all dynamic ref fields
+            for prefix in (REF_IMAGE_PREFIX, REF_VIDEO_PREFIX, REF_AUDIO_PREFIX):
+                to_remove = [k for k in build_config if k.startswith(prefix) and k[len(prefix):].isdigit()]
+                for k in to_remove:
+                    del build_config[k]
+
+            # Re-create dynamic fields for multimodal mode
+            if is_multimodal:
+                self._create_dynamic_ref_fields(build_config)
+
+        # Handle ref count changes
+        if field_name in ("ref_image_count", "ref_video_count", "ref_audio_count"):
+            count = max(0, int(field_value)) if field_value else 0
+
+            if field_name == "ref_image_count":
+                prefix, label, cap = REF_IMAGE_PREFIX, "Image", 9
+            elif field_name == "ref_video_count":
+                prefix, label, cap = REF_VIDEO_PREFIX, "Video", 3
+            else:
+                prefix, label, cap = REF_AUDIO_PREFIX, "Audio", 3
+
+            count = min(count, cap)
+
+            # Remove old fields for this prefix
+            to_remove = [k for k in build_config if k.startswith(prefix) and k[len(prefix):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            for i in range(1, count + 1):
+                f_name = f"{prefix}{i}"
+                build_config[f_name] = {
+                    "type": "str",
+                    "input_types": ["Message", "Text"],
+                    "name": f_name,
+                    "display_name": f"{label} {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": False,
+                    "placeholder": f"Enter {label.lower()} URL or connect...",
+                }
+
         return build_config
 
-    def _resolve_credentials(self) -> tuple[str, str, str]:
-        """Resolve API key, base URL and model name from Model Providers or component inputs.
+    def _create_dynamic_ref_fields(self, build_config) -> None:
+        """Create dynamic reference fields based on current count values."""
+        for prefix, count_key, label, cap in [
+            (REF_IMAGE_PREFIX, "ref_image_count", "Image", 9),
+            (REF_VIDEO_PREFIX, "ref_video_count", "Video", 3),
+            (REF_AUDIO_PREFIX, "ref_audio_count", "Audio", 3),
+        ]:
+            count = min(
+                max(0, int(build_config.get(count_key, {}).get("value", 1))),
+                cap,
+            )
+            for i in range(1, count + 1):
+                f_name = f"{prefix}{i}"
+                build_config[f_name] = {
+                    "type": "str",
+                    "input_types": ["Message", "Text"],
+                    "name": f_name,
+                    "display_name": f"{label} {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": False,
+                    "placeholder": f"Enter {label.lower()} URL or connect...",
+                }
 
-        Returns:
-            Tuple of (api_key, base_url, model_name)
-        """
+    def _resolve_credentials(self) -> tuple[str, str, str]:
+        """Resolve API key, base URL and model name from Model Providers or component inputs."""
         from lfx.base.models.unified_models import (
             get_all_variables_for_provider,
             get_api_key_for_provider,
@@ -231,16 +283,11 @@ class VideoGenerationComponent(Component):
         model_name = model_info.get("name", "")
         provider = model_info.get("provider", "")
 
-        # Resolve API key from Model Providers
         api_key = get_api_key_for_provider(self.user_id, provider)
         if not api_key:
-            msg = (
-                f"{provider} API key is required. "
-                "Please configure it in Model Providers."
-            )
+            msg = f"{provider} API key is required. Please configure it in Model Providers."
             raise ValueError(msg)
 
-        # Resolve base URL: component input → Model Providers → env var
         base_url = None
         provider_vars = get_all_variables_for_provider(self.user_id, provider)
         for var_key, value in provider_vars.items():
@@ -249,18 +296,35 @@ class VideoGenerationComponent(Component):
                 break
 
         if not base_url:
-            msg = (
-                f"{provider} Base URL is required. "
-                "Please configure it in Model Providers or provide it in the component."
-            )
+            msg = f"{provider} Base URL is required. Please configure it in Model Providers."
             raise ValueError(msg)
 
-        # Ensure base_url ends with /v1/ for OpenAI-compatible APIs
         base_url = base_url.rstrip("/")
         if not base_url.endswith("/v1"):
             base_url += "/v1"
 
         return api_key, base_url + "/", model_name
+
+    def _collect_ref_urls(self, prefix: str) -> list[str]:
+        """Collect URLs from dynamic reference fields with the given prefix."""
+        urls: list[str] = []
+        i = 1
+        while True:
+            val = getattr(self, f"{prefix}{i}", None)
+            if val is None:
+                break
+            if isinstance(val, Message):
+                text = val.get_text().strip()
+            elif isinstance(val, str):
+                text = val.strip()
+            elif val:
+                text = str(val).strip()
+            else:
+                text = ""
+            if text:
+                urls.extend(line.strip() for line in text.splitlines() if line.strip())
+            i += 1
+        return urls
 
     def _build_content(self) -> list[dict]:
         """Build the content list based on the selected generation mode."""
@@ -276,45 +340,45 @@ class VideoGenerationComponent(Component):
 
         if mode == MODE_IMAGE:
             if self.image_url:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": self.image_url.strip()},
-                        "role": "first_frame",
-                    }
-                )
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": self.image_url.strip()},
+                    "role": "first_frame",
+                })
 
         elif mode == MODE_FIRST_LAST:
             if self.image_url:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": self.image_url.strip()},
-                        "role": "first_frame",
-                    }
-                )
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": self.image_url.strip()},
+                    "role": "first_frame",
+                })
             if self.last_frame_url:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": self.last_frame_url.strip()},
-                        "role": "last_frame",
-                    }
-                )
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": self.last_frame_url.strip()},
+                    "role": "last_frame",
+                })
 
         elif mode == MODE_MULTIMODAL:
-            content.extend(
-                {"type": "image_url", "image_url": {"url": url}, "role": "reference_image"}
-                for url in self.ref_image_urls or []
-            )
-            content.extend(
-                {"type": "video_url", "video_url": {"url": url}, "role": "reference_video"}
-                for url in self.ref_video_urls or []
-            )
-            content.extend(
-                {"type": "audio_url", "audio_url": {"url": url}, "role": "reference_audio"}
-                for url in self.ref_audio_urls or []
-            )
+            for url in self._collect_ref_urls(REF_IMAGE_PREFIX):
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": url},
+                    "role": "reference_image",
+                })
+            for url in self._collect_ref_urls(REF_VIDEO_PREFIX):
+                content.append({
+                    "type": "video_url",
+                    "video_url": {"url": url},
+                    "role": "reference_video",
+                })
+            for url in self._collect_ref_urls(REF_AUDIO_PREFIX):
+                content.append({
+                    "type": "audio_url",
+                    "audio_url": {"url": url},
+                    "role": "reference_audio",
+                })
 
         return content
 

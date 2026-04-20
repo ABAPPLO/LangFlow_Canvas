@@ -8,7 +8,6 @@ from lfx.custom import Component
 from lfx.inputs import (
     DropdownInput,
     IntInput,
-    MessageTextInput,
 )
 from lfx.io import MessageInput, ModelInput, Output
 from lfx.schema.data import Data
@@ -18,6 +17,8 @@ MODE_TEXT = "Text to Image"
 MODE_TEXT_IMAGE = "Text + Image(s)"
 
 MODE_OPTIONS = [MODE_TEXT, MODE_TEXT_IMAGE]
+
+REF_IMAGE_PREFIX = "ref_image_"
 
 
 class ImageGenerationComponent(Component):
@@ -47,14 +48,13 @@ class ImageGenerationComponent(Component):
             value=MODE_TEXT,
             real_time_refresh=True,
         ),
-        MessageTextInput(
-            name="ref_image_url",
-            display_name="Reference Image URLs",
-            info="Reference image URLs. Supports manual input or connection from other components. Click + to add more.",
-            placeholder="Enter an image URL...",
-            input_types=["Message", "Text"],
-            is_list=True,
-            list_add_label="Add URL",
+        IntInput(
+            name="ref_image_count",
+            display_name="Reference Image Count",
+            info="Number of reference image inputs. Change to add or remove entries.",
+            value=1,
+            real_time_refresh=True,
+            dynamic=True,
             show=False,
         ),
         # --- Generation parameters ---
@@ -120,8 +120,52 @@ class ImageGenerationComponent(Component):
             field_value=field_value,
         )
 
-        if field_name == "generation_mode" and "ref_image_url" in build_config:
-            build_config["ref_image_url"]["show"] = field_value == MODE_TEXT_IMAGE
+        if field_name == "generation_mode":
+            is_text_image = field_value == MODE_TEXT_IMAGE
+            build_config["ref_image_count"]["show"] = is_text_image
+
+            # Remove old dynamic ref image fields
+            to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            if is_text_image:
+                count = max(1, int(build_config.get("ref_image_count", {}).get("value", 1)))
+                for i in range(1, count + 1):
+                    f_name = f"{REF_IMAGE_PREFIX}{i}"
+                    build_config[f_name] = {
+                        "type": "str",
+                        "input_types": ["Message", "Text"],
+                        "name": f_name,
+                        "display_name": f"Image {i}",
+                        "value": "",
+                        "show": True,
+                        "advanced": False,
+                        "multiline": False,
+                        "placeholder": "Enter URL or connect component...",
+                    }
+
+        if field_name == "ref_image_count":
+            count = max(1, int(field_value)) if field_value else 1
+
+            # Remove old dynamic ref image fields
+            to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            for i in range(1, count + 1):
+                f_name = f"{REF_IMAGE_PREFIX}{i}"
+                build_config[f_name] = {
+                    "type": "str",
+                    "input_types": ["Message", "Text"],
+                    "name": f_name,
+                    "display_name": f"Image {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": False,
+                    "placeholder": "Enter URL or connect component...",
+                }
 
         return build_config
 
@@ -173,27 +217,24 @@ class ImageGenerationComponent(Component):
         return api_key, base_url + "/", model_name
 
     def _resolve_image_urls(self) -> list[str]:
-        """Collect URLs from the ref_image_url list field."""
+        """Collect URLs from all dynamic reference image fields."""
         urls: list[str] = []
-        raw = self.ref_image_url
-        if not raw:
-            return urls
-
-        # is_list=True delivers a list of strings or Messages
-        if isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, Message):
-                    text = item.get_text()
-                else:
-                    text = str(item)
-                if text.strip():
-                    urls.extend(line.strip() for line in text.splitlines() if line.strip())
-        elif isinstance(raw, Message):
-            text = raw.get_text()
-            urls.extend(line.strip() for line in text.splitlines() if line.strip())
-        elif isinstance(raw, str) and raw.strip():
-            urls.extend(line.strip() for line in raw.splitlines() if line.strip())
-
+        i = 1
+        while True:
+            val = getattr(self, f"{REF_IMAGE_PREFIX}{i}", None)
+            if val is None:
+                break
+            if isinstance(val, Message):
+                text = val.get_text().strip()
+            elif isinstance(val, str):
+                text = val.strip()
+            elif val:
+                text = str(val).strip()
+            else:
+                text = ""
+            if text:
+                urls.extend(line.strip() for line in text.splitlines() if line.strip())
+            i += 1
         return urls
 
     def generate_image(self) -> Message:
@@ -218,7 +259,7 @@ class ImageGenerationComponent(Component):
         }
 
         # Add reference images for Text + Image(s) mode
-        if self.generation_mode == MODE_TEXT_IMAGE and self._resolve_image_urls():
+        if self.generation_mode == MODE_TEXT_IMAGE:
             urls = self._resolve_image_urls()
             if urls:
                 payload["image"] = urls if len(urls) > 1 else urls[0]
