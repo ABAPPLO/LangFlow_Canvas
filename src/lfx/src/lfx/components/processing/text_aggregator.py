@@ -1,7 +1,7 @@
 """Text Aggregator component - aggregate multiple text inputs into one output."""
 
 from lfx.custom import Component
-from lfx.inputs import DropdownInput, MessageTextInput
+from lfx.inputs import DropdownInput, IntInput
 from lfx.io import Output
 from lfx.schema.data import Data
 from lfx.schema.message import Message
@@ -15,22 +15,22 @@ SEPARATOR_COMMA = ", "
 SEPARATOR_DASH = "---"
 SEPARATOR_EMPTY = "(empty)"
 
+INPUT_FIELD_PREFIX = "text_"
+
 
 class TextAggregatorComponent(Component):
     display_name = "Text Aggregator"
-    description = "聚合多个文本输入，支持手动输入或从其他组件连接。"
+    description = "聚合多个文本输入，每个输入端口独立，支持手动输入或从其他组件连接。"
     icon = "merge"
     name = "TextAggregator"
 
     inputs = [
-        MessageTextInput(
-            name="texts",
-            display_name="Texts",
-            info="多个文本输入。点击 Add Text 添加更多，或从其他组件连接。",
-            placeholder="Enter text...",
-            input_types=["Message", "Text"],
-            is_list=True,
-            list_add_label="Add Text",
+        IntInput(
+            name="input_count",
+            display_name="Input Count",
+            info="输入端口数量，修改后自动增减端口。",
+            value=2,
+            real_time_refresh=True,
         ),
         DropdownInput(
             name="separator",
@@ -63,29 +63,52 @@ class TextAggregatorComponent(Component):
         ),
     ]
 
+    def update_build_config(self, build_config, field_value, field_name=None):
+        if field_name == "input_count":
+            count = max(1, int(field_value)) if field_value else 2
+
+            # Remove old dynamic text fields
+            to_remove = [k for k in build_config if k.startswith(INPUT_FIELD_PREFIX) and k[len(INPUT_FIELD_PREFIX):].isdigit()]
+            for k in to_remove:
+                del build_config[k]
+
+            # Create individual input fields with their own handles
+            for i in range(1, count + 1):
+                field_name_i = f"{INPUT_FIELD_PREFIX}{i}"
+                build_config[field_name_i] = {
+                    "type": "str",
+                    "input_types": ["Message"],
+                    "name": field_name_i,
+                    "display_name": f"Text {i}",
+                    "value": "",
+                    "show": True,
+                    "advanced": False,
+                    "multiline": True,
+                    "placeholder": "Enter text or connect...",
+                }
+
+        return build_config
+
     def _resolve_texts(self) -> list[str]:
-        """Extract text strings from the list input."""
-        raw = self.texts
-        if not raw:
-            return []
-
-        result: list[str] = []
-        if isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, Message):
-                    text = item.get_text()
-                else:
-                    text = str(item) if item else ""
-                if text.strip():
-                    result.append(text.strip())
-        elif isinstance(raw, Message):
-            text = raw.get_text()
+        """Collect text from all dynamic input fields."""
+        texts: list[str] = []
+        i = 1
+        while True:
+            val = getattr(self, f"{INPUT_FIELD_PREFIX}{i}", None)
+            if val is None:
+                break
+            if isinstance(val, Message):
+                text = val.get_text()
+            elif isinstance(val, str):
+                text = val
+            elif val:
+                text = str(val)
+            else:
+                text = ""
             if text.strip():
-                result.append(text.strip())
-        elif isinstance(raw, str) and raw.strip():
-            result.append(raw.strip())
-
-        return result
+                texts.append(text.strip())
+            i += 1
+        return texts
 
     def _get_separator(self) -> str:
         """Resolve the separator string."""
