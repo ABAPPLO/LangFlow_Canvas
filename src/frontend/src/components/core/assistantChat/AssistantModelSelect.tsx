@@ -28,7 +28,14 @@ export function AssistantModelSelect() {
       });
       if (res.ok) {
         const data = await res.json();
-        setOptions(Array.isArray(data) ? data : []);
+        // Filter to Anthropic models only
+        const all = Array.isArray(data) ? data : [];
+        const anthropic = all.filter(
+          (o: ModelOption) =>
+            o.provider === "Anthropic" ||
+            o.metadata?.model_class === "ChatAnthropic",
+        );
+        setOptions(anthropic.length > 0 ? anthropic : all);
       }
     } catch {
       // ignore
@@ -39,13 +46,6 @@ export function AssistantModelSelect() {
 
   const selectedName = (modelConfig as ModelOption)?.name as string;
   const selectedProvider = (modelConfig as ModelOption)?.provider as string;
-
-  const filtered = options.filter(
-    (o) =>
-      o.metadata?.model_class && o.metadata?.model_class !== "ChatOllama"
-        ? true
-        : true, // show all
-  );
 
   return (
     <div className="relative">
@@ -92,12 +92,12 @@ export function AssistantModelSelect() {
             <div className="px-3 py-2 text-xs text-muted-foreground">
               Loading models...
             </div>
-          ) : filtered.length === 0 ? (
+          ) : options.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">
-              No models available. Configure a provider in Settings.
+              No Anthropic models found. Configure a provider in Settings.
             </div>
           ) : (
-            filtered.map((opt) => (
+            options.map((opt) => (
               <button
                 key={`${opt.provider}-${opt.name}`}
                 type="button"

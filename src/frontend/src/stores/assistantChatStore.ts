@@ -22,6 +22,7 @@ interface AssistantChatState {
   messages: AssistantMessage[];
   isLoading: boolean;
   modelConfig: Record<string, unknown> | null;
+  sessionId: string | null;
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
@@ -34,16 +35,26 @@ interface AssistantChatState {
   setLoading: (loading: boolean) => void;
   clearMessages: () => void;
   setModelConfig: (config: Record<string, unknown> | null) => void;
+  setSessionId: (id: string | null) => void;
 }
 
 let messageCounter = 0;
 
 const MODEL_CONFIG_KEY = "assistant_model_config";
+const SESSION_ID_KEY = "assistant_session_id";
 
 function loadSavedModelConfig(): Record<string, unknown> | null {
   try {
     const saved = localStorage.getItem(MODEL_CONFIG_KEY);
     return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadSavedSessionId(): string | null {
+  try {
+    return localStorage.getItem(SESSION_ID_KEY);
   } catch {
     return null;
   }
@@ -55,6 +66,7 @@ export const useAssistantChatStore = create<AssistantChatState>((set) => ({
   messages: [],
   isLoading: false,
   modelConfig: loadSavedModelConfig(),
+  sessionId: loadSavedSessionId(),
 
   toggleOpen: () => set((state) => ({ isOpen: !state.isOpen })),
 
@@ -127,7 +139,14 @@ export const useAssistantChatStore = create<AssistantChatState>((set) => ({
 
   setLoading: (loading) => set({ isLoading: loading }),
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => {
+    try {
+      localStorage.removeItem(SESSION_ID_KEY);
+    } catch {
+      // ignore
+    }
+    set({ messages: [], sessionId: null });
+  },
 
   setModelConfig: (config) => {
     try {
@@ -140,5 +159,18 @@ export const useAssistantChatStore = create<AssistantChatState>((set) => ({
       // ignore localStorage errors
     }
     set({ modelConfig: config });
+  },
+
+  setSessionId: (id) => {
+    try {
+      if (id) {
+        localStorage.setItem(SESSION_ID_KEY, id);
+      } else {
+        localStorage.removeItem(SESSION_ID_KEY);
+      }
+    } catch {
+      // ignore
+    }
+    set({ sessionId: id });
   },
 }));

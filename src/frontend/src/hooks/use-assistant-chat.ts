@@ -61,6 +61,8 @@ export function useAssistantChat() {
   const setLoading = useAssistantChatStore((s) => s.setLoading);
   const messages = useAssistantChatStore((s) => s.messages);
   const modelConfig = useAssistantChatStore((s) => s.modelConfig);
+  const sessionId = useAssistantChatStore((s) => s.sessionId);
+  const setSessionId = useAssistantChatStore((s) => s.setSessionId);
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -93,12 +95,6 @@ export function useAssistantChat() {
 
       setLoading(true);
 
-      // Build history from previous messages
-      const history = messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .slice(-20) // Keep last 20 messages for context
-        .map((m) => ({ role: m.role, content: m.content }));
-
       // Abort previous request if any
       abortControllerRef.current?.abort();
       const controller = new AbortController();
@@ -122,7 +118,7 @@ export function useAssistantChat() {
             flow_id: flowId,
             message,
             selected_model: modelConfig,
-            history,
+            session_id: sessionId,
           }),
           signal: controller.signal,
           credentials: "include",
@@ -162,6 +158,7 @@ export function useAssistantChat() {
                 appendToLastAssistantMessage,
                 addToolCallToLastMessage,
                 updateToolCall,
+                setSessionId,
               });
             } catch {
               // Ignore parse errors for incomplete data
@@ -179,6 +176,7 @@ export function useAssistantChat() {
                 appendToLastAssistantMessage,
                 addToolCallToLastMessage,
                 updateToolCall,
+                setSessionId,
               });
             } catch {
               // Ignore
@@ -216,11 +214,13 @@ export function useAssistantChat() {
     [
       messages,
       modelConfig,
+      sessionId,
       addMessage,
       appendToLastAssistantMessage,
       updateLastAssistantMessage,
       addToolCallToLastMessage,
       updateToolCall,
+      setSessionId,
       setLoading,
     ],
   );
@@ -243,6 +243,7 @@ interface SSEHandlers {
     result?: string;
   }) => void;
   updateToolCall: (id: string, updates: Record<string, unknown>) => void;
+  setSessionId: (id: string | null) => void;
 }
 
 function handleSSEEvent(
@@ -255,6 +256,14 @@ function handleSSEEvent(
       const text = data.text as string;
       if (text) {
         handlers.appendToLastAssistantMessage(text);
+      }
+      break;
+    }
+
+    case "session_id": {
+      const sid = data.session_id as string;
+      if (sid) {
+        handlers.setSessionId(sid);
       }
       break;
     }
