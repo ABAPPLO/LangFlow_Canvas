@@ -329,7 +329,10 @@ class MultimodalModelComponent(LCModelComponent):
             msg = f"{provider} Base URL is required. Please configure it in Model Providers."
             raise ValueError(msg)
 
+        # Strip trailing slashes and /v1 suffix — generateContent needs the raw host
         raw_base = base_url.rstrip("/")
+        if raw_base.endswith("/v1"):
+            raw_base = raw_base[:-3]
         return api_key, raw_base, model_name
 
     async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:
@@ -368,7 +371,7 @@ class MultimodalModelComponent(LCModelComponent):
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
         self.status = "Generating via Gemini..."
-        self.log(f"Gemini request to {url}, model: {model_name}, parts: {len(parts)}")
+        logger.warning("[MultimodalGemini] url=%s model=%s parts=%d", url, model_name, len(parts))
 
         async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
             resp = await client.post(url, json=payload)
