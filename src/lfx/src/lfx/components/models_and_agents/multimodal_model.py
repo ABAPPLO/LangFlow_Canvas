@@ -577,7 +577,8 @@ class MultimodalModelComponent(LCModelComponent):
         system_message = getattr(self, "system_message", None) or None
 
         # Route Gemini models (via NewAPI) to native generateContent endpoint
-        if self._is_gemini_model():
+        is_gemini = self._is_gemini_model()
+        if is_gemini:
             return await self._generate_via_gemini(prompt, system_message, image_urls, video_urls, audio_urls)
 
         # --- Standard LangChain flow for other providers ---
