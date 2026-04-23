@@ -442,27 +442,33 @@ class MultimodalModelComponent(LCModelComponent):
         """Generate text using Gemini models via the native generateContent endpoint."""
         api_key, raw_base, model_name = self._resolve_newapi_credentials()
 
-        # Build request payload — try fileData first (works for Gemini 3.x),
-        # fall back to inlineData base64 (works for Gemini 2.5).
-        payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)
-
         url = f"{raw_base}/v1beta/models/{model_name}:generateContent"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        has_media = bool(image_urls or video_urls or audio_urls)
 
         self.status = "Generating via Gemini..."
-        logger.warning("[MultimodalGemini] url=%s model=%s fileData=True", url, model_name)
 
         async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
+            # Strategy: fileData → retry fileData → inlineData fallback
+            # - fileData: sends URL directly (Gemini 3.x supports all media types)
+            # - inlineData: downloads & base64 encodes (works for images on all
+            #   models, video only on Gemini 2.5)
+            # fileData can fail transiently, so retry once before falling back.
+            payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)
+            logger.warning("[MultimodalGemini] url=%s model=%s attempt=1 fileData=True", url, model_name)
             resp = await client.post(url, json=payload)
 
-            # If fileData fails for any reason, retry with inlineData base64.
-            # fileData can fail with various errors:
-            # - "Cannot fetch content from the provided URL" (Gemini 2.5)
-            # - "Request contains an invalid argument" (mixed media types)
             if resp.status_code == 400:
-                logger.warning("[MultimodalGemini] fileData failed (%s), retrying with inlineData", resp.text[:100])
-                payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)
-                resp = await client.post(url, json=payload)
+                if has_media:
+                    # Retry fileData once (transient upstream failures are common)
+                    logger.warning("[MultimodalGemini] fileData attempt 1 failed, retrying (%s)", resp.text[:80])
+                    resp = await client.post(url, json=payload)
+
+                if resp.status_code == 400:
+                    # Fall back to inlineData base64 (works on Gemini 2.5)
+                    logger.warning("[MultimodalGemini] fileData failed, trying inlineData fallback")
+                    payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)
+                    resp = await client.post(url, json=payload)
 
             if not resp.is_success:
                 error_text = resp.text
