@@ -363,35 +363,46 @@ class MultimodalModelComponent(LCModelComponent):
     ) -> list[dict]:
         """Build media parts for Gemini generateContent.
 
-        Strategy:
-        - use_file_data=True  → send URLs via ``fileData.fileUri`` (Gemini 3.x)
-        - use_file_data=False → download & embed as ``inlineData`` base64 (Gemini 2.5)
+        Hybrid strategy for maximum compatibility:
+        - Images: always use ``inlineData`` (downloading + base64) — stable on all models
+        - Video/Audio with use_file_data=True: ``fileData.fileUri`` (URL passthrough)
+        - Video/Audio with use_file_data=False: ``inlineData`` base64 (Gemini 2.5)
         """
         parts: list[dict] = []
-        all_media = [
-            (image_urls, "image"),
-            (video_urls, "video"),
-            (audio_urls, "audio"),
-        ]
 
-        if use_file_data:
-            for urls, kind in all_media:
+        # Images → always inlineData (stable on all Gemini models)
+        if image_urls:
+            with httpx.Client(timeout=120, trust_env=False) as dl_client:
+                for url in image_urls:
+                    try:
+                        resp = dl_client.get(url, follow_redirects=True)
+                        resp.raise_for_status()
+                        mime = resp.headers.get("content-type", "image/jpeg")
+                        b64 = base64.b64encode(resp.content).decode()
+                        parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                    except httpx.HTTPError as e:
+                        msg = f"Failed to download image {url}: {e}"
+                        raise ValueError(msg) from e
+
+        # Video & Audio → fileData or inlineData depending on flag
+        for urls, kind in [(video_urls, "video"), (audio_urls, "audio")]:
+            if use_file_data:
                 for url in urls:
                     mime = self._guess_mime_type(url, kind)
                     parts.append({"fileData": {"mimeType": mime, "fileUri": url}})
-        else:
-            with httpx.Client(timeout=120, trust_env=False) as dl_client:
-                for urls, kind in all_media:
-                    for url in urls:
-                        try:
-                            resp = dl_client.get(url, follow_redirects=True)
-                            resp.raise_for_status()
-                            mime = resp.headers.get("content-type", "application/octet-stream")
-                            b64 = base64.b64encode(resp.content).decode()
-                            parts.append({"inlineData": {"mimeType": mime, "data": b64}})
-                        except httpx.HTTPError as e:
-                            msg = f"Failed to download {kind} {url}: {e}"
-                            raise ValueError(msg) from e
+            else:
+                if urls:
+                    with httpx.Client(timeout=120, trust_env=False) as dl_client:
+                        for url in urls:
+                            try:
+                                resp = dl_client.get(url, follow_redirects=True)
+                                resp.raise_for_status()
+                                mime = resp.headers.get("content-type", "application/octet-stream")
+                                b64 = base64.b64encode(resp.content).decode()
+                                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                            except httpx.HTTPError as e:
+                                msg = f"Failed to download {kind} {url}: {e}"
+                                raise ValueError(msg) from e
 
         return parts
 
@@ -444,31 +455,31 @@ class MultimodalModelComponent(LCModelComponent):
 
         url = f"{raw_base}/v1beta/models/{model_name}:generateContent"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        has_media = bool(image_urls or video_urls or audio_urls)
+        has_video_or_audio = bool(video_urls or audio_urls)
 
         self.status = "Generating via Gemini..."
 
         async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
-            # Strategy: fileData → retry fileData → inlineData fallback
-            # - fileData: sends URL directly (Gemini 3.x supports all media types)
-            # - inlineData: downloads & base64 encodes (works for images on all
-            #   models, video only on Gemini 2.5)
-            # fileData can fail transiently, so retry once before falling back.
+            # Strategy (hybrid): images always inlineData, video/audio via fileData
+            # with multiple retries for transient upstream URL-fetch failures.
             payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)
-            logger.warning("[MultimodalGemini] url=%s model=%s attempt=1 fileData=True", url, model_name)
+            logger.warning("[MultimodalGemini] url=%s model=%s hybrid (images=inline, video/audio=fileData)", url, model_name)
             resp = await client.post(url, json=payload)
 
-            if resp.status_code == 400:
-                if has_media:
-                    # Retry fileData once (transient upstream failures are common)
-                    logger.warning("[MultimodalGemini] fileData attempt 1 failed, retrying (%s)", resp.text[:80])
+            if resp.status_code == 400 and has_video_or_audio:
+                # Retry fileData up to 2 more times (upstream URL fetch is flaky)
+                for attempt in range(2, 4):
+                    logger.warning("[MultimodalGemini] attempt %d failed (%s), retrying", attempt - 1, resp.text[:80])
                     resp = await client.post(url, json=payload)
+                    if resp.is_success:
+                        break
 
-                if resp.status_code == 400:
-                    # Fall back to inlineData base64 (works on Gemini 2.5)
-                    logger.warning("[MultimodalGemini] fileData failed, trying inlineData fallback")
-                    payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)
-                    resp = await client.post(url, json=payload)
+            if resp.status_code == 400:
+                # Final fallback: inlineData for everything (works on Gemini 2.5,
+                # but video will fail on Gemini 3.x)
+                logger.warning("[MultimodalGemini] fileData exhausted, trying full inlineData fallback")
+                payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)
+                resp = await client.post(url, json=payload)
 
             if not resp.is_success:
                 error_text = resp.text
