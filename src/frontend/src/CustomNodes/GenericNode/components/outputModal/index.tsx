@@ -58,7 +58,7 @@ export default function OutputModal({
       open={open}
       setOpen={setOpen}
       disable={disabled}
-      size="large"
+      size="md-thin"
       className="z-50"
     >
       <BaseModal.Header description="Inspect the output of the component below.">

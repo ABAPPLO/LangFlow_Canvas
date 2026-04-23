@@ -14,10 +14,9 @@ const TextOutputView = ({
   const isTruncated = value?.length > 20000;
 
   return (
-    <>
-      {" "}
+    <div className={`flex flex-col ${left ? "" : "min-h-0 flex-1"}`}>
       <Textarea
-        className={`w-full resize-none custom-scroll ${left ? "min-h-32" : "min-h-32 flex-1"}`}
+        className={`w-full custom-scroll ${left ? "min-h-32 resize-none" : "min-h-[600px] flex-1 resize-y"}`}
         placeholder={"Empty"}
         readOnly
         value={value}
@@ -27,7 +26,7 @@ const TextOutputView = ({
           This output has been truncated due to its size.
         </div>
       )}
-    </>
+    </div>
   );
 };
 
