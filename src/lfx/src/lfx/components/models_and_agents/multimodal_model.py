@@ -1,5 +1,8 @@
 """Multimodal Language Model component - accepts text + images/videos/audios, outputs text."""
 
+import base64
+
+import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from lfx.base.models.model import LCModelComponent
@@ -37,6 +40,8 @@ MEDIA_FORMAT_OPTIONS = [
 ]
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+
+GEMINI_MODEL_TIMEOUT = 180
 
 IMAGE_PREFIX = "image_"
 VIDEO_PREFIX = "video_"
@@ -285,6 +290,112 @@ class MultimodalModelComponent(LCModelComponent):
             i += 1
         return urls
 
+    def _is_gemini_model(self) -> bool:
+        """Check if the selected model is a Gemini model accessed through NewAPI."""
+        model_data = self.model
+        if not model_data or not isinstance(model_data, list) or not model_data:
+            return False
+        provider = (model_data[0].get("provider") or "").strip()
+        model_name = (model_data[0].get("name") or "").strip()
+        # NewAPI proxies Gemini models; detect by provider name or model name
+        is_newapi = provider.lower() in ("newapi", "new-api", "one-api", "oneapi")
+        is_gemini = model_name.startswith("gemini")
+        return is_newapi and is_gemini
+
+    def _resolve_newapi_credentials(self) -> tuple[str, str, str]:
+        """Resolve NewAPI credentials: (api_key, raw_base_url, model_name)."""
+        from lfx.base.models.unified_models import (
+            get_all_variables_for_provider,
+            get_api_key_for_provider,
+        )
+
+        model_data = self.model
+        model_info = model_data[0]
+        model_name = model_info.get("name", "")
+        provider = model_info.get("provider", "")
+
+        api_key = get_api_key_for_provider(self.user_id, provider)
+        if not api_key:
+            msg = f"{provider} API key is required. Please configure it in Model Providers."
+            raise ValueError(msg)
+
+        base_url = None
+        provider_vars = get_all_variables_for_provider(self.user_id, provider)
+        for var_key, value in provider_vars.items():
+            if "BASE_URL" in var_key and value:
+                base_url = value
+                break
+        if not base_url:
+            msg = f"{provider} Base URL is required. Please configure it in Model Providers."
+            raise ValueError(msg)
+
+        raw_base = base_url.rstrip("/")
+        return api_key, raw_base, model_name
+
+    async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:
+        """Generate text using Gemini models via the native generateContent endpoint."""
+        api_key, raw_base, model_name = self._resolve_newapi_credentials()
+
+        # Build parts
+        parts: list[dict] = []
+        if prompt:
+            parts.append({"text": prompt})
+
+        # Download all media and embed as inlineData
+        # NewAPI with parameter pass-through supports image/video/audio
+        all_media = [(image_urls, "image"), (video_urls, "video"), (audio_urls, "audio")]
+        with httpx.Client(timeout=120, trust_env=False) as dl_client:
+            for urls, kind in all_media:
+                for url in urls:
+                    try:
+                        resp = dl_client.get(url, follow_redirects=True)
+                        resp.raise_for_status()
+                        mime = resp.headers.get("content-type", "application/octet-stream")
+                        b64 = base64.b64encode(resp.content).decode()
+                        parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                    except httpx.HTTPError as e:
+                        msg = f"Failed to download {kind} {url}: {e}"
+                        raise ValueError(msg) from e
+
+        payload: dict = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"responseModalities": ["TEXT"]},
+        }
+        if system_message:
+            payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+
+        url = f"{raw_base}/v1beta/models/{model_name}:generateContent"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        self.status = "Generating via Gemini..."
+        self.log(f"Gemini request to {url}, model: {model_name}, parts: {len(parts)}")
+
+        async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
+            resp = await client.post(url, json=payload)
+            if not resp.is_success:
+                error_text = resp.text
+                msg = f"Gemini request failed (HTTP {resp.status_code}): {error_text}"
+                raise ValueError(msg)
+            data = resp.json()
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            msg = f"No candidates in Gemini response: {data}"
+            raise ValueError(msg)
+
+        response_parts = candidates[0].get("content", {}).get("parts", [])
+        text_result = ""
+        for p in response_parts:
+            if "text" in p:
+                text_result += p["text"]
+
+        if not text_result:
+            msg = f"No text in Gemini response: {data}"
+            raise ValueError(msg)
+
+        self.status = text_result
+        return Message(text=text_result)
+
     @staticmethod
     def _build_media_content(
         media_format: str,
@@ -343,8 +454,6 @@ class MultimodalModelComponent(LCModelComponent):
 
     async def text_response(self) -> Message:
         """Generate text from multimodal input."""
-        runnable = self.build_model()
-
         # Resolve text prompt
         prompt = self.input_value
         if isinstance(prompt, Message):
@@ -359,6 +468,15 @@ class MultimodalModelComponent(LCModelComponent):
         if not prompt and not image_urls and not video_urls and not audio_urls:
             msg = "Please provide a text prompt or at least one media input."
             raise ValueError(msg)
+
+        system_message = getattr(self, "system_message", None) or None
+
+        # Route Gemini models (via NewAPI) to native generateContent endpoint
+        if self._is_gemini_model():
+            return await self._generate_via_gemini(prompt, system_message, image_urls, video_urls, audio_urls)
+
+        # --- Standard LangChain flow for other providers ---
+        runnable = self.build_model()
 
         # Build multimodal content list
         content: list[dict] = []
