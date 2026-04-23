@@ -1,9 +1,12 @@
 """Multimodal Language Model component - accepts text + images/videos/audios, outputs text."""
 
 import base64
+import logging
 
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
+
+logger = logging.getLogger(__name__)
 
 from lfx.base.models.model import LCModelComponent
 from lfx.base.models.unified_models import (
@@ -335,30 +338,78 @@ class MultimodalModelComponent(LCModelComponent):
             raw_base = raw_base[:-3]
         return api_key, raw_base, model_name
 
-    async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:
-        """Generate text using Gemini models via the native generateContent endpoint."""
-        api_key, raw_base, model_name = self._resolve_newapi_credentials()
+    @staticmethod
+    def _guess_mime_type(url: str, kind: str) -> str:
+        """Guess MIME type from URL or fall back to a sensible default."""
+        url_lower = url.lower().split("?")[0]
+        ext_map = {
+            "image": {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"},
+            "video": {".mp4": "video/mp4", ".avi": "video/avi", ".mov": "video/quicktime", ".webm": "video/webm"},
+            "audio": {".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4"},
+        }
+        for ext, mime in ext_map.get(kind, {}).items():
+            if url_lower.endswith(ext):
+                return mime
+        defaults = {"image": "image/jpeg", "video": "video/mp4", "audio": "audio/mpeg"}
+        return defaults.get(kind, "application/octet-stream")
 
-        # Build parts
+    def _build_gemini_parts(
+        self,
+        image_urls: list[str],
+        video_urls: list[str],
+        audio_urls: list[str],
+        *,
+        use_file_data: bool = True,
+    ) -> list[dict]:
+        """Build media parts for Gemini generateContent.
+
+        Strategy:
+        - use_file_data=True  → send URLs via ``fileData.fileUri`` (Gemini 3.x)
+        - use_file_data=False → download & embed as ``inlineData`` base64 (Gemini 2.5)
+        """
+        parts: list[dict] = []
+        all_media = [
+            (image_urls, "image"),
+            (video_urls, "video"),
+            (audio_urls, "audio"),
+        ]
+
+        if use_file_data:
+            for urls, kind in all_media:
+                for url in urls:
+                    mime = self._guess_mime_type(url, kind)
+                    parts.append({"fileData": {"mimeType": mime, "fileUri": url}})
+        else:
+            with httpx.Client(timeout=120, trust_env=False) as dl_client:
+                for urls, kind in all_media:
+                    for url in urls:
+                        try:
+                            resp = dl_client.get(url, follow_redirects=True)
+                            resp.raise_for_status()
+                            mime = resp.headers.get("content-type", "application/octet-stream")
+                            b64 = base64.b64encode(resp.content).decode()
+                            parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                        except httpx.HTTPError as e:
+                            msg = f"Failed to download {kind} {url}: {e}"
+                            raise ValueError(msg) from e
+
+        return parts
+
+    def _build_gemini_payload(
+        self,
+        prompt: str,
+        system_message: str | None,
+        image_urls: list[str],
+        video_urls: list[str],
+        audio_urls: list[str],
+        *,
+        use_file_data: bool = True,
+    ) -> dict:
+        """Build the full Gemini generateContent payload."""
         parts: list[dict] = []
         if prompt:
             parts.append({"text": prompt})
-
-        # Download all media and embed as inlineData
-        # NewAPI with parameter pass-through supports image/video/audio
-        all_media = [(image_urls, "image"), (video_urls, "video"), (audio_urls, "audio")]
-        with httpx.Client(timeout=120, trust_env=False) as dl_client:
-            for urls, kind in all_media:
-                for url in urls:
-                    try:
-                        resp = dl_client.get(url, follow_redirects=True)
-                        resp.raise_for_status()
-                        mime = resp.headers.get("content-type", "application/octet-stream")
-                        b64 = base64.b64encode(resp.content).decode()
-                        parts.append({"inlineData": {"mimeType": mime, "data": b64}})
-                    except httpx.HTTPError as e:
-                        msg = f"Failed to download {kind} {url}: {e}"
-                        raise ValueError(msg) from e
+        parts.extend(self._build_gemini_parts(image_urls, video_urls, audio_urls, use_file_data=use_file_data))
 
         payload: dict = {
             "contents": [{"role": "user", "parts": parts}],
@@ -366,15 +417,31 @@ class MultimodalModelComponent(LCModelComponent):
         }
         if system_message:
             payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+        return payload
+
+    async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:
+        """Generate text using Gemini models via the native generateContent endpoint."""
+        api_key, raw_base, model_name = self._resolve_newapi_credentials()
+
+        # Build request payload — try fileData first (works for Gemini 3.x),
+        # fall back to inlineData base64 (works for Gemini 2.5).
+        payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)
 
         url = f"{raw_base}/v1beta/models/{model_name}:generateContent"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
         self.status = "Generating via Gemini..."
-        logger.warning("[MultimodalGemini] url=%s model=%s parts=%d", url, model_name, len(parts))
+        logger.warning("[MultimodalGemini] url=%s model=%s fileData=True", url, model_name)
 
         async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
             resp = await client.post(url, json=payload)
+
+            # If fileData fails (e.g. Gemini 2.5 cannot fetch URL), retry with inlineData
+            if resp.status_code == 400 and "Cannot fetch content" in resp.text:
+                logger.warning("[MultimodalGemini] fileData rejected, retrying with inlineData")
+                payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)
+                resp = await client.post(url, json=payload)
+
             if not resp.is_success:
                 error_text = resp.text
                 msg = f"Gemini request failed (HTTP {resp.status_code}): {error_text}"
