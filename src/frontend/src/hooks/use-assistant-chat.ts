@@ -308,7 +308,6 @@ function handleSSEEvent(
       if (nodes) {
         const flowStore = useFlowStore.getState();
         const currentNodes = flowStore.nodes;
-        const currentEdges = flowStore.edges;
 
         const newNodeMap = new Map(nodes.map((n) => [n.id as string, n]));
         const mergedNodes = [
@@ -316,9 +315,12 @@ function handleSSEEvent(
           ...(nodes as never[]),
         ];
 
-        // Merge edges BEFORE setNodes so that cleanEdges (triggered by setNodes)
-        // validates against the complete edge set including assistant's new edges.
-        if (edges) {
+        // setNodes first — cleanEdges inside may remove edges with mismatched handles,
+        // so we restore them afterwards via setEdges.
+        flowStore.setNodes(mergedNodes as never);
+
+        if (edges && edges.length > 0) {
+          const currentEdges = flowStore.edges;
           const newEdgeMap = new Map(edges.map((e) => [e.id as string, e]));
           const mergedEdges = [
             ...currentEdges.filter((ce) => !newEdgeMap.has(ce.id)),
@@ -326,9 +328,6 @@ function handleSSEEvent(
           ];
           flowStore.setEdges(mergedEdges as never);
         }
-
-        // Now setNodes — cleanEdges inside will validate mergedEdges
-        flowStore.setNodes(mergedNodes as never);
       }
       break;
     }

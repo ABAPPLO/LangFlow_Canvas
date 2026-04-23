@@ -265,8 +265,8 @@ def _assign_positions(nodes: list[dict[str, Any]], edges: list) -> None:
     Uses a simple topological left-to-right layout based on edges.
     Nodes with no edges are placed in a row at the bottom.
     """
-    node_spacing_x = 300
-    node_spacing_y = 200
+    node_spacing_x = 500
+    node_spacing_y = 350
     start_x = 100
     start_y = 100
 
