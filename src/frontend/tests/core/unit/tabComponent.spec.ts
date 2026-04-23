@@ -3,90 +3,100 @@ import { expect, test } from "../../fixtures";
 import { adjustScreenView } from "../../utils/adjust-screen-view";
 import { awaitBootstrapTest } from "../../utils/await-bootstrap-test";
 
-test("user should interact with tab component", {
-  tag: ["@release", "@workspace"],
-}, async ({ context, page }) => {
-  await awaitBootstrapTest(page);
+test(
+  "user should interact with tab component",
+  {
+    tag: ["@release", "@workspace"],
+  },
+  async ({ context, page }) => {
+    await awaitBootstrapTest(page);
 
-  await page.waitForSelector('[data-testid="blank-flow"]', {
-    timeout: 30000,
-  });
-  await page.getByTestId("blank-flow").click();
+    await page.waitForSelector('[data-testid="blank-flow"]', {
+      timeout: 30000,
+    });
+    await page.getByTestId("blank-flow").click();
 
-  await page.waitForSelector(
-    '[data-testid="sidebar-custom-component-button"]',
-    {
+    await page.waitForSelector(
+      '[data-testid="sidebar-custom-component-button"]',
+      {
+        timeout: 3000,
+      },
+    );
+
+    await page.getByTestId("sidebar-custom-component-button").click();
+    await adjustScreenView(page, { numberOfZoomOut: 1 });
+
+    await page.getByTestId("title-Custom Component").first().click();
+
+    await expect(page.getByTestId("code-button-modal").last()).toBeVisible({
       timeout: 3000,
-    },
-  );
+    });
 
-  await page.getByTestId("sidebar-custom-component-button").click();
-  await adjustScreenView(page, { numberOfZoomOut: 1 });
+    await page.getByTestId("code-button-modal").last().click();
 
-  await page.getByTestId("title-Custom Component").first().click();
+    let cleanCode = await extractAndCleanCode(page);
 
-  await expect(page.getByTestId("code-button-modal").last()).toBeVisible({
-    timeout: 3000,
-  });
-
-  await page.getByTestId("code-button-modal").last().click();
-
-  let cleanCode = await extractAndCleanCode(page);
-
-  // Use regex pattern to match the imports section more flexibly
-  cleanCode = updateComponentCode(cleanCode, {
-    imports: ["MessageTextInput", "Output", "TabInput"],
-    inputs: [
-      {
-        name: "MessageTextInput",
-        config: {
-          name: "input_value",
-          display_name: "Input Value",
-          info: "This is a custom component Input",
-          value: "Hello, World!",
-          tool_mode: true,
+    // Use regex pattern to match the imports section more flexibly
+    cleanCode = updateComponentCode(cleanCode, {
+      imports: ["MessageTextInput", "Output", "TabInput"],
+      inputs: [
+        {
+          name: "MessageTextInput",
+          config: {
+            name: "input_value",
+            display_name: "Input Value",
+            info: "This is a custom component Input",
+            value: "Hello, World!",
+            tool_mode: true,
+          },
         },
-      },
-      {
-        name: "TabInput",
-        config: {
-          name: "tab_selection",
-          display_name: "Tab Selection",
-          options: ["Tab 1", "Tab 2", "Tab 3"],
-          value: "Tab 1",
+        {
+          name: "TabInput",
+          config: {
+            name: "tab_selection",
+            display_name: "Tab Selection",
+            options: ["Tab 1", "Tab 2", "Tab 3"],
+            value: "Tab 1",
+          },
         },
-      },
-    ],
-  });
+      ],
+    });
 
-  await page.locator("textarea").last().press(`ControlOrMeta+a`);
-  await page.keyboard.press("Backspace");
-  await page.locator("textarea").last().fill(cleanCode);
-  await page.locator('//*[@id="checkAndSaveBtn"]').click();
-  await adjustScreenView(page, { numberOfZoomOut: 1 });
+    await page.locator("textarea").last().press(`ControlOrMeta+a`);
+    await page.keyboard.press("Backspace");
+    await page.locator("textarea").last().fill(cleanCode);
+    await page.locator('//*[@id="checkAndSaveBtn"]').click();
+    await adjustScreenView(page, { numberOfZoomOut: 1 });
 
-  // Verify that all tabs are visible
-  expect(await page.getByText("Tab 1").isVisible()).toBeTruthy();
-  expect(await page.getByText("Tab 2").isVisible()).toBeTruthy();
-  expect(await page.getByText("Tab 3").isVisible()).toBeTruthy();
+    // Verify that all tabs are visible
+    expect(await page.getByText("Tab 1").isVisible()).toBeTruthy();
+    expect(await page.getByText("Tab 2").isVisible()).toBeTruthy();
+    expect(await page.getByText("Tab 3").isVisible()).toBeTruthy();
 
-  // Verify that Tab 1 is active by default (as specified in the value)
-  expect(
-    await page.getByRole("tab", { name: "Tab 1", selected: true }).isVisible(),
-  ).toBeTruthy();
+    // Verify that Tab 1 is active by default (as specified in the value)
+    expect(
+      await page
+        .getByRole("tab", { name: "Tab 1", selected: true })
+        .isVisible(),
+    ).toBeTruthy();
 
-  // Click on Tab 2 and verify it becomes active
-  await page.getByRole("tab", { name: "Tab 2" }).click();
-  expect(
-    await page.getByRole("tab", { name: "Tab 2", selected: true }).isVisible(),
-  ).toBeTruthy();
+    // Click on Tab 2 and verify it becomes active
+    await page.getByRole("tab", { name: "Tab 2" }).click();
+    expect(
+      await page
+        .getByRole("tab", { name: "Tab 2", selected: true })
+        .isVisible(),
+    ).toBeTruthy();
 
-  // Click on Tab 3 and verify it becomes active
-  await page.getByRole("tab", { name: "Tab 3" }).click();
-  expect(
-    await page.getByRole("tab", { name: "Tab 3", selected: true }).isVisible(),
-  ).toBeTruthy();
-});
+    // Click on Tab 3 and verify it becomes active
+    await page.getByRole("tab", { name: "Tab 3" }).click();
+    expect(
+      await page
+        .getByRole("tab", { name: "Tab 3", selected: true })
+        .isVisible(),
+    ).toBeTruthy();
+  },
+);
 
 async function extractAndCleanCode(page: Page): Promise<string> {
   const outerHTML = await page

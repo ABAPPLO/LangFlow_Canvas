@@ -145,7 +145,7 @@ class SmartExtractComponent(Component):
 
     def _build_prompt(self, fields: list[str]) -> str:
         fields_text = "\n".join(f"- {f}" for f in fields)
-        json_template = json.dumps({f: "..." for f in fields}, ensure_ascii=False, indent=2)
+        json_template = json.dumps(dict.fromkeys(fields, "..."), ensure_ascii=False, indent=2)
         instructions_section = f"额外指令：\n{self.instructions}" if self.instructions else ""
         input_text = self.input_text
         if isinstance(input_text, Message):

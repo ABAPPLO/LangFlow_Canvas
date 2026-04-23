@@ -8,137 +8,142 @@ import {
   openAdvancedOptions,
 } from "../../utils/open-advanced-options";
 
-test("dropDownComponent", { tag: ["@release", "@workspace"] }, async ({
-  page,
-}) => {
-  await awaitBootstrapTest(page);
+test(
+  "dropDownComponent",
+  { tag: ["@release", "@workspace"] },
+  async ({ page }) => {
+    await awaitBootstrapTest(page);
 
-  await page.waitForSelector('[data-testid="blank-flow"]', {
-    timeout: 30000,
-  });
+    await page.waitForSelector('[data-testid="blank-flow"]', {
+      timeout: 30000,
+    });
 
-  await page.getByTestId("blank-flow").click();
+    await page.getByTestId("blank-flow").click();
 
-  // Allow for legacy components
-  await page.getByTestId("sidebar-options-trigger").click();
-  await page.getByTestId("sidebar-legacy-switch").click();
+    // Allow for legacy components
+    await page.getByTestId("sidebar-options-trigger").click();
+    await page.getByTestId("sidebar-legacy-switch").click();
 
-  await page.getByTestId("sidebar-search-input").click();
-  await page.getByTestId("sidebar-search-input").fill("amazon");
+    await page.getByTestId("sidebar-search-input").click();
+    await page.getByTestId("sidebar-search-input").fill("amazon");
 
-  await page.waitForSelector('[data-testid="amazonAmazon Bedrock"]', {
-    timeout: 3000,
-  });
+    await page.waitForSelector('[data-testid="amazonAmazon Bedrock"]', {
+      timeout: 3000,
+    });
 
-  await page
-    .getByTestId("amazonAmazon Bedrock")
-    .first()
-    .dragTo(page.locator('//*[@id="react-flow-id"]'));
-  await page.mouse.up();
-  await page.mouse.down();
-  await adjustScreenView(page);
-  await page.getByTestId("title-Amazon Bedrock").click();
+    await page
+      .getByTestId("amazonAmazon Bedrock")
+      .first()
+      .dragTo(page.locator('//*[@id="react-flow-id"]'));
+    await page.mouse.up();
+    await page.mouse.down();
+    await adjustScreenView(page);
+    await page.getByTestId("title-Amazon Bedrock").click();
 
-  await page.getByTestId("dropdown_str_model_id").click();
+    await page.getByTestId("dropdown_str_model_id").click();
 
-  await page
-    .getByTestId(/anthropic\.claude-3-haiku-20240307-v1:0.*option/)
-    .click();
+    await page
+      .getByTestId(/anthropic\.claude-3-haiku-20240307-v1:0.*option/)
+      .click();
 
-  let value = await page
-    .getByTestId(/anthropic\.claude-3-haiku-20240307-v1:0.*option/)
-    .first()
-    .innerText();
-  if (value !== "anthropic.claude-3-haiku-20240307-v1:0") {
-    expect(false).toBeTruthy();
-  }
+    let value = await page
+      .getByTestId(/anthropic\.claude-3-haiku-20240307-v1:0.*option/)
+      .first()
+      .innerText();
+    if (value !== "anthropic.claude-3-haiku-20240307-v1:0") {
+      expect(false).toBeTruthy();
+    }
 
-  await page.getByTestId("dropdown_str_model_id").click();
-  await page.getByText("anthropic.claude-v2").last().click();
+    await page.getByTestId("dropdown_str_model_id").click();
+    await page.getByText("anthropic.claude-v2").last().click();
 
-  await page.waitForTimeout(1000);
+    await page.waitForTimeout(1000);
 
-  value = await page.getByTestId("dropdown_str_model_id").innerText();
-  expect(value.length).toBeGreaterThan(10);
+    value = await page.getByTestId("dropdown_str_model_id").innerText();
+    expect(value.length).toBeGreaterThan(10);
 
-  await page.waitForSelector('[data-testid="more-options-modal"]', {
-    timeout: 3000,
-  });
+    await page.waitForSelector('[data-testid="more-options-modal"]', {
+      timeout: 3000,
+    });
 
-  await disableInspectPanel(page);
+    await disableInspectPanel(page);
 
-  await openAdvancedOptions(page);
+    await openAdvancedOptions(page);
 
-  await page.waitForTimeout(1000);
+    await page.waitForTimeout(1000);
 
-  value = await page
-    .getByTestId("value-dropdown-dropdown_str_edit_model_id")
-    .innerText();
+    value = await page
+      .getByTestId("value-dropdown-dropdown_str_edit_model_id")
+      .innerText();
 
-  expect(value.length).toBeGreaterThan(10);
+    expect(value.length).toBeGreaterThan(10);
 
-  await page.locator('//*[@id="showregion_name"]').click();
-  expect(
-    await page.locator('//*[@id="showregion_name"]').isChecked(),
-  ).toBeFalsy();
+    await page.locator('//*[@id="showregion_name"]').click();
+    expect(
+      await page.locator('//*[@id="showregion_name"]').isChecked(),
+    ).toBeFalsy();
 
-  await page.locator('//*[@id="showregion_name"]').click();
-  expect(
-    await page.locator('//*[@id="showregion_name"]').isChecked(),
-  ).toBeTruthy();
+    await page.locator('//*[@id="showregion_name"]').click();
+    expect(
+      await page.locator('//*[@id="showregion_name"]').isChecked(),
+    ).toBeTruthy();
 
-  // showmodel_id
-  await page.locator('//*[@id="showmodel_id"]').click();
-  expect(await page.locator('//*[@id="showmodel_id"]').isChecked()).toBeFalsy();
+    // showmodel_id
+    await page.locator('//*[@id="showmodel_id"]').click();
+    expect(
+      await page.locator('//*[@id="showmodel_id"]').isChecked(),
+    ).toBeFalsy();
 
-  // showmodel_id
-  await page.locator('//*[@id="showmodel_id"]').click();
-  expect(
-    await page.locator('//*[@id="showmodel_id"]').isChecked(),
-  ).toBeTruthy();
+    // showmodel_id
+    await page.locator('//*[@id="showmodel_id"]').click();
+    expect(
+      await page.locator('//*[@id="showmodel_id"]').isChecked(),
+    ).toBeTruthy();
 
-  await page.locator('//*[@id="showregion_name"]').click();
-  expect(
-    await page.locator('//*[@id="showregion_name"]').isChecked(),
-  ).toBeFalsy();
+    await page.locator('//*[@id="showregion_name"]').click();
+    expect(
+      await page.locator('//*[@id="showregion_name"]').isChecked(),
+    ).toBeFalsy();
 
-  await page.locator('//*[@id="showregion_name"]').click();
-  expect(
-    await page.locator('//*[@id="showregion_name"]').isChecked(),
-  ).toBeTruthy();
+    await page.locator('//*[@id="showregion_name"]').click();
+    expect(
+      await page.locator('//*[@id="showregion_name"]').isChecked(),
+    ).toBeTruthy();
 
-  // showmodel_id
-  await page.locator('//*[@id="showmodel_id"]').click();
-  expect(await page.locator('//*[@id="showmodel_id"]').isChecked()).toBeFalsy();
+    // showmodel_id
+    await page.locator('//*[@id="showmodel_id"]').click();
+    expect(
+      await page.locator('//*[@id="showmodel_id"]').isChecked(),
+    ).toBeFalsy();
 
-  // showmodel_id
-  await page.locator('//*[@id="showmodel_id"]').click();
-  expect(
-    await page.locator('//*[@id="showmodel_id"]').isChecked(),
-  ).toBeTruthy();
+    // showmodel_id
+    await page.locator('//*[@id="showmodel_id"]').click();
+    expect(
+      await page.locator('//*[@id="showmodel_id"]').isChecked(),
+    ).toBeTruthy();
 
-  await page.getByTestId("value-dropdown-dropdown_str_edit_model_id").click();
-  await page.getByText("cohere").last().click();
+    await page.getByTestId("value-dropdown-dropdown_str_edit_model_id").click();
+    await page.getByText("cohere").last().click();
 
-  value = await page
-    .getByTestId("value-dropdown-dropdown_str_edit_model_id")
-    .innerText();
-  if (value !== "cohere.command-r-plus-v1:0") {
-    expect(false).toBeTruthy();
-  }
+    value = await page
+      .getByTestId("value-dropdown-dropdown_str_edit_model_id")
+      .innerText();
+    if (value !== "cohere.command-r-plus-v1:0") {
+      expect(false).toBeTruthy();
+    }
 
-  await closeAdvancedOptions(page);
+    await closeAdvancedOptions(page);
 
-  value = await page
-    .getByTestId("value-dropdown-dropdown_str_model_id")
-    .innerText();
-  if (value !== "cohere.command-r-plus-v1:0") {
-    expect(false).toBeTruthy();
-  }
-  await page.getByTestId("code-button-modal").last().click();
+    value = await page
+      .getByTestId("value-dropdown-dropdown_str_model_id")
+      .innerText();
+    if (value !== "cohere.command-r-plus-v1:0") {
+      expect(false).toBeTruthy();
+    }
+    await page.getByTestId("code-button-modal").last().click();
 
-  await page.locator("textarea").press("Control+a");
-  const emptyOptionsCode = `from langchain_community.chat_models.bedrock import BedrockChat
+    await page.locator("textarea").press("Control+a");
+    const emptyOptionsCode = `from langchain_community.chat_models.bedrock import BedrockChat
 
 from langflow.base.constants import STREAM_INFO_TEXT
 from langflow.base.models.model import LCModelComponent
@@ -242,9 +247,12 @@ class AmazonBedrockComponent(LCModelComponent):
             raise ValueError("Could not connect to AmazonBedrock API.") from e
         return output
   `;
-  await page.locator("textarea").fill(emptyOptionsCode);
-  await page.getByRole("button", { name: "Check & Save" }).click();
-  await page.getByText("No parameters are available for display.").isVisible();
+    await page.locator("textarea").fill(emptyOptionsCode);
+    await page.getByRole("button", { name: "Check & Save" }).click();
+    await page
+      .getByText("No parameters are available for display.")
+      .isVisible();
 
-  await enableInspectPanel(page);
-});
+    await enableInspectPanel(page);
+  },
+);

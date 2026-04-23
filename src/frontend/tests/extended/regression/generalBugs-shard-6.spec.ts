@@ -1,30 +1,33 @@
 import { expect, test } from "../../fixtures";
 import { awaitBootstrapTest } from "../../utils/await-bootstrap-test";
 
-test("should be able to see error when something goes wrong on Code Modal", {
-  tag: ["@release"],
-}, async ({ page }) => {
-  await awaitBootstrapTest(page);
+test(
+  "should be able to see error when something goes wrong on Code Modal",
+  {
+    tag: ["@release"],
+  },
+  async ({ page }) => {
+    await awaitBootstrapTest(page);
 
-  await page.waitForSelector('[data-testid="blank-flow"]', {
-    timeout: 30000,
-  });
-
-  await page.getByTestId("blank-flow").click();
-
-  await page.waitForSelector(
-    '[data-testid="sidebar-custom-component-button"]',
-    {
+    await page.waitForSelector('[data-testid="blank-flow"]', {
       timeout: 30000,
-    },
-  );
+    });
 
-  await page.getByTestId("sidebar-custom-component-button").click();
+    await page.getByTestId("blank-flow").click();
 
-  await page.getByTestId("div-generic-node").click();
-  await page.getByTestId("code-button-modal").last().click();
+    await page.waitForSelector(
+      '[data-testid="sidebar-custom-component-button"]',
+      {
+        timeout: 30000,
+      },
+    );
 
-  const customCodeWithError = `
+    await page.getByTestId("sidebar-custom-component-button").click();
+
+    await page.getByTestId("div-generic-node").click();
+    await page.getByTestId("code-button-modal").last().click();
+
+    const customCodeWithError = `
 # from langflow.field_typing import Data
 from langflow.custom import Component
 from langflow.io import MessageTextInput, Output
@@ -52,27 +55,30 @@ class CustomComponent(Component):
         return data
   `;
 
-  await page.locator("textarea").press("Control+a");
-  await page.locator("textarea").fill(customCodeWithError);
+    await page.locator("textarea").press("Control+a");
+    await page.locator("textarea").fill(customCodeWithError);
 
-  await page.getByText("Check & Save").last().click();
+    await page.getByText("Check & Save").last().click();
 
-  // Wait for the error message to appear and have sufficient length
-  await page.waitForFunction(
-    () => {
-      const errorElement = document.querySelector(
-        '[data-testid="title_error_code_modal"]',
-      );
-      return (
-        errorElement &&
-        errorElement.textContent &&
-        errorElement.textContent.length > 20
-      );
-    },
-    { timeout: 10000 }, // 5 second timeout
-  );
+    // Wait for the error message to appear and have sufficient length
+    await page.waitForFunction(
+      () => {
+        const errorElement = document.querySelector(
+          '[data-testid="title_error_code_modal"]',
+        );
+        return (
+          errorElement &&
+          errorElement.textContent &&
+          errorElement.textContent.length > 20
+        );
+      },
+      { timeout: 10000 }, // 5 second timeout
+    );
 
-  const error = await page.getByTestId("title_error_code_modal").textContent();
+    const error = await page
+      .getByTestId("title_error_code_modal")
+      .textContent();
 
-  expect(error!.length).toBeGreaterThan(20);
-});
+    expect(error!.length).toBeGreaterThan(20);
+  },
+);

@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from lfx.components.processing.parse_data import ParseDataComponent
     from lfx.components.processing.parser import ParserComponent
     from lfx.components.processing.regex import RegexExtractorComponent
-    from lfx.components.processing.split_text import SplitTextComponent
     from lfx.components.processing.smart_extract import SmartExtractComponent
+    from lfx.components.processing.split_text import SplitTextComponent
     from lfx.components.processing.store_message import MessageStoreComponent
     from lfx.components.processing.table_splitter import TableSplitterComponent
     from lfx.components.processing.text_aggregator import TextAggregatorComponent

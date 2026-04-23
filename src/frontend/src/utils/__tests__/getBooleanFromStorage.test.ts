@@ -69,19 +69,15 @@ describe("getBooleanFromStorage", () => {
   });
 
   describe("when localStorage contains other string values", () => {
-    it.each([
-      "1",
-      "yes",
-      "TRUE",
-      "False",
-      "anything else",
-      "",
-    ])("should return false for non-'true' string: '%s'", (value) => {
-      mockGetLocalStorage.mockReturnValue(value);
+    it.each(["1", "yes", "TRUE", "False", "anything else", ""])(
+      "should return false for non-'true' string: '%s'",
+      (value) => {
+        mockGetLocalStorage.mockReturnValue(value);
 
-      const result = getBooleanFromStorage("testKey", true);
-      expect(result).toBe(false);
-    });
+        const result = getBooleanFromStorage("testKey", true);
+        expect(result).toBe(false);
+      },
+    );
   });
 
   describe("real-world scenarios", () => {

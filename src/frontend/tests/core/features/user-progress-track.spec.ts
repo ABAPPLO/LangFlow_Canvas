@@ -5,19 +5,27 @@ import { addNewUserAndLogin } from "../../utils/add-new-user-and-loggin";
 import { cleanAllFlows } from "../../utils/clean-all-flows";
 import { cleanOldFolders } from "../../utils/clean-old-folders";
 
-test("admin user must be able to track their progress in getting started", {
-  tag: ["@release", "@api"],
-}, async ({ page, context }) => {
-  await page.goto("/");
-  await progressTrackTestFn(page, context);
-});
+test(
+  "admin user must be able to track their progress in getting started",
+  {
+    tag: ["@release", "@api"],
+  },
+  async ({ page, context }) => {
+    await page.goto("/");
+    await progressTrackTestFn(page, context);
+  },
+);
 
-test("normal user must be able to track their progress in getting started", {
-  tag: ["@release", "@api"],
-}, async ({ page, context }) => {
-  await addNewUserAndLogin(page);
-  await progressTrackTestFn(page, context, true);
-});
+test(
+  "normal user must be able to track their progress in getting started",
+  {
+    tag: ["@release", "@api"],
+  },
+  async ({ page, context }) => {
+    await addNewUserAndLogin(page);
+    await progressTrackTestFn(page, context, true);
+  },
+);
 
 async function progressTrackTestFn(
   page: Page,

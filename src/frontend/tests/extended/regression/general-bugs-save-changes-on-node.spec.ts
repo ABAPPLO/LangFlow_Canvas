@@ -40,42 +40,46 @@ async function verifyTextareaValue(
   expect(inputValue).toBe(value);
 }
 
-test("any changes on the node must be saved on user interaction", {
-  tag: ["@release", "@components"],
-}, async ({ page }) => {
-  const randomValues = Array.from({ length: 4 }, () =>
-    Math.random().toString(36).substring(2, 8),
-  );
+test(
+  "any changes on the node must be saved on user interaction",
+  {
+    tag: ["@release", "@components"],
+  },
+  async ({ page }) => {
+    const randomValues = Array.from({ length: 4 }, () =>
+      Math.random().toString(36).substring(2, 8),
+    );
 
-  const randomFlowName = Math.random().toString(36).substring(2, 8);
+    const randomFlowName = Math.random().toString(36).substring(2, 8);
 
-  await awaitBootstrapTest(page);
-  await page.getByTestId("blank-flow").click();
-  await adjustScreenView(page);
+    await awaitBootstrapTest(page);
+    await page.getByTestId("blank-flow").click();
+    await adjustScreenView(page);
 
-  await renameFlow(page, { flowName: randomFlowName });
+    await renameFlow(page, { flowName: randomFlowName });
 
-  await page.getByTestId("sidebar-search-input").click();
-  await page.getByTestId("sidebar-search-input").fill("text output");
+    await page.getByTestId("sidebar-search-input").click();
+    await page.getByTestId("sidebar-search-input").fill("text output");
 
-  await page
-    .getByTestId("input_outputText Output")
-    .waitFor({ state: "visible" });
-  await page.getByTestId("add-component-button-text-output").click();
+    await page
+      .getByTestId("input_outputText Output")
+      .waitFor({ state: "visible" });
+    await page.getByTestId("add-component-button-text-output").click();
 
-  await page.waitForSelector('[data-testid="title-Text Output"]', {
-    timeout: 5000,
-    state: "visible",
-  });
+    await page.waitForSelector('[data-testid="title-Text Output"]', {
+      timeout: 5000,
+      state: "visible",
+    });
 
-  await page.getByTestId("app-header").first().click();
+    await page.getByTestId("app-header").first().click();
 
-  for (const value of randomValues) {
-    try {
-      await verifyTextareaValue(page, value, randomFlowName);
-    } catch (error) {
-      console.error(`Failed to verify value: ${value}`, error);
-      throw error;
+    for (const value of randomValues) {
+      try {
+        await verifyTextareaValue(page, value, randomFlowName);
+      } catch (error) {
+        console.error(`Failed to verify value: ${value}`, error);
+        throw error;
+      }
     }
-  }
-});
+  },
+);

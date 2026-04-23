@@ -5,10 +5,13 @@ import { awaitBootstrapTest } from "../../utils/await-bootstrap-test";
 
 import { zoomOut } from "../../utils/zoom-out";
 
-test("user should be able to see errors on popups when raise an error", {
-  tag: ["@release", "@workspace", "@components"],
-}, async ({ page }) => {
-  const customComponentCodeWithRaiseErrorMessage = `
+test(
+  "user should be able to see errors on popups when raise an error",
+  {
+    tag: ["@release", "@workspace", "@components"],
+  },
+  async ({ page }) => {
+    const customComponentCodeWithRaiseErrorMessage = `
 # from langflow.field_typing import Data
 from langflow.custom import Component
 from langflow.io import MessageTextInput, Output
@@ -44,43 +47,46 @@ class CustomComponent(Component):
         return data
     `;
 
-  await awaitBootstrapTest(page);
-  await page.getByTestId("blank-flow").click();
+    await awaitBootstrapTest(page);
+    await page.getByTestId("blank-flow").click();
 
-  await page.waitForSelector(
-    '[data-testid="sidebar-custom-component-button"]',
-    {
+    await page.waitForSelector(
+      '[data-testid="sidebar-custom-component-button"]',
+      {
+        timeout: 3000,
+      },
+    );
+
+    await addCustomComponent(page);
+    await adjustScreenView(page, { numberOfZoomOut: 1 });
+
+    await page.waitForTimeout(1000);
+
+    await page.waitForSelector('[data-testid="title-Custom Component"]', {
       timeout: 3000,
-    },
-  );
+    });
+    await page.getByTestId("title-Custom Component").click();
 
-  await addCustomComponent(page);
-  await adjustScreenView(page, { numberOfZoomOut: 1 });
+    await page.getByTestId("code-button-modal").last().click();
 
-  await page.waitForTimeout(1000);
+    await page.locator(".ace_content").click();
+    await page.keyboard.press(`ControlOrMeta+A`);
+    await page
+      .locator("textarea")
+      .fill(customComponentCodeWithRaiseErrorMessage);
 
-  await page.waitForSelector('[data-testid="title-Custom Component"]', {
-    timeout: 3000,
-  });
-  await page.getByTestId("title-Custom Component").click();
+    await page.getByText("Check & Save").last().click();
 
-  await page.getByTestId("code-button-modal").last().click();
+    await page.getByTestId("button_run_custom component").click();
 
-  await page.locator(".ace_content").click();
-  await page.keyboard.press(`ControlOrMeta+A`);
-  await page.locator("textarea").fill(customComponentCodeWithRaiseErrorMessage);
+    await page.waitForSelector("text=THIS IS A TEST ERROR MESSAGE", {
+      timeout: 3000,
+    });
 
-  await page.getByText("Check & Save").last().click();
+    const numberOfErrorMessages = await page
+      .getByText("THIS IS A TEST ERROR MESSAGE")
+      .count();
 
-  await page.getByTestId("button_run_custom component").click();
-
-  await page.waitForSelector("text=THIS IS A TEST ERROR MESSAGE", {
-    timeout: 3000,
-  });
-
-  const numberOfErrorMessages = await page
-    .getByText("THIS IS A TEST ERROR MESSAGE")
-    .count();
-
-  expect(numberOfErrorMessages).toBeGreaterThan(0);
-});
+    expect(numberOfErrorMessages).toBeGreaterThan(0);
+  },
+);

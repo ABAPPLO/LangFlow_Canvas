@@ -10,42 +10,45 @@ import {
 } from "../../utils/open-advanced-options";
 
 // TODO: This component doesn't have slider needs updating
-test("user should be able to use slider input", {
-  tag: ["@release", "@workspace"],
-}, async ({ page }) => {
-  await awaitBootstrapTest(page);
+test(
+  "user should be able to use slider input",
+  {
+    tag: ["@release", "@workspace"],
+  },
+  async ({ page }) => {
+    await awaitBootstrapTest(page);
 
-  await page.waitForSelector('[data-testid="blank-flow"]', {
-    timeout: 30000,
-  });
-  await page.getByTestId("blank-flow").click();
-  await page.getByTestId("sidebar-search-input").click();
-  await page.getByTestId("sidebar-search-input").fill("ollama");
+    await page.waitForSelector('[data-testid="blank-flow"]', {
+      timeout: 30000,
+    });
+    await page.getByTestId("blank-flow").click();
+    await page.getByTestId("sidebar-search-input").click();
+    await page.getByTestId("sidebar-search-input").fill("ollama");
 
-  await page.waitForSelector('[data-testid="ollamaOllama"]', {
-    timeout: 3000,
-  });
+    await page.waitForSelector('[data-testid="ollamaOllama"]', {
+      timeout: 3000,
+    });
 
-  await page
-    .getByTestId("ollamaOllama")
-    .dragTo(page.locator('//*[@id="react-flow-id"]'));
-  await page.mouse.up();
-  await page.mouse.down();
-  await adjustScreenView(page, { numberOfZoomOut: 2 });
+    await page
+      .getByTestId("ollamaOllama")
+      .dragTo(page.locator('//*[@id="react-flow-id"]'));
+    await page.mouse.up();
+    await page.mouse.down();
+    await adjustScreenView(page, { numberOfZoomOut: 2 });
 
-  await page.getByTestId("title-Ollama").click();
-  await page.getByTestId("code-button-modal").last().click();
+    await page.getByTestId("title-Ollama").click();
+    await page.getByTestId("code-button-modal").last().click();
 
-  const cleanCode = await extractAndCleanCode(page);
+    const cleanCode = await extractAndCleanCode(page);
 
-  // Replace the multiline string in the code
-  const newCode = cleanCode.replace(
-    `name="temperature",
+    // Replace the multiline string in the code
+    const newCode = cleanCode.replace(
+      `name="temperature",
             display_name="Temperature",
             value=0.1,
             range_spec=RangeSpec(min=0, max=1, step=0.01),
             advanced=True,`,
-    `name="temperature",
+      `name="temperature",
             display_name="Temperature",
             value=0.2,
             range_spec=RangeSpec(min=3, max=30, step=1),
@@ -57,47 +60,48 @@ test("user should be able to use slider input", {
             slider_buttons_options=[],
             slider_input=False,
             advanced=False,`,
-  );
-  // make sure codes are different
-  expect(cleanCode).not.toEqual(newCode);
-  await page.locator("textarea").last().press(`ControlOrMeta+a`);
-  await page.keyboard.press("Backspace");
-  await page.locator("textarea").last().fill(newCode);
-  await page.locator('//*[@id="checkAndSaveBtn"]').click();
-  await adjustScreenView(page);
+    );
+    // make sure codes are different
+    expect(cleanCode).not.toEqual(newCode);
+    await page.locator("textarea").last().press(`ControlOrMeta+a`);
+    await page.keyboard.press("Backspace");
+    await page.locator("textarea").last().fill(newCode);
+    await page.locator('//*[@id="checkAndSaveBtn"]').click();
+    await adjustScreenView(page);
 
-  await mutualValidation(page);
+    await mutualValidation(page);
 
-  await moveSlider(page, "right", false);
+    await moveSlider(page, "right", false);
 
-  // wait for the slider to update
+    // wait for the slider to update
 
-  await page.waitForTimeout(500);
-  await adjustScreenView(page, { numberOfZoomOut: 1 });
+    await page.waitForTimeout(500);
+    await adjustScreenView(page, { numberOfZoomOut: 1 });
 
-  await disableInspectPanel(page);
+    await disableInspectPanel(page);
 
-  await openAdvancedOptions(page);
-  await expect(
-    page.getByTestId("default_slider_display_value_advanced"),
-  ).toHaveText("19.00");
+    await openAdvancedOptions(page);
+    await expect(
+      page.getByTestId("default_slider_display_value_advanced"),
+    ).toHaveText("19.00");
 
-  await moveSlider(page, "left", true);
-  // Wait for any potential updates
-  await page.waitForTimeout(500);
+    await moveSlider(page, "left", true);
+    // Wait for any potential updates
+    await page.waitForTimeout(500);
 
-  await expect(
-    page.getByTestId("default_slider_display_value_advanced"),
-  ).toHaveText("14.00");
+    await expect(
+      page.getByTestId("default_slider_display_value_advanced"),
+    ).toHaveText("14.00");
 
-  await closeAdvancedOptions(page);
+    await closeAdvancedOptions(page);
 
-  await expect(page.getByTestId("default_slider_display_value")).toHaveText(
-    "14.00",
-  );
+    await expect(page.getByTestId("default_slider_display_value")).toHaveText(
+      "14.00",
+    );
 
-  await enableInspectPanel(page);
-});
+    await enableInspectPanel(page);
+  },
+);
 
 async function extractAndCleanCode(page: Page): Promise<string> {
   const outerHTML = await page

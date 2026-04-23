@@ -6,105 +6,111 @@ import { zoomOut } from "../../utils/zoom-out";
 
 test.describe("save component tests", () => {
   /// <reference lib="dom"/>
-  test.skip("save group component tests", {
-    tag: ["@release", "@workspace", "@api"],
-  }, async ({ page }) => {
-    await awaitBootstrapTest(page);
+  test.skip(
+    "save group component tests",
+    {
+      tag: ["@release", "@workspace", "@api"],
+    },
+    async ({ page }) => {
+      await awaitBootstrapTest(page);
 
-    await page.waitForSelector('[data-testid="blank-flow"]', {
-      timeout: 30000,
-    });
-    await page.getByTestId("blank-flow").click();
-
-    // Read your file into a buffer.
-    const jsonContent = readFileSync(
-      "tests/assets/flow_group_test.json",
-      "utf-8",
-    );
-
-    // Create the DataTransfer and File
-    const dataTransfer = await page.evaluateHandle((data) => {
-      const dt = new DataTransfer();
-      // Convert the buffer to a hex array
-      const file = new File([data], "flow_group_test.json", {
-        type: "application/json",
+      await page.waitForSelector('[data-testid="blank-flow"]', {
+        timeout: 30000,
       });
-      dt.items.add(file);
-      return dt;
-    }, jsonContent);
+      await page.getByTestId("blank-flow").click();
 
-    // Now dispatch
-    await page.dispatchEvent(
-      "//*[@data-testid='rf__wrapper']/div[1]/div",
-      "drop",
-      {
-        dataTransfer,
-      },
-    );
+      // Read your file into a buffer.
+      const jsonContent = readFileSync(
+        "tests/assets/flow_group_test.json",
+        "utf-8",
+      );
 
-    const genericNoda = page.getByTestId("div-generic-node");
-    const elementCount = await genericNoda?.count();
-    if (elementCount > 0) {
-      expect(true).toBeTruthy();
-    }
+      // Create the DataTransfer and File
+      const dataTransfer = await page.evaluateHandle((data) => {
+        const dt = new DataTransfer();
+        // Convert the buffer to a hex array
+        const file = new File([data], "flow_group_test.json", {
+          type: "application/json",
+        });
+        dt.items.add(file);
+        return dt;
+      }, jsonContent);
 
-    await adjustScreenView(page, { numberOfZoomOut: 2 });
+      // Now dispatch
+      await page.dispatchEvent(
+        "//*[@data-testid='rf__wrapper']/div[1]/div",
+        "drop",
+        {
+          dataTransfer,
+        },
+      );
 
-    await page.getByTestId("title-Agent Initializer").click({
-      modifiers: ["Control"],
-    });
+      const genericNoda = page.getByTestId("div-generic-node");
+      const elementCount = await genericNoda?.count();
+      if (elementCount > 0) {
+        expect(true).toBeTruthy();
+      }
 
-    await page.getByRole("button", { name: "Group" }).click();
+      await adjustScreenView(page, { numberOfZoomOut: 2 });
 
-    await page
-      .locator('//*[@id="react-flow-id"]')
-      .first()
-      .click({ button: "left" });
+      await page.getByTestId("title-Agent Initializer").click({
+        modifiers: ["Control"],
+      });
 
-    let textArea = page.getByTestId("div-textarea-description");
-    let elementCountText = await textArea?.count();
-    if (elementCountText > 0) {
-      expect(true).toBeTruthy();
-    }
+      await page.getByRole("button", { name: "Group" }).click();
 
-    let groupNode = page.getByTestId("title-Group");
-    let elementGroup = await groupNode?.count();
-    if (elementGroup > 0) {
-      expect(true).toBeTruthy();
-    }
+      await page
+        .locator('//*[@id="react-flow-id"]')
+        .first()
+        .click({ button: "left" });
 
-    await page.getByTestId("title-Group").click();
-    await page.getByTestId("more-options-modal").click();
+      let textArea = page.getByTestId("div-textarea-description");
+      let elementCountText = await textArea?.count();
+      if (elementCountText > 0) {
+        expect(true).toBeTruthy();
+      }
 
-    await page.getByTestId("icon-SaveAll").click();
-    // timeout to handle case where there is already a saved component with the same name
-    await page.waitForTimeout(1000);
+      let groupNode = page.getByTestId("title-Group");
+      let elementGroup = await groupNode?.count();
+      if (elementGroup > 0) {
+        expect(true).toBeTruthy();
+      }
 
-    const replaceButton = await page.getByTestId("replace-button").isVisible();
+      await page.getByTestId("title-Group").click();
+      await page.getByTestId("more-options-modal").click();
 
-    if (replaceButton) {
-      await page.getByTestId("replace-button").click();
-    }
-    await page.getByTestId("sidebar-search-input").click();
-    await page.getByTestId("sidebar-search-input").fill("group");
+      await page.getByTestId("icon-SaveAll").click();
+      // timeout to handle case where there is already a saved component with the same name
+      await page.waitForTimeout(1000);
 
-    await page
-      .getByText("Group")
-      .first()
-      .dragTo(page.locator('//*[@id="react-flow-id"]'));
-    await page.mouse.up();
-    await page.mouse.down();
-    await page.getByTestId("fit_view").click();
-    textArea = page.getByTestId("div-textarea-description");
-    elementCountText = await textArea?.count();
-    if (elementCountText > 0) {
-      expect(true).toBeTruthy();
-    }
+      const replaceButton = await page
+        .getByTestId("replace-button")
+        .isVisible();
 
-    groupNode = page.getByTestId("title-Group");
-    elementGroup = await groupNode?.count();
-    if (elementGroup > 0) {
-      expect(true).toBeTruthy();
-    }
-  });
+      if (replaceButton) {
+        await page.getByTestId("replace-button").click();
+      }
+      await page.getByTestId("sidebar-search-input").click();
+      await page.getByTestId("sidebar-search-input").fill("group");
+
+      await page
+        .getByText("Group")
+        .first()
+        .dragTo(page.locator('//*[@id="react-flow-id"]'));
+      await page.mouse.up();
+      await page.mouse.down();
+      await page.getByTestId("fit_view").click();
+      textArea = page.getByTestId("div-textarea-description");
+      elementCountText = await textArea?.count();
+      if (elementCountText > 0) {
+        expect(true).toBeTruthy();
+      }
+
+      groupNode = page.getByTestId("title-Group");
+      elementGroup = await groupNode?.count();
+      if (elementGroup > 0) {
+        expect(true).toBeTruthy();
+      }
+    },
+  );
 });

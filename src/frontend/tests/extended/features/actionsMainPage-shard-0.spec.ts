@@ -3,119 +3,133 @@ import { addFlowToTestOnEmptyLangflow } from "../../utils/add-flow-to-test-on-em
 import { adjustScreenView } from "../../utils/adjust-screen-view";
 import { awaitBootstrapTest } from "../../utils/await-bootstrap-test";
 
-test("user should be able to download a flow or a component", {
-  tag: ["@release", "@workspace"],
-}, async ({ page }) => {
-  await awaitBootstrapTest(page);
+test(
+  "user should be able to download a flow or a component",
+  {
+    tag: ["@release", "@workspace"],
+  },
+  async ({ page }) => {
+    await awaitBootstrapTest(page);
 
-  await page.getByTestId("side_nav_options_all-templates").click();
-  await page.getByRole("heading", { name: "Basic Prompting" }).click();
-  await adjustScreenView(page);
+    await page.getByTestId("side_nav_options_all-templates").click();
+    await page.getByRole("heading", { name: "Basic Prompting" }).click();
+    await adjustScreenView(page);
 
-  await page.getByText("Chat Input", { exact: true }).click();
-  await page.getByTestId("more-options-modal").click();
+    await page.getByText("Chat Input", { exact: true }).click();
+    await page.getByTestId("more-options-modal").click();
 
-  await page.getByTestId("icon-SaveAll").first().click();
+    await page.getByTestId("icon-SaveAll").first().click();
 
-  if (await page.getByTestId("replace-button").isVisible()) {
-    await page.getByTestId("replace-button").click();
-  }
+    if (await page.getByTestId("replace-button").isVisible()) {
+      await page.getByTestId("replace-button").click();
+    }
 
-  await page.waitForSelector('[data-testid="sidebar-search-input"]', {
-    timeout: 100000,
-  });
+    await page.waitForSelector('[data-testid="sidebar-search-input"]', {
+      timeout: 100000,
+    });
 
-  const exitButton = await page.getByText("Exit", { exact: true }).count();
+    const exitButton = await page.getByText("Exit", { exact: true }).count();
 
-  if (exitButton > 0) {
-    await page.getByText("Exit", { exact: true }).click();
-  }
+    if (exitButton > 0) {
+      await page.getByText("Exit", { exact: true }).click();
+    }
 
-  await page.getByTestId("icon-ChevronLeft").last().click();
-  await page.getByTestId("home-dropdown-menu").nth(0).click();
-  await page.getByTestId("btn-download-json").last().click();
-  await page.getByText("Export").first().isVisible();
-  await page.getByTestId("modal-export-button").isVisible();
-  await page.getByTestId("modal-export-button").click();
-  await expect(page.getByText(/.*exported successfully/)).toBeVisible({
-    timeout: 10000,
-  });
-
-  await page.getByText("Flows", { exact: true }).click();
-  await page.getByTestId("home-dropdown-menu").nth(0).click();
-  await page.getByTestId("btn-download-json").last().click();
-  await page.getByText("Export").first().isVisible();
-  await page.getByTestId("modal-export-button").isVisible();
-  await page.getByTestId("modal-export-button").click();
-  await expect(page.getByText(/.*exported successfully/).last()).toBeVisible({
-    timeout: 10000,
-  });
-
-  if (await page.getByText("Components").first().isVisible()) {
-    await page.getByText("Components", { exact: true }).click();
+    await page.getByTestId("icon-ChevronLeft").last().click();
     await page.getByTestId("home-dropdown-menu").nth(0).click();
     await page.getByTestId("btn-download-json").last().click();
+    await page.getByText("Export").first().isVisible();
+    await page.getByTestId("modal-export-button").isVisible();
+    await page.getByTestId("modal-export-button").click();
+    await expect(page.getByText(/.*exported successfully/)).toBeVisible({
+      timeout: 10000,
+    });
+
+    await page.getByText("Flows", { exact: true }).click();
+    await page.getByTestId("home-dropdown-menu").nth(0).click();
+    await page.getByTestId("btn-download-json").last().click();
+    await page.getByText("Export").first().isVisible();
+    await page.getByTestId("modal-export-button").isVisible();
+    await page.getByTestId("modal-export-button").click();
     await expect(page.getByText(/.*exported successfully/).last()).toBeVisible({
       timeout: 10000,
     });
-  }
-});
 
-test("user should be able to upload a flow or a component", {
-  tag: ["@release", "@api", "@workspace"],
-}, async ({ page }) => {
-  await page.goto("/");
-  await page.waitForSelector('[data-testid="mainpage_title"]', {
-    timeout: 30000,
-  });
-  const countEmptyButton = await page
-    .getByTestId("new_project_btn_empty_page")
-    .count();
-  if (countEmptyButton > 0) {
-    await addFlowToTestOnEmptyLangflow(page);
-  }
-  await page.getByTestId("upload-project-button").last().click();
-});
+    if (await page.getByText("Components").first().isVisible()) {
+      await page.getByText("Components", { exact: true }).click();
+      await page.getByTestId("home-dropdown-menu").nth(0).click();
+      await page.getByTestId("btn-download-json").last().click();
+      await expect(
+        page.getByText(/.*exported successfully/).last(),
+      ).toBeVisible({
+        timeout: 10000,
+      });
+    }
+  },
+);
 
-test("user should be able to duplicate a flow or a component", {
-  tag: ["@release", "@workspace"],
-}, async ({ page }) => {
-  await awaitBootstrapTest(page);
+test(
+  "user should be able to upload a flow or a component",
+  {
+    tag: ["@release", "@api", "@workspace"],
+  },
+  async ({ page }) => {
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="mainpage_title"]', {
+      timeout: 30000,
+    });
+    const countEmptyButton = await page
+      .getByTestId("new_project_btn_empty_page")
+      .count();
+    if (countEmptyButton > 0) {
+      await addFlowToTestOnEmptyLangflow(page);
+    }
+    await page.getByTestId("upload-project-button").last().click();
+  },
+);
 
-  await page.getByTestId("side_nav_options_all-templates").click();
-  await page.getByRole("heading", { name: "Basic Prompting" }).click();
-  await adjustScreenView(page);
+test(
+  "user should be able to duplicate a flow or a component",
+  {
+    tag: ["@release", "@workspace"],
+  },
+  async ({ page }) => {
+    await awaitBootstrapTest(page);
 
-  await page.getByText("Chat Input", { exact: true }).click();
-  await page.getByTestId("more-options-modal").click();
+    await page.getByTestId("side_nav_options_all-templates").click();
+    await page.getByRole("heading", { name: "Basic Prompting" }).click();
+    await adjustScreenView(page);
 
-  await page.getByTestId("icon-SaveAll").first().click();
+    await page.getByText("Chat Input", { exact: true }).click();
+    await page.getByTestId("more-options-modal").click();
 
-  if (await page.getByTestId("replace-button").isVisible()) {
-    await page.getByTestId("replace-button").click();
-  }
+    await page.getByTestId("icon-SaveAll").first().click();
 
-  await page.waitForSelector('[data-testid="sidebar-search-input"]', {
-    timeout: 100000,
-  });
+    if (await page.getByTestId("replace-button").isVisible()) {
+      await page.getByTestId("replace-button").click();
+    }
 
-  const exitButton = await page.getByText("Exit", { exact: true }).count();
+    await page.waitForSelector('[data-testid="sidebar-search-input"]', {
+      timeout: 100000,
+    });
 
-  if (exitButton > 0) {
-    await page.getByText("Exit", { exact: true }).click();
-  }
+    const exitButton = await page.getByText("Exit", { exact: true }).count();
 
-  const replaceButton = await page.getByTestId("replace-button").isVisible();
+    if (exitButton > 0) {
+      await page.getByText("Exit", { exact: true }).click();
+    }
 
-  if (replaceButton) {
-    await page.getByTestId("replace-button").click();
-  }
+    const replaceButton = await page.getByTestId("replace-button").isVisible();
 
-  await page.getByTestId("icon-ChevronLeft").last().click();
-  await page.getByTestId("home-dropdown-menu").nth(1).click();
-  await page.getByTestId("btn-duplicate-flow").last().click();
+    if (replaceButton) {
+      await page.getByTestId("replace-button").click();
+    }
 
-  await expect(page.getByText("Flow duplicated successfully")).toBeVisible({
-    timeout: 10000,
-  });
-});
+    await page.getByTestId("icon-ChevronLeft").last().click();
+    await page.getByTestId("home-dropdown-menu").nth(1).click();
+    await page.getByTestId("btn-duplicate-flow").last().click();
+
+    await expect(page.getByText("Flow duplicated successfully")).toBeVisible({
+      timeout: 10000,
+    });
+  },
+);

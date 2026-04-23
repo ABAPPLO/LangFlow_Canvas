@@ -6,140 +6,144 @@ import { adjustScreenView } from "../../utils/adjust-screen-view";
 import { awaitBootstrapTest } from "../../utils/await-bootstrap-test";
 import { initialGPTsetup } from "../../utils/initialGPTsetup";
 
-test("user must be able to freeze a path", {
-  tag: ["@release", "@workspace", "@components"],
-}, async ({ page }) => {
-  test.skip(
-    !process?.env?.OPENAI_API_KEY,
-    "OPENAI_API_KEY required to run this test",
-  );
-
-  if (!process.env.CI) {
-    dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-  }
-
-  await awaitBootstrapTest(page);
-
-  const firstRunLangflow = await page
-    .getByTestId("empty-project-description")
-    .count();
-
-  if (firstRunLangflow > 0) {
-    await addFlowToTestOnEmptyLangflow(page);
-  }
-
-  await page.getByTestId("side_nav_options_all-templates").click();
-  await page.getByRole("heading", { name: "Basic Prompting" }).click();
-
-  await initialGPTsetup(page);
-
-  // Use unique prompts to avoid OpenAI caching returning identical responses
-  const timestamp = Date.now();
-
-  await page.getByText("Chat Input", { exact: true }).click();
-
-  await page
-    .getByTestId("textarea_str_input_value")
-    .first()
-    .fill(
-      `say a random number between 1 and 300000 and a random animal that lives in the sea. Request ID: ${timestamp}-1`,
+test(
+  "user must be able to freeze a path",
+  {
+    tag: ["@release", "@workspace", "@components"],
+  },
+  async ({ page }) => {
+    test.skip(
+      !process?.env?.OPENAI_API_KEY,
+      "OPENAI_API_KEY required to run this test",
     );
 
-  await adjustScreenView(page);
+    if (!process.env.CI) {
+      dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+    }
 
-  await page.waitForSelector('[data-testid="button_run_chat output"]', {
-    timeout: 3000,
-  });
+    await awaitBootstrapTest(page);
 
-  await page.getByTestId("button_run_chat output").click();
+    const firstRunLangflow = await page
+      .getByTestId("empty-project-description")
+      .count();
 
-  await page.waitForSelector("text=built successfully", { timeout: 30000 });
+    if (firstRunLangflow > 0) {
+      await addFlowToTestOnEmptyLangflow(page);
+    }
 
-  await page
-    .getByTestId("output-inspection-output message-chatoutput")
-    .first()
-    .click();
+    await page.getByTestId("side_nav_options_all-templates").click();
+    await page.getByRole("heading", { name: "Basic Prompting" }).click();
 
-  const randomTextGeneratedByAI = await page
-    .getByPlaceholder("Empty")
-    .first()
-    .inputValue();
+    await initialGPTsetup(page);
 
-  await page.getByText("Close").last().click();
+    // Use unique prompts to avoid OpenAI caching returning identical responses
+    const timestamp = Date.now();
 
-  await page.getByText("Chat Input", { exact: true }).click();
+    await page.getByText("Chat Input", { exact: true }).click();
 
-  // Change the prompt to ensure different output (avoid OpenAI caching)
-  await page
-    .getByTestId("textarea_str_input_value")
-    .first()
-    .fill(
-      `say a random number between 1 and 300000 and a random animal that lives in the sea. Request ID: ${timestamp}-2`,
-    );
+    await page
+      .getByTestId("textarea_str_input_value")
+      .first()
+      .fill(
+        `say a random number between 1 and 300000 and a random animal that lives in the sea. Request ID: ${timestamp}-1`,
+      );
 
-  await page.waitForSelector('[data-testid="button_run_chat output"]', {
-    timeout: 3000,
-  });
+    await adjustScreenView(page);
 
-  await page.getByTestId("button_run_chat output").click();
-  await page.waitForSelector("text=built successfully", { timeout: 30000 });
+    await page.waitForSelector('[data-testid="button_run_chat output"]', {
+      timeout: 3000,
+    });
 
-  await page
-    .getByTestId("output-inspection-output message-chatoutput")
-    .first()
-    .click();
+    await page.getByTestId("button_run_chat output").click();
 
-  const secondRandomTextGeneratedByAI = await page
-    .getByPlaceholder("Empty")
-    .first()
-    .inputValue();
+    await page.waitForSelector("text=built successfully", { timeout: 30000 });
 
-  await page.getByText("Close").last().click();
+    await page
+      .getByTestId("output-inspection-output message-chatoutput")
+      .first()
+      .click();
 
-  const languageModelNode = page
-    .locator(".react-flow__node", {
-      has: page.getByText("Language Model", { exact: true }),
-    })
-    .last();
+    const randomTextGeneratedByAI = await page
+      .getByPlaceholder("Empty")
+      .first()
+      .inputValue();
 
-  await languageModelNode.waitFor({ timeout: 3000 });
-  await languageModelNode.click();
+    await page.getByText("Close").last().click();
 
-  await page.waitForSelector('[data-testid="more-options-modal"]', {
-    timeout: 3000,
-  });
+    await page.getByText("Chat Input", { exact: true }).click();
 
-  await page.getByText("Freeze").first().click();
+    // Change the prompt to ensure different output (avoid OpenAI caching)
+    await page
+      .getByTestId("textarea_str_input_value")
+      .first()
+      .fill(
+        `say a random number between 1 and 300000 and a random animal that lives in the sea. Request ID: ${timestamp}-2`,
+      );
 
-  await page.waitForTimeout(2000);
+    await page.waitForSelector('[data-testid="button_run_chat output"]', {
+      timeout: 3000,
+    });
 
-  await page.waitForSelector('[data-testid="icon-Snowflake"]', {
-    timeout: 3000,
-  });
+    await page.getByTestId("button_run_chat output").click();
+    await page.waitForSelector("text=built successfully", { timeout: 30000 });
 
-  expect(await page.getByTestId("icon-Snowflake").count()).toBeGreaterThan(0);
+    await page
+      .getByTestId("output-inspection-output message-chatoutput")
+      .first()
+      .click();
 
-  await page.waitForSelector('[data-testid="button_run_chat output"]', {
-    timeout: 3000,
-  });
+    const secondRandomTextGeneratedByAI = await page
+      .getByPlaceholder("Empty")
+      .first()
+      .inputValue();
 
-  await page.getByTestId("button_run_chat output").click();
+    await page.getByText("Close").last().click();
 
-  await page.waitForSelector("text=built successfully", { timeout: 30000 });
+    const languageModelNode = page
+      .locator(".react-flow__node", {
+        has: page.getByText("Language Model", { exact: true }),
+      })
+      .last();
 
-  await page
-    .getByTestId("output-inspection-output message-chatoutput")
-    .first()
-    .click();
+    await languageModelNode.waitFor({ timeout: 3000 });
+    await languageModelNode.click();
 
-  const thirdRandomTextGeneratedByAI = await page
-    .getByPlaceholder("Empty")
-    .first()
-    .inputValue();
+    await page.waitForSelector('[data-testid="more-options-modal"]', {
+      timeout: 3000,
+    });
 
-  await page.getByText("Close").last().click();
+    await page.getByText("Freeze").first().click();
 
-  expect(randomTextGeneratedByAI).not.toEqual(secondRandomTextGeneratedByAI);
-  expect(randomTextGeneratedByAI).not.toEqual(thirdRandomTextGeneratedByAI);
-  expect(secondRandomTextGeneratedByAI).toEqual(thirdRandomTextGeneratedByAI);
-});
+    await page.waitForTimeout(2000);
+
+    await page.waitForSelector('[data-testid="icon-Snowflake"]', {
+      timeout: 3000,
+    });
+
+    expect(await page.getByTestId("icon-Snowflake").count()).toBeGreaterThan(0);
+
+    await page.waitForSelector('[data-testid="button_run_chat output"]', {
+      timeout: 3000,
+    });
+
+    await page.getByTestId("button_run_chat output").click();
+
+    await page.waitForSelector("text=built successfully", { timeout: 30000 });
+
+    await page
+      .getByTestId("output-inspection-output message-chatoutput")
+      .first()
+      .click();
+
+    const thirdRandomTextGeneratedByAI = await page
+      .getByPlaceholder("Empty")
+      .first()
+      .inputValue();
+
+    await page.getByText("Close").last().click();
+
+    expect(randomTextGeneratedByAI).not.toEqual(secondRandomTextGeneratedByAI);
+    expect(randomTextGeneratedByAI).not.toEqual(thirdRandomTextGeneratedByAI);
+    expect(secondRandomTextGeneratedByAI).toEqual(thirdRandomTextGeneratedByAI);
+  },
+);

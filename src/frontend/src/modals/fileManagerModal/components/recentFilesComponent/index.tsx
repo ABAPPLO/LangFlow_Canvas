@@ -44,7 +44,9 @@ export default function RecentFilesComponent({
       return {
         ...file,
         type: fileExtension,
-        disabled: !fileExtension || (types.length > 0 && !types.includes(fileExtension)),
+        disabled:
+          !fileExtension ||
+          (types.length > 0 && !types.includes(fileExtension)),
         relativePath: getFileHierarchyPath(file),
       };
     });

@@ -2,42 +2,45 @@ import { expect, test } from "../../fixtures";
 import { awaitBootstrapTest } from "../../utils/await-bootstrap-test";
 import { zoomOut } from "../../utils/zoom-out";
 
-test.skip("user must be able to interact with table input component", {
-  tag: ["@release", "@workspace"],
-}, async ({ page }) => {
-  // SKIP: This test has UI event conflicts where double-click should expose "Input Editor"
-  // but single-click opens textarea modal that blocks the view. This works in main but
-  // not in this branch despite no UI code changes. Needs investigation of event handling.
-  const randomText = Math.random().toString(36).substring(7);
-  const secondRandomText = Math.random().toString(36).substring(7);
-  const thirdRandomText = Math.random().toString(36).substring(7);
+test.skip(
+  "user must be able to interact with table input component",
+  {
+    tag: ["@release", "@workspace"],
+  },
+  async ({ page }) => {
+    // SKIP: This test has UI event conflicts where double-click should expose "Input Editor"
+    // but single-click opens textarea modal that blocks the view. This works in main but
+    // not in this branch despite no UI code changes. Needs investigation of event handling.
+    const randomText = Math.random().toString(36).substring(7);
+    const secondRandomText = Math.random().toString(36).substring(7);
+    const thirdRandomText = Math.random().toString(36).substring(7);
 
-  await awaitBootstrapTest(page);
+    await awaitBootstrapTest(page);
 
-  await page.waitForSelector('[data-testid="blank-flow"]', {
-    timeout: 30000,
-  });
-  await page.getByTestId("blank-flow").click();
+    await page.waitForSelector('[data-testid="blank-flow"]', {
+      timeout: 30000,
+    });
+    await page.getByTestId("blank-flow").click();
 
-  await page.waitForSelector(
-    '[data-testid="sidebar-custom-component-button"]',
-    {
+    await page.waitForSelector(
+      '[data-testid="sidebar-custom-component-button"]',
+      {
+        timeout: 3000,
+      },
+    );
+
+    await page.waitForSelector('[data-testid="canvas_controls_dropdown"]', {
       timeout: 3000,
-    },
-  );
+    });
 
-  await page.waitForSelector('[data-testid="canvas_controls_dropdown"]', {
-    timeout: 3000,
-  });
+    await page.getByTestId("sidebar-custom-component-button").click();
 
-  await page.getByTestId("sidebar-custom-component-button").click();
+    await zoomOut(page, 2);
 
-  await zoomOut(page, 2);
+    await page.getByTestId("div-generic-node").click();
+    await page.getByTestId("code-button-modal").last().click();
 
-  await page.getByTestId("div-generic-node").click();
-  await page.getByTestId("code-button-modal").last().click();
-
-  const customCodeWithError = `
+    const customCodeWithError = `
 # from langflow.field_typing import Data
 from langflow.custom import Component
 from langflow.io import TableInput, Output
@@ -82,108 +85,109 @@ class CustomComponent(Component):
         return data
   `;
 
-  await page.locator("textarea").press(`ControlOrMeta+a`);
-  await page.locator("textarea").fill(customCodeWithError);
+    await page.locator("textarea").press(`ControlOrMeta+a`);
+    await page.locator("textarea").fill(customCodeWithError);
 
-  await page.getByText("Check & Save").last().click();
+    await page.getByText("Check & Save").last().click();
 
-  await page.waitForSelector('text="Open table"', {
-    timeout: 3000,
-  });
+    await page.waitForSelector('text="Open table"', {
+      timeout: 3000,
+    });
 
-  await page.getByText("Open table").click();
+    await page.getByText("Open table").click();
 
-  await page.waitForSelector(".ag-cell-value", {
-    timeout: 3000,
-  });
+    await page.waitForSelector(".ag-cell-value", {
+      timeout: 3000,
+    });
 
-  const visibleTextsGroup1 = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"];
-  const visibleTextsGroup2 = ["X1", "Y2", "Z3", "W4", "V5"];
-  const visibleTextsGroup3 = ["P1", "Q2", "R3", "S4", "T5"];
-  const visibleTextsGroup4 = ["F1", "G2", "H3", "I4", "J5"];
+    const visibleTextsGroup1 = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"];
+    const visibleTextsGroup2 = ["X1", "Y2", "Z3", "W4", "V5"];
+    const visibleTextsGroup3 = ["P1", "Q2", "R3", "S4", "T5"];
+    const visibleTextsGroup4 = ["F1", "G2", "H3", "I4", "J5"];
 
-  const allVisibleTexts = [
-    ...visibleTextsGroup1,
-    ...visibleTextsGroup2,
-    ...visibleTextsGroup3,
-    ...visibleTextsGroup4,
-  ];
+    const allVisibleTexts = [
+      ...visibleTextsGroup1,
+      ...visibleTextsGroup2,
+      ...visibleTextsGroup3,
+      ...visibleTextsGroup4,
+    ];
 
-  for (const text of allVisibleTexts) {
-    await expect(page.getByText(text).last()).toBeVisible();
-  }
+    for (const text of allVisibleTexts) {
+      await expect(page.getByText(text).last()).toBeVisible();
+    }
 
-  await page.locator(".ag-cell-value").first().dblclick({
-    force: true,
-  });
+    await page.locator(".ag-cell-value").first().dblclick({
+      force: true,
+    });
 
-  await page.getByLabel("Input Editor").fill(randomText);
-  await page.keyboard.press("Enter");
+    await page.getByLabel("Input Editor").fill(randomText);
+    await page.keyboard.press("Enter");
 
-  await page.locator(".ag-cell-value").nth(12).dblclick({
-    force: true,
-  });
+    await page.locator(".ag-cell-value").nth(12).dblclick({
+      force: true,
+    });
 
-  await page.getByLabel("Input Editor").fill(secondRandomText);
-  await page.keyboard.press("Enter");
+    await page.getByLabel("Input Editor").fill(secondRandomText);
+    await page.keyboard.press("Enter");
 
-  await page.locator(".ag-cell-value").nth(24).dblclick({
-    force: true,
-  });
+    await page.locator(".ag-cell-value").nth(24).dblclick({
+      force: true,
+    });
 
-  await page.getByLabel("Input Editor").fill(thirdRandomText);
-  await page.keyboard.press("Enter");
+    await page.getByLabel("Input Editor").fill(thirdRandomText);
+    await page.keyboard.press("Enter");
 
-  expect(page.getByText(randomText)).toBeVisible();
-  expect(page.getByText(secondRandomText)).toBeVisible();
-  expect(page.getByText(thirdRandomText)).toBeVisible();
+    expect(page.getByText(randomText)).toBeVisible();
+    expect(page.getByText(secondRandomText)).toBeVisible();
+    expect(page.getByText(thirdRandomText)).toBeVisible();
 
-  await page.locator('input[type="checkbox"]').last().click();
+    await page.locator('input[type="checkbox"]').last().click();
 
-  await page.getByTestId("icon-Copy").last().click();
+    await page.getByTestId("icon-Copy").last().click();
 
-  await expect(page.getByTestId("duplicate-row-button")).toBeDisabled({
-    timeout: 1000,
-  });
+    await expect(page.getByTestId("duplicate-row-button")).toBeDisabled({
+      timeout: 1000,
+    });
 
-  let numberOfCopiedRows = await page.getByText(thirdRandomText).count();
-  expect(numberOfCopiedRows).toBe(2);
+    let numberOfCopiedRows = await page.getByText(thirdRandomText).count();
+    expect(numberOfCopiedRows).toBe(2);
 
-  await page.locator('input[type="checkbox"]').last().click();
-  await page.getByTestId("icon-Trash2").last().click();
+    await page.locator('input[type="checkbox"]').last().click();
+    await page.getByTestId("icon-Trash2").last().click();
 
-  await expect(page.getByTestId("delete-row-button")).toBeDisabled({
-    timeout: 1000,
-  });
+    await expect(page.getByTestId("delete-row-button")).toBeDisabled({
+      timeout: 1000,
+    });
 
-  await page.locator('input[type="checkbox"]').last().click();
-  await page.getByTestId("icon-Trash2").click();
+    await page.locator('input[type="checkbox"]').last().click();
+    await page.getByTestId("icon-Trash2").click();
 
-  numberOfCopiedRows = await page.getByText(thirdRandomText).count();
-  expect(numberOfCopiedRows).toBe(0);
+    numberOfCopiedRows = await page.getByText(thirdRandomText).count();
+    expect(numberOfCopiedRows).toBe(0);
 
-  await page.getByText("Save").last().click();
+    await page.getByText("Save").last().click();
 
-  await page.waitForSelector("text=Open table", {
-    timeout: 3000,
-  });
+    await page.waitForSelector("text=Open table", {
+      timeout: 3000,
+    });
 
-  await page.getByText("Open table").click();
+    await page.getByText("Open table").click();
 
-  await page.waitForSelector(".ag-cell-value", {
-    timeout: 3000,
-  });
+    await page.waitForSelector(".ag-cell-value", {
+      timeout: 3000,
+    });
 
-  const visibleTexts = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"];
-  const notVisibleTexts = ["X1", "thirdRandomText"];
+    const visibleTexts = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"];
+    const notVisibleTexts = ["X1", "thirdRandomText"];
 
-  for (const text of visibleTexts) {
-    const count = await page.getByText(text).count();
-    expect(count).toBeGreaterThanOrEqual(1);
-  }
+    for (const text of visibleTexts) {
+      const count = await page.getByText(text).count();
+      expect(count).toBeGreaterThanOrEqual(1);
+    }
 
-  for (const text of notVisibleTexts) {
-    const count = await page.getByText(text).count();
-    expect(count).toBe(0);
-  }
-});
+    for (const text of notVisibleTexts) {
+      const count = await page.getByText(text).count();
+      expect(count).toBe(0);
+    }
+  },
+);

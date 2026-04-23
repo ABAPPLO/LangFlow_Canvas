@@ -267,7 +267,9 @@ const NodeToolbarComponent = memo(
       try {
         await downloadNode(flowComponent!);
         setSuccessData({
-          title: t("downloadedSuccessfully", { name: flowComponent?.name || t("node", { ns: "flow" }) }),
+          title: t("downloadedSuccessfully", {
+            name: flowComponent?.name || t("node", { ns: "flow" }),
+          }),
         });
       } catch (error) {
         console.error("Error downloading node:", error);
@@ -668,7 +670,7 @@ const NodeToolbarComponent = memo(
                   />
                 </SelectItem>
                 {isOutdated && (
-                <SelectItem value={"update"}>
+                  <SelectItem value={"update"}>
                     <ToolbarSelectItem
                       shortcut={
                         shortcuts.find((obj) => obj.name === "Update")
