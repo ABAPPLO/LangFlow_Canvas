@@ -63,10 +63,7 @@ const HeaderComponent = ({
 
   // If current flowType is not available based on feature flag, switch to flows
   useEffect(() => {
-    if (
-      (flowType === "mcp" && !isMCPEnabled) ||
-      (flowType === "components" && isMCPEnabled)
-    ) {
+    if (flowType === "mcp" && !isMCPEnabled) {
       setFlowType("flows");
     }
   }, [flowType, isMCPEnabled, setFlowType]);
@@ -76,7 +73,7 @@ const HeaderComponent = ({
   };
 
   // Determine which tabs to show based on feature flag
-  const tabTypes = isMCPEnabled ? ["mcp", "flows"] : ["components", "flows"];
+  const tabTypes = isMCPEnabled ? ["components", "mcp", "flows"] : ["components", "flows"];
 
   const handleDownload = () => {
     downloadFlows({ ids: selectedFlows });

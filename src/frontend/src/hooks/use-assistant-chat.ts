@@ -42,7 +42,7 @@ function parseSSE(text: string): { messages: SSEMessage[]; remaining: string } {
   return { messages, remaining };
 }
 
-const STREAM_TIMEOUT_MS = 60_000; // 60s timeout for no data
+const STREAM_TIMEOUT_MS = 300_000; // 5min timeout for no data (CLI startup + LLM inference)
 
 export function useAssistantChat() {
   const abortControllerRef = useRef<AbortController | null>(null);

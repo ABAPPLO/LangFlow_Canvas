@@ -28,14 +28,8 @@ export function AssistantModelSelect() {
       });
       if (res.ok) {
         const data = await res.json();
-        // Filter to Anthropic models only
         const all = Array.isArray(data) ? data : [];
-        const anthropic = all.filter(
-          (o: ModelOption) =>
-            o.provider === "Anthropic" ||
-            o.metadata?.model_class === "ChatAnthropic",
-        );
-        setOptions(anthropic.length > 0 ? anthropic : all);
+        setOptions(all);
       }
     } catch {
       // ignore
@@ -94,7 +88,7 @@ export function AssistantModelSelect() {
             </div>
           ) : options.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">
-              No Anthropic models found. Configure a provider in Settings.
+              No models found. Configure a provider in Settings.
             </div>
           ) : (
             options.map((opt) => (
