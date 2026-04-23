@@ -405,17 +405,36 @@ class MultimodalModelComponent(LCModelComponent):
         *,
         use_file_data: bool = True,
     ) -> dict:
-        """Build the full Gemini generateContent payload."""
-        parts: list[dict] = []
+        """Build the full Gemini generateContent payload.
+
+        When using fileData, systemInstruction causes upstream errors
+        (NewAPI returns "Cannot fetch content" when both are present).
+        Workaround: embed system message as a user/model turn pair instead.
+        """
+        media_parts = self._build_gemini_parts(image_urls, video_urls, audio_urls, use_file_data=use_file_data)
+
+        user_parts: list[dict] = []
         if prompt:
-            parts.append({"text": prompt})
-        parts.extend(self._build_gemini_parts(image_urls, video_urls, audio_urls, use_file_data=use_file_data))
+            user_parts.append({"text": prompt})
+        user_parts.extend(media_parts)
+
+        if system_message and use_file_data:
+            # fileData + systemInstruction = 400 upstream bug
+            # Inject system prompt as user/model turn pair
+            contents = [
+                {"role": "user", "parts": [{"text": system_message}]},
+                {"role": "model", "parts": [{"text": "Understood."}]},
+                {"role": "user", "parts": user_parts},
+            ]
+        else:
+            contents = [{"role": "user", "parts": user_parts}]
 
         payload: dict = {
-            "contents": [{"role": "user", "parts": parts}],
+            "contents": contents,
             "generationConfig": {"responseModalities": ["TEXT"]},
         }
-        if system_message:
+        # systemInstruction is safe with inlineData (use_file_data=False)
+        if system_message and not use_file_data:
             payload["systemInstruction"] = {"parts": [{"text": system_message}]}
         return payload
 
@@ -436,9 +455,12 @@ class MultimodalModelComponent(LCModelComponent):
         async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
             resp = await client.post(url, json=payload)
 
-            # If fileData fails (e.g. Gemini 2.5 cannot fetch URL), retry with inlineData
-            if resp.status_code == 400 and "Cannot fetch content" in resp.text:
-                logger.warning("[MultimodalGemini] fileData rejected, retrying with inlineData")
+            # If fileData fails for any reason, retry with inlineData base64.
+            # fileData can fail with various errors:
+            # - "Cannot fetch content from the provided URL" (Gemini 2.5)
+            # - "Request contains an invalid argument" (mixed media types)
+            if resp.status_code == 400:
+                logger.warning("[MultimodalGemini] fileData failed (%s), retrying with inlineData", resp.text[:100])
                 payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)
                 resp = await client.post(url, json=payload)
 
