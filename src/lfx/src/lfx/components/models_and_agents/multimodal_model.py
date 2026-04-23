@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import urllib.parse
 
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -385,7 +386,8 @@ class MultimodalModelComponent(LCModelComponent):
             if use_file_data:
                 for url in urls:
                     mime = self._guess_mime_type(url, kind)
-                    parts.append({"fileData": {"mimeType": mime, "fileUri": url}})
+                    encoded_url = urllib.parse.quote(url, safe=":/?&=%#")
+                    parts.append({"fileData": {"mimeType": mime, "fileUri": encoded_url}})
             else:
                 if urls:
                     with httpx.Client(timeout=120, trust_env=False) as dl_client:
@@ -445,6 +447,52 @@ class MultimodalModelComponent(LCModelComponent):
             payload["systemInstruction"] = {"parts": [{"text": system_message}]}
         return payload
 
+    async def _upload_file_to_gemini(self, file_url: str, mime_type: str, raw_base: str, api_key: str) -> str | None:
+        """Download a file and upload to Gemini Files API, returning the uploaded file URI."""
+        try:
+            async with httpx.AsyncClient(timeout=300, trust_env=False) as dl:
+                resp = await dl.get(file_url, follow_redirects=True)
+                resp.raise_for_status()
+                file_bytes = resp.content
+
+            upload_url = f"{raw_base}/upload/v1beta/files"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "X-Goog-Upload-Command": "start, upload, finalize",
+                "X-Goog-Upload-Protocol": "raw",
+                "X-Goog-Upload-Header-Content-Type": mime_type,
+                "Content-Type": "application/octet-stream",
+            }
+            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:
+                resp = await client.post(upload_url, headers=headers, content=file_bytes)
+                if not resp.is_success:
+                    logger.warning("[MultimodalGemini] Files API upload failed: %s %s", resp.status_code, resp.text[:200])
+                    return None
+                data = resp.json()
+                file_info = data.get("file", data)
+                uri = file_info.get("uri")
+                if uri:
+                    logger.warning("[MultimodalGemini] Files API upload success: %s → %s", file_url[:60], uri[:80])
+                return uri
+        except Exception as e:
+            logger.warning("[MultimodalGemini] Files API upload exception: %s", e)
+            return None
+
+    def _has_non_ascii(self, url: str) -> bool:
+        return any(ord(c) > 127 for c in url)
+
+    async def _resolve_non_ascii_urls(self, urls: list[str], kind: str, raw_base: str, api_key: str) -> list[str]:
+        """For URLs with non-ASCII characters, upload via Files API and replace with the uploaded URI."""
+        resolved = []
+        for url in urls:
+            if self._has_non_ascii(url):
+                mime = self._guess_mime_type(url, kind)
+                uploaded = await self._upload_file_to_gemini(url, mime, raw_base, api_key)
+                resolved.append(uploaded or url)
+            else:
+                resolved.append(url)
+        return resolved
+
     async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:
         """Generate text using Gemini models via the native generateContent endpoint."""
         api_key, raw_base, model_name = self._resolve_newapi_credentials()
@@ -455,12 +503,18 @@ class MultimodalModelComponent(LCModelComponent):
 
         self.status = "Generating via Gemini..."
 
+        # Resolve non-ASCII URLs via Files API before building payload
+        video_urls = await self._resolve_non_ascii_urls(video_urls, "video", raw_base, api_key)
+        audio_urls = await self._resolve_non_ascii_urls(audio_urls, "audio", raw_base, api_key)
+
         async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:
             # Strategy (hybrid): images always inlineData, video/audio via fileData
             # with multiple retries for transient upstream URL-fetch failures.
             payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)
             logger.warning("[MultimodalGemini] url=%s model=%s hybrid (images=inline, video/audio=fileData)", url, model_name)
+            logger.warning("[MultimodalGemini] payload=%s", payload)
             resp = await client.post(url, json=payload)
+            logger.warning("[MultimodalGemini] response status=%s body=%s", resp.status_code, resp.text[:500])
 
             if resp.status_code == 400 and has_video_or_audio:
                 # Retry fileData up to 2 more times (upstream URL fetch is flaky)
