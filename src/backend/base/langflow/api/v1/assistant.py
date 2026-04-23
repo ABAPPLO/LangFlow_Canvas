@@ -149,6 +149,29 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_current_flow",
+            "description": (
+                "Get the current canvas state. Returns all nodes (with type, values) and edges "
+                "(with source/target connections). Use to inspect before modifying or to check what's on canvas."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "validate_flow",
+            "description": (
+                "Validate the current workflow for issues. Checks: edge connections match component "
+                "outputs/inputs, required parameters are filled, output/input types are compatible. "
+                "Returns a list of issues with severity (error/warning). Call after build_flow."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "save_flow",
             "description": "Save the current workflow permanently to the database. Call after testing passes.",
             "parameters": {"type": "object", "properties": {}},
@@ -284,14 +307,34 @@ AVAILABLE TOOLS:
    - "target_input" MUST match field name (e.g. "input_value").
    - Edges are REQUIRED.
 
-4. **run_flow** — Test the workflow.
+4. **get_current_flow** — Get current canvas state (nodes, edges, values).
+   Args: {}
+   Use to inspect the current workflow before making changes.
+
+5. **validate_flow** — Check workflow for issues (bad edges, missing params, type mismatches).
+   Args: {}
+   Call after build_flow. Fix any errors before running.
+
+6. **run_flow** — Test the workflow.
    Args: {"input_value": "optional test input"}
 
-5. **save_flow** — Save workflow to database.
+7. **save_flow** — Save workflow to database.
    Args: {} (call after testing passes)
 
-WORKFLOW: list_components → get_component_details → build_flow → run_flow → save_flow
-If a step fails, retry with adjustments. Max 3 retries per step.
+WORKFLOW:
+  Step 1: list_components → get_component_details (pick components, check connections)
+  Step 2: build_flow (place nodes and edges on canvas)
+  Step 3: validate_flow (check for issues) → if errors, fix and go back to Step 2
+  Step 4: run_flow (test execution)
+  Step 5: save_flow (persist to database) → ONLY call after run_flow succeeds
+
+CRITICAL SUCCESS CRITERIA:
+  - build_flow succeeding does NOT mean the task is done.
+  - You MUST run run_flow to verify the workflow actually works.
+  - If run_flow fails: analyze the error, adjust nodes/edges/parameters, then call build_flow again and retry.
+  - If run_flow succeeds: call save_flow immediately.
+  - Task is ONLY complete when run_flow succeeds AND save_flow succeeds.
+  - Max 5 total build_flow attempts. If still failing after 5 tries, report the error to the user.
 
 Respond in the same language as the user's message.
 """
@@ -402,6 +445,236 @@ class _ToolContext:
         except ValueError as e:
             return {"content": [{"type": "text", "text": f"Error running flow: {e}"}]}
 
+    async def get_current_flow(self) -> dict:
+        """Return the current canvas state as compact nodes and edges."""
+        try:
+            flow = await get_flow_by_id_or_endpoint_name(
+                flow_id_or_name=self.flow_id, user_id=self.user_id,
+            )
+        except (ValueError, RuntimeError) as e:
+            return {"content": [{"type": "text", "text": f"Error loading flow: {e}"}]}
+
+        flow_data = self.last_canvas_data or flow.data
+        if not flow_data:
+            return {"content": [{"type": "text", "text": "Canvas is empty. No flow data found."}]}
+
+        await self.ensure_types()
+
+        # Compact node representation
+        compact_nodes = []
+        for node in flow_data.get("nodes", []):
+            node_data = node.get("data", {})
+            node_type = node_data.get("type", "unknown")
+            template = node_data.get("node", {}).get("template", {})
+            values = {}
+            for field_name, field_data in template.items():
+                if not isinstance(field_data, dict) or field_name.startswith("_"):
+                    continue
+                val = field_data.get("value")
+                if val is not None:
+                    values[field_name] = val
+            compact_nodes.append({
+                "id": node.get("id", ""),
+                "type": node_type,
+                "values": values,
+                "position": node.get("position"),
+            })
+
+        # Compact edge representation
+        compact_edges = []
+        for edge in flow_data.get("edges", []):
+            edge_data = edge.get("data", {})
+            sh = edge_data.get("sourceHandle", {})
+            th = edge_data.get("targetHandle", {})
+            compact_edges.append({
+                "source": edge.get("source", ""),
+                "source_output": sh.get("name", ""),
+                "target": edge.get("target", ""),
+                "target_input": th.get("fieldName", ""),
+            })
+
+        result = {
+            "nodes": compact_nodes,
+            "edges": compact_edges,
+            "node_count": len(compact_nodes),
+            "edge_count": len(compact_edges),
+        }
+        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
+
+    async def validate_flow(self) -> dict:
+        """Validate the current workflow for issues."""
+        try:
+            flow = await get_flow_by_id_or_endpoint_name(
+                flow_id_or_name=self.flow_id, user_id=self.user_id,
+            )
+        except (ValueError, RuntimeError) as e:
+            return {"content": [{"type": "text", "text": f"Error loading flow: {e}"}]}
+
+        flow_data = self.last_canvas_data or flow.data
+        if not flow_data:
+            return {"content": [{"type": "text", "text": "No flow data to validate. Build the flow first."}]}
+
+        await self.ensure_types()
+        issues: list[dict[str, str]] = []
+
+        nodes = flow_data.get("nodes", [])
+        edges = flow_data.get("edges", [])
+
+        # Build node lookup: id -> node data
+        node_map: dict[str, dict] = {}
+        for node in nodes:
+            node_map[node.get("id", "")] = node
+
+        # Check 1: Edge connection validity
+        for i, edge in enumerate(edges):
+            edge_data = edge.get("data", {})
+            sh = edge_data.get("sourceHandle", {})
+            th = edge_data.get("targetHandle", {})
+            source_id = edge.get("source", "")
+            target_id = edge.get("target", "")
+            source_output = sh.get("name", "")
+            target_input = th.get("fieldName", "")
+
+            # Check source node exists
+            source_node = node_map.get(source_id)
+            if not source_node:
+                issues.append({
+                    "severity": "error",
+                    "edge_index": str(i),
+                    "issue": f"Edge {i}: source node '{source_id}' not found on canvas",
+                })
+                continue
+
+            # Check target node exists
+            target_node = node_map.get(target_id)
+            if not target_node:
+                issues.append({
+                    "severity": "error",
+                    "edge_index": str(i),
+                    "issue": f"Edge {i}: target node '{target_id}' not found on canvas",
+                })
+                continue
+
+            # Check source output exists on source component
+            source_type = source_node.get("data", {}).get("type", "")
+            source_comp = self._find_component(source_type)
+            if source_comp:
+                source_outputs = source_comp.get("outputs", [])
+                output_names = [o.get("name", "") for o in source_outputs if isinstance(o, dict)]
+                if source_output not in output_names:
+                    issues.append({
+                        "severity": "error",
+                        "edge_index": str(i),
+                        "issue": (
+                            f"Edge {i}: source output '{source_output}' not found on '{source_type}'. "
+                            f"Available: {output_names}"
+                        ),
+                    })
+
+            # Check target input exists on target component
+            target_type = target_node.get("data", {}).get("type", "")
+            target_comp = self._find_component(target_type)
+            if target_comp:
+                template = target_comp.get("template", {})
+                if target_input not in template and target_input:
+                    field_names = [k for k, v in template.items() if isinstance(v, dict) and not k.startswith("_")]
+                    issues.append({
+                        "severity": "warning",
+                        "edge_index": str(i),
+                        "issue": (
+                            f"Edge {i}: target input '{target_input}' not found on '{target_type}'. "
+                            f"Available fields: {field_names[:10]}"
+                        ),
+                    })
+
+            # Check type compatibility
+            if source_comp and target_comp:
+                source_outputs = source_comp.get("outputs", [])
+                src_out = next((o for o in source_outputs if isinstance(o, dict) and o.get("name") == source_output), None)
+                out_types = set(src_out.get("types", [])) if src_out else set()
+
+                target_template = target_comp.get("template", {})
+                tgt_field = target_template.get(target_input, {})
+                if isinstance(tgt_field, dict):
+                    in_types = set(tgt_field.get("input_types", []))
+                    if not in_types and tgt_field.get("type"):
+                        in_types = {tgt_field["type"]}
+
+                    if out_types and in_types:
+                        overlap = out_types & in_types
+                        if not overlap and out_types != {"str"} and in_types != {"str"}:
+                            issues.append({
+                                "severity": "warning",
+                                "edge_index": str(i),
+                                "issue": (
+                                    f"Edge {i}: type mismatch between '{source_type}.{source_output}' "
+                                    f"(output: {list(out_types)}) and '{target_type}.{target_input}' "
+                                    f"(input: {list(in_types)})"
+                                ),
+                            })
+
+        # Check 2: Required parameters
+        for node in nodes:
+            node_type = node.get("data", {}).get("type", "")
+            node_id = node.get("id", "")
+            comp = self._find_component(node_type)
+            if not comp:
+                continue
+
+            template = comp.get("template", {})
+            node_template = node.get("data", {}).get("node", {}).get("template", {})
+
+            for field_name, field_data in template.items():
+                if not isinstance(field_data, dict) or field_name.startswith("_"):
+                    continue
+                if not field_data.get("required"):
+                    continue
+                # Check if value is set in the node
+                node_field = node_template.get(field_name, {})
+                val = node_field.get("value") if isinstance(node_field, dict) else None
+                if val is None or val == "" or val == []:
+                    display_name = field_data.get("display_name", field_name)
+                    issues.append({
+                        "severity": "warning",
+                        "node_id": node_id,
+                        "node_type": node_type,
+                        "issue": f"Node '{node_id}' ({node_type}): required field '{display_name}' ({field_name}) is empty",
+                    })
+
+        # Check 3: Disconnected nodes (no edges)
+        if len(nodes) > 1:
+            connected_ids: set[str] = set()
+            for edge in edges:
+                connected_ids.add(edge.get("source", ""))
+                connected_ids.add(edge.get("target", ""))
+            for node in nodes:
+                nid = node.get("id", "")
+                if nid and nid not in connected_ids:
+                    issues.append({
+                        "severity": "warning",
+                        "node_id": nid,
+                        "issue": f"Node '{nid}' ({node.get('data', {}).get('type', '')}) is not connected to any other node",
+                    })
+
+        if not issues:
+            result_text = "Workflow validation passed. No issues found."
+        else:
+            result_text = json.dumps({"issues": issues, "total": len(issues)}, ensure_ascii=False)
+
+        return {"content": [{"type": "text", "text": result_text}]}
+
+    def _find_component(self, type_name: str) -> dict | None:
+        """Find component data by type name from all_types."""
+        if not self.all_types:
+            return None
+        for _category, components in self.all_types.items():
+            if not isinstance(components, dict):
+                continue
+            comp = components.get(type_name)
+            if isinstance(comp, dict):
+                return comp
+        return None
+
     async def save_flow(self) -> dict:
         try:
             flow = await get_flow_by_id_or_endpoint_name(
@@ -503,6 +776,10 @@ async def _execute_tool(ctx: _ToolContext, tool_name: str, arguments: dict) -> s
             result = await ctx.build_flow(arguments.get("nodes", []), arguments.get("edges", []))
         elif tool_name == "run_flow":
             result = await ctx.run_flow(arguments.get("input_value", ""))
+        elif tool_name == "get_current_flow":
+            result = await ctx.get_current_flow()
+        elif tool_name == "validate_flow":
+            result = await ctx.validate_flow()
         elif tool_name == "save_flow":
             result = await ctx.save_flow()
         else:
