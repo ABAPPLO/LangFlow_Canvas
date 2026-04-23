@@ -294,16 +294,12 @@ class MultimodalModelComponent(LCModelComponent):
         return urls
 
     def _is_gemini_model(self) -> bool:
-        """Check if the selected model is a Gemini model accessed through NewAPI."""
+        """Check if the selected model is a Gemini model (any provider)."""
         model_data = self.model
         if not model_data or not isinstance(model_data, list) or not model_data:
             return False
-        provider = (model_data[0].get("provider") or "").strip()
         model_name = (model_data[0].get("name") or "").strip()
-        # NewAPI proxies Gemini models; detect by provider name or model name
-        is_newapi = provider.lower() in ("newapi", "new-api", "one-api", "oneapi")
-        is_gemini = model_name.startswith("gemini")
-        return is_newapi and is_gemini
+        return model_name.startswith("gemini")
 
     def _resolve_newapi_credentials(self) -> tuple[str, str, str]:
         """Resolve NewAPI credentials: (api_key, raw_base_url, model_name)."""
