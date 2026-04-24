@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useAssistantChatStore } from "@/stores/assistantChatStore";
 import useFlowStore from "@/stores/flowStore";
+import { scapedJSONStringfy } from "@/utils/reactflowUtils";
 
 interface SSEMessage {
   event: string;
@@ -304,7 +305,15 @@ function handleSSEEvent(
     case "canvas_update": {
       // Apply canvas updates to flowStore
       const nodes = data.nodes as Array<Record<string, unknown>>;
-      const edges = data.edges as Array<Record<string, unknown>>;
+      const compactEdges = data.compact_edges as
+        | Array<{
+            source: string;
+            source_output: string;
+            target: string;
+            target_input: string;
+          }>
+        | undefined;
+
       if (nodes) {
         const flowStore = useFlowStore.getState();
         const currentNodes = flowStore.nodes;
@@ -315,16 +324,21 @@ function handleSSEEvent(
           ...(nodes as never[]),
         ];
 
-        // setNodes first — cleanEdges inside may remove edges with mismatched handles,
-        // so we restore them afterwards via setEdges.
         flowStore.setNodes(mergedNodes as never);
 
-        if (edges && edges.length > 0) {
+        if (compactEdges && compactEdges.length > 0) {
+          // Build edges using frontend's own handle ID generation
+          const builtEdges = buildEdgesFromCompact(
+            compactEdges,
+            mergedNodes as Array<Record<string, unknown>>,
+          );
           const currentEdges = flowStore.edges;
-          const newEdgeMap = new Map(edges.map((e) => [e.id as string, e]));
+          const newEdgeMap = new Map(
+            builtEdges.map((e) => [e.id as string, e]),
+          );
           const mergedEdges = [
-            ...currentEdges.filter((ce) => !newEdgeMap.has(ce.id)),
-            ...(edges as never[]),
+            ...currentEdges.filter((ce) => !newEdgeMap.has(ce.id as string)),
+            ...builtEdges,
           ];
           flowStore.setEdges(mergedEdges as never);
         }
@@ -344,4 +358,95 @@ function handleSSEEvent(
       break;
     }
   }
+}
+
+/**
+ * Build full ReactFlow edges from compact format using the frontend's own
+ * handle ID generation (scapedJSONStringfy with sorted keys).
+ * This ensures handle IDs match the DOM Handle components exactly.
+ */
+function buildEdgesFromCompact(
+  compactEdges: Array<{
+    source: string;
+    source_output: string;
+    target: string;
+    target_input: string;
+  }>,
+  nodes: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  // Build node lookup
+  const nodeMap = new Map<string, Record<string, unknown>>();
+  for (const node of nodes) {
+    nodeMap.set(node.id as string, node);
+  }
+
+  const edges: Array<Record<string, unknown>> = [];
+
+  for (const ce of compactEdges) {
+    const sourceNode = nodeMap.get(ce.source);
+    const targetNode = nodeMap.get(ce.target);
+    if (!sourceNode || !targetNode) continue;
+
+    const sourceData = (sourceNode.data as Record<string, unknown>) || {};
+    const targetData = (targetNode.data as Record<string, unknown>) || {};
+    const sourceNodeData = (sourceData.node as Record<string, unknown>) || {};
+    const targetNodeData = (targetData.node as Record<string, unknown>) || {};
+
+    // Build source handle
+    const sourceType = sourceData.type as string;
+    const sourceOutputs =
+      (sourceNodeData.outputs as Array<Record<string, unknown>>) || [];
+    const sourceOutput = sourceOutputs.find((o) => o.name === ce.source_output);
+    const outputTypes = sourceOutput
+      ? [
+          (sourceOutput.selected as string) ||
+            (sourceOutput.types as string[])?.[0],
+        ]
+      : undefined;
+    const outputName = (sourceOutput?.name as string) || ce.source_output;
+
+    const sourceHandleData = {
+      dataType: sourceType,
+      id: ce.source,
+      name: outputName,
+      output_types: outputTypes || [],
+    };
+    const sourceHandleStr = scapedJSONStringfy(sourceHandleData);
+
+    // Build target handle
+    const targetTemplate =
+      (targetNodeData.template as Record<string, unknown>) || {};
+    const targetField = targetTemplate[ce.target_input] as
+      | Record<string, unknown>
+      | undefined;
+    const inputTypes = (targetField?.input_types as string[]) || [];
+    const fieldType = (targetField?.type as string) || "str";
+
+    const targetHandleData = {
+      fieldName: ce.target_input,
+      id: ce.target,
+      inputTypes: inputTypes.length > 0 ? inputTypes : [fieldType],
+      type: fieldType,
+    };
+    const targetHandleStr = scapedJSONStringfy(targetHandleData);
+
+    const edgeId = `reactflow__edge-${ce.source}${sourceHandleStr}-${ce.target}${targetHandleStr}`;
+
+    edges.push({
+      source: ce.source,
+      sourceHandle: sourceHandleStr,
+      target: ce.target,
+      targetHandle: targetHandleStr,
+      id: edgeId,
+      data: {
+        sourceHandle: sourceHandleData,
+        targetHandle: targetHandleData,
+      },
+      className: "",
+      selected: false,
+      animated: false,
+    });
+  }
+
+  return edges;
 }

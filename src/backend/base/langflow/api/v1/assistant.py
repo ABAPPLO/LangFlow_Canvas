@@ -393,6 +393,7 @@ class _ToolContext:
         self.all_types: dict[str, Any] | None = None
         self.catalog: list[dict] | None = None
         self.last_canvas_data: dict | None = None
+        self.last_compact_edges: list[dict] | None = None
 
     async def ensure_types(self) -> dict[str, Any]:
         if self.all_types is None:
@@ -435,6 +436,7 @@ class _ToolContext:
         edge_count = len(expanded.get("edges", []))
         logger.warning("[Assistant] expanded: %d nodes, %d edges", node_count, edge_count)
         self.last_canvas_data = expanded
+        self.last_compact_edges = edges
         return {"content": [{"type": "text", "text": f"Canvas updated: {node_count} nodes, {edge_count} edges."}]}
 
     async def run_flow(self, input_value: str = "") -> dict:
@@ -1032,12 +1034,17 @@ async def _run_agentic_loop(
 
                 if ctx.last_canvas_data is not None:
                     logger.warning(
-                        "[Assistant] canvas_update: %d nodes, %d edges",
+                        "[Assistant] canvas_update: %d nodes, %d compact_edges",
                         len(ctx.last_canvas_data.get("nodes", [])),
-                        len(ctx.last_canvas_data.get("edges", [])),
+                        len(ctx.last_compact_edges or []),
                     )
-                    yield ("canvas_update", ctx.last_canvas_data)
+                    canvas_payload = {
+                        "nodes": ctx.last_canvas_data.get("nodes", []),
+                        "compact_edges": ctx.last_compact_edges or [],
+                    }
+                    yield ("canvas_update", canvas_payload)
                     ctx.last_canvas_data = None
+                    ctx.last_compact_edges = None
 
                 # Add to message history in appropriate format
                 if use_native and tc_id:
