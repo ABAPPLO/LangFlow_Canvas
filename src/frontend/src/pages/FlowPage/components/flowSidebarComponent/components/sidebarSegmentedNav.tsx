@@ -42,12 +42,6 @@ export const NAV_ITEMS: NavItem[] = [
     tooltip: "MCP",
   },
   {
-    id: "bundles",
-    icon: "blocks",
-    label: "Bundles",
-    tooltip: "Bundles",
-  },
-  {
     id: "add_note",
     icon: "sticky-note",
     label: "Sticky Notes",

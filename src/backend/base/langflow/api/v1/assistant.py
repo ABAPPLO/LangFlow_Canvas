@@ -45,6 +45,26 @@ PRIORITY_COMPONENTS = {
     "RecursiveCharacterTextSplitter", "FAISS",
 }
 
+# Categories to exclude from list_components (third-party bundles shown in UI "Bundles" section)
+_EXCLUDED_CATEGORIES: set[str] = {
+    "aiml", "agentics", "agentql", "altk", "languagemodels", "embeddings",
+    "memories", "amazon", "anthropic", "apify", "arxiv", "assemblyai",
+    "azure", "baidu", "bing", "cassandra", "chroma", "clickhouse",
+    "cleanlab", "cloudflare", "cohere", "cometapi", "composio", "confluence",
+    "couchbase", "crewai", "cuga", "datastax", "deepseek", "docling",
+    "duckduckgo", "elastic", "exa", "FAISS", "firecrawl", "git",
+    "glean", "gmail", "google", "groq", "homeassistant", "huggingface",
+    "ibm", "icosacomputing", "jigsawstack", "langchain_utilities", "langwatch",
+    "litellm", "lmstudio", "maritalk", "mem0", "milvus", "mistral",
+    "mongodb", "needle", "notdiamond", "Notion", "novita", "nvidia",
+    "olivya", "ollama", "openai", "openrouter", "perplexity", "pgvector",
+    "pinecone", "qdrant", "redis", "sambanova", "scrapegraph", "searchapi",
+    "serpapi", "serper", "supabase", "tavily", "twelvelabs", "unstructured",
+    "upstash", "vlmrun", "vectara", "vectorstores", "vllm", "weaviate",
+    "vertexai", "wikipedia", "wolframalpha", "xai", "yahoosearch", "youtube",
+    "zep",
+}
+
 # ── Tool definitions (OpenAI function-calling format) ──────────────────
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -209,10 +229,12 @@ async def _get_all_types_dict() -> dict[str, Any]:
     return await get_and_cache_all_types_dict(settings_service=get_settings_service())
 
 
-def _build_component_catalog(all_types: dict[str, Any]) -> list[dict]:
+def _build_component_catalog(all_types: dict[str, Any], excluded: set[str] | None = None) -> list[dict]:
     catalog = []
     for _category, components in all_types.items():
         if not isinstance(components, dict):
+            continue
+        if excluded and _category in excluded:
             continue
         for comp_name, comp_data in components.items():
             if not isinstance(comp_data, dict):
@@ -380,7 +402,7 @@ class _ToolContext:
     async def list_components(self, category: str = "") -> dict:
         await self.ensure_types()
         if self.catalog is None:
-            self.catalog = _build_component_catalog(self.all_types)  # type: ignore[arg-type]
+            self.catalog = _build_component_catalog(self.all_types, _EXCLUDED_CATEGORIES)  # type: ignore[arg-type]
         filtered = (
             [c for c in self.catalog if category.lower() in c["category"].lower()]
             if category
@@ -712,7 +734,7 @@ class _ToolContext:
 # ── Provider credential resolution ─────────────────────────────────────
 
 
-def _resolve_provider_credentials(
+async def _resolve_provider_credentials(
     selected_model: dict | None,
     user_id: str | None,
 ) -> tuple[str, str, str]:
@@ -726,6 +748,7 @@ def _resolve_provider_credentials(
         provider = selected.get("provider", "")
         logger.warning("[Assistant] selected model=%s provider=%s", model_name, provider)
 
+        # Strategy 1: Try unified_models helpers
         try:
             from lfx.base.models.unified_models import (
                 get_all_variables_for_provider,
@@ -738,14 +761,52 @@ def _resolve_provider_credentials(
                 if "BASE_URL" in var_key and value:
                     base_url = value
                     break
-            logger.warning("[Assistant] resolved api_key=%s base_url=%s", bool(api_key), base_url or "N/A")
+            logger.warning("[Assistant] strategy1 api_key=%s base_url=%s", bool(api_key), base_url or "N/A")
         except Exception:  # noqa: BLE001
-            logger.warning("Failed to resolve credentials from Model Providers", exc_info=True)
+            logger.warning("Strategy 1 failed, trying direct DB lookup", exc_info=True)
 
+        # Strategy 2: Direct DB lookup via session_scope
+        if not api_key and user_id and provider:
+            try:
+                from lfx.services.deps import get_settings_service, session_scope
+                from sqlmodel import select
+
+                from langflow.services.database.models.variable.model import Variable
+
+                # Build expected variable names from provider
+                provider_upper = re.sub(r"[^A-Za-z0-9]", "", provider).upper()
+                api_key_var = f"{provider_upper}_API_KEY"
+                base_url_var = f"{provider_upper}_BASE_URL"
+
+                async with session_scope() as session:
+                    stmt = select(Variable).where(
+                        Variable.user_id == user_id,
+                        Variable.name.in_([api_key_var, base_url_var]),
+                    )
+                    rows = (await session.exec(stmt)).all()
+                    for row in rows:
+                        if row.name == api_key_var and row.value:
+                            api_key = row.value
+                        elif row.name == base_url_var and row.value:
+                            base_url = row.value
+
+                logger.warning("[Assistant] strategy2 api_key=%s base_url=%s", bool(api_key), base_url or "N/A")
+            except Exception:  # noqa: BLE001
+                logger.warning("Strategy 2 (direct DB) failed", exc_info=True)
+
+    # Fallback: environment variables
     if not api_key:
-        api_key = os.environ.get("OPENAI_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = (
+            os.environ.get("OPENAI_API_KEY", "")
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+            or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+        )
     if not base_url:
-        base_url = os.environ.get("OPENAI_BASE_URL", "") or os.environ.get("OPENAI_API_BASE", "")
+        base_url = (
+            os.environ.get("OPENAI_BASE_URL", "")
+            or os.environ.get("OPENAI_API_BASE", "")
+            or os.environ.get("ANTHROPIC_BASE_URL", "")
+        )
 
     if not api_key:
         msg = "No API key configured. Please select a model from Model Providers or set the OPENAI_API_KEY / ANTHROPIC_API_KEY environment variable."
@@ -837,7 +898,7 @@ async def _run_agentic_loop(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0), trust_env=False) as client:
         for _turn in range(max_turns):
             text_content = ""
             tool_calls_accum: dict[int, dict] = {}  # native mode only
@@ -1014,7 +1075,7 @@ async def assistant_chat(
     user_id = str(current_user.id) if current_user else None
 
     try:
-        api_key, api_url, model_name = _resolve_provider_credentials(body.selected_model, user_id)
+        api_key, api_url, model_name = await _resolve_provider_credentials(body.selected_model, user_id)
     except ValueError as e:
         return StreamingResponse(
             iter([_sse_event("error", {"error": str(e)})]),
