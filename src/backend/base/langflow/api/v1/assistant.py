@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -540,6 +541,24 @@ class _ToolContext:
 
         self.last_canvas_data = {"nodes": merged_nodes, "edges": expanded_edges}
         self.last_compact_edges = edges
+
+        # Persist to DB immediately so subsequent tools in later turns can find it
+        try:
+            from langflow.services.deps import session_scope
+
+            async with session_scope() as session:
+                from sqlmodel import select
+                from langflow.services.database.models.flow.model import Flow
+
+                db_flow = (await session.exec(select(Flow).where(Flow.id == self.flow_id))).first()
+                if db_flow:
+                    db_flow.data = self.last_canvas_data
+                    session.add(db_flow)
+                    await session.commit()
+                    logger.warning("[Assistant] build_flow saved canvas to DB")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[Assistant] build_flow failed to save to DB: %s", e)
+
         return {"content": [{"type": "text", "text": f"Canvas updated: {node_count} nodes, {edge_count} edges ({len(existing_nodes)} kept, {len(new_nodes)} added/updated)."}]}
 
     async def _load_current_canvas(self) -> tuple[list[dict], list[dict]]:
@@ -676,7 +695,7 @@ class _ToolContext:
             inputs_dict = {}
             if input_value:
                 inputs_dict["input_value"] = input_value
-                inputs_dict["client_request_time"] = str(int(asyncio.get_event_loop().time() * 1000))
+                inputs_dict["client_request_time"] = str(int(time.time() * 1000))
 
             # Sort and run vertices up to stop_component_id
             first_layer = graph.sort_vertices(stop_component_id=stop_component_id)
@@ -694,13 +713,15 @@ class _ToolContext:
                         continue
 
                     # Inject input_value into the first input vertex
-                    if inputs_dict and vertex == graph.get_vertex(first_layer[0]) if first_layer else None:
+                    is_first_vertex = first_layer and vertex_id == first_layer[0]
+                    if inputs_dict and is_first_vertex:
                         vertex.update_raw_params(inputs_dict)
 
                     build_result = await graph.build_vertex(
                         vertex_id,
                         inputs_dict=inputs_dict if vertex_id in first_layer else None,
                         user_id=self.user_id,
+                        fallback_to_env_vars=True,
                     )
                     result_dict = build_result.result_dict
                     if result_dict:
@@ -1856,8 +1877,9 @@ async def _run_agentic_loop(
                         "compact_edges": ctx.last_compact_edges or [],
                     }
                     yield ("canvas_update", canvas_payload)
-                    ctx.last_canvas_data = None
-                    ctx.last_compact_edges = None
+                    # Do NOT clear last_canvas_data here — run_flow needs it
+                    # for auto-save. It will be cleared after all tools in this
+                    # turn have finished executing.
 
                 # Add to message history in appropriate format
                 if use_native and tc_id:
@@ -1867,6 +1889,11 @@ async def _run_agentic_loop(
                         f"<tool_result_name>{tool_name}</tool_result_name>\n"
                         f"<tool_result>{result_text}</tool_result>"
                     )
+
+            # Clear canvas data after ALL tools in this turn have executed,
+            # so that run_flow can still auto-save from a prior build_flow.
+            ctx.last_canvas_data = None
+            ctx.last_compact_edges = None
 
             # For prompt mode, add combined tool results as user message
             if not use_native and tool_results_parts:

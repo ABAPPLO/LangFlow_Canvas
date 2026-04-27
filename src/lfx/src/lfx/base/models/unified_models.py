@@ -1898,7 +1898,7 @@ def update_model_options_in_build_config(
         or (isinstance(current_model_value, list) and len(current_model_value) == 0)
     )
     if model_field_is_empty:
-        options = cached.get("options", [])
+        options = options or []
         if options:
             # Determine model type based on cache_key_prefix
             model_type = "embeddings" if cache_key_prefix == "embedding_model_options" else "language"
