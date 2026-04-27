@@ -24,9 +24,19 @@ MODE_MULTIMODAL = "Multimodal"
 
 MODE_OPTIONS = [MODE_TEXT, MODE_IMAGE, MODE_FIRST_LAST, MODE_MULTIMODAL]
 
+API_FORMAT_STANDARD = "Standard (OpenAI)"
+API_FORMAT_JIMENG = "Jimeng"
+
+API_FORMAT_OPTIONS = [API_FORMAT_STANDARD, API_FORMAT_JIMENG]
+
 REF_IMAGE_PREFIX = "ref_image_"
 REF_VIDEO_PREFIX = "ref_video_"
 REF_AUDIO_PREFIX = "ref_audio_"
+
+# Jimeng status mapping
+JIMENG_STATUS_DONE = "done"
+JIMENG_STATUS_IN_QUEUE = "in_queue"
+JIMENG_CODE_SUCCESS = 10000
 
 
 class TaskError(Exception):
@@ -55,6 +65,13 @@ class VideoGenerationComponent(Component):
             name="input_value",
             display_name="Prompt",
             info="Text prompt for video generation.",
+        ),
+        DropdownInput(
+            name="api_format",
+            display_name="API Format",
+            info="API format for your provider. Use Jimeng for New API with Seedance/Jimeng models.",
+            options=API_FORMAT_OPTIONS,
+            value=API_FORMAT_STANDARD,
         ),
         DropdownInput(
             name="generation_mode",
@@ -296,9 +313,16 @@ class VideoGenerationComponent(Component):
             raise ValueError(msg)
 
         base_url = base_url.rstrip("/")
+
+        api_format = getattr(self, "api_format", API_FORMAT_STANDARD)
+        if api_format == API_FORMAT_JIMENG:
+            # Jimeng routes are at /jimeng/, not /v1/jimeng/
+            if base_url.endswith("/v1"):
+                base_url = base_url[:-3]
+            return api_key, base_url.rstrip("/") + "/", model_name
+
         if not base_url.endswith("/v1"):
             base_url += "/v1"
-
         return api_key, base_url + "/", model_name
 
     def _collect_ref_urls(self, prefix: str) -> list[str]:
@@ -398,8 +422,15 @@ class VideoGenerationComponent(Component):
 
     def _create_task(self, client: httpx.Client, base_url: str) -> str:
         """Submit a video generation task and return the task ID."""
+        api_format = getattr(self, "api_format", API_FORMAT_STANDARD)
+        if api_format == API_FORMAT_JIMENG:
+            return self._create_task_jimeng(client, base_url)
+        return self._create_task_standard(client, base_url)
+
+    def _create_task_standard(self, client: httpx.Client, base_url: str) -> str:
+        """Submit task via Standard OpenAI-compatible API."""
         payload = self._build_request_body()
-        url = f"{base_url}contents/generations/tasks"
+        url = f"{base_url}video/generations"
 
         self.log(f"Submitting task to {url}, model: {self._resolved_model}, mode: {self.generation_mode}")
 
@@ -416,9 +447,90 @@ class VideoGenerationComponent(Component):
 
         return task_id
 
+    def _create_task_jimeng(self, client: httpx.Client, base_url: str) -> str:
+        """Submit task via Jimeng API format."""
+        url = f"{base_url}jimeng/?Action=CVSync2AsyncSubmitTask&Version=2022-08-31"
+
+        prompt = self.input_value
+        if isinstance(prompt, Message):
+            prompt = prompt.get_text()
+
+        payload: dict = {
+            "req_key": self._resolved_model,
+            "prompt": prompt or "",
+        }
+
+        # Calculate frames from duration (Jimeng uses frames, not seconds)
+        duration = int(getattr(self, "duration", "5"))
+        payload["frames"] = duration * 24 + 1 if duration == 10 else 121
+
+        mode = getattr(self, "generation_mode", MODE_TEXT)
+        images: list[str] = []
+        if mode == MODE_IMAGE and getattr(self, "image_url", None):
+            images.append(self.image_url.strip())
+        elif mode == MODE_FIRST_LAST:
+            if getattr(self, "image_url", None):
+                images.append(self.image_url.strip())
+            if getattr(self, "last_frame_url", None):
+                images.append(self.last_frame_url.strip())
+        elif mode == MODE_MULTIMODAL:
+            images = self._collect_ref_urls(REF_IMAGE_PREFIX)
+
+        if images:
+            if any(img.startswith("http") for img in images):
+                payload["image_urls"] = images
+            else:
+                payload["binary_data_base64"] = images
+
+        self.log(f"Submitting Jimeng task to {url}, req_key: {self._resolved_model}, mode: {mode}")
+
+        resp = client.post(url, json=payload)
+        if not resp.is_success:
+            self.log(f"Jimeng API error {resp.status_code}: {resp.text}", "ERROR")
+            resp.raise_for_status()
+
+        data = resp.json()
+        code = data.get("code", 0)
+        if code != JIMENG_CODE_SUCCESS:
+            msg = f"Jimeng API error (code {code}): {data.get('message', 'unknown')}"
+            raise TaskError(msg)
+
+        task_id = data.get("data", {}).get("task_id", "")
+        if not task_id:
+            msg = f"No task ID in Jimeng response: {data}"
+            raise TaskError(msg)
+
+        return task_id
+
     def _poll_task(self, client: httpx.Client, base_url: str, task_id: str) -> dict:
         """Poll task status until completion or timeout."""
-        url = f"{base_url}contents/generations/tasks/{task_id}"
+        api_format = getattr(self, "api_format", API_FORMAT_STANDARD)
+        if api_format == API_FORMAT_JIMENG:
+            return self._poll_task_jimeng(client, base_url, task_id)
+        return self._poll_task_standard(client, base_url, task_id)
+
+    def _poll_task_standard(self, client: httpx.Client, base_url: str, task_id: str) -> dict:
+        """Poll task via Standard OpenAI-compatible API."""
+        url = f"{base_url}video/generations/{task_id}"
+        return self._poll_loop(
+            lambda: client.get(url),
+            self._check_standard_status,
+        )
+
+    def _poll_task_jimeng(self, client: httpx.Client, base_url: str, task_id: str) -> dict:
+        """Poll task via Jimeng API format."""
+        url = f"{base_url}jimeng/?Action=CVSync2AsyncGetResult&Version=2022-08-31"
+        payload = {
+            "req_key": "jimeng_vgfm_t2v_l20",
+            "task_id": task_id,
+        }
+        return self._poll_loop(
+            lambda: client.post(url, json=payload),
+            self._check_jimeng_status,
+        )
+
+    def _poll_loop(self, request_fn, status_checker) -> dict:
+        """Generic poll loop with retry logic."""
         max_retries = self.max_wait_time // self.poll_interval
         consecutive_errors = 0
         max_consecutive_errors = 5
@@ -426,24 +538,14 @@ class VideoGenerationComponent(Component):
         for attempt in range(max_retries):
             try:
                 self.log(f"Checking task status (attempt {attempt + 1})")
-                resp = client.get(url)
+                resp = request_fn()
                 resp.raise_for_status()
                 data = resp.json()
                 consecutive_errors = 0
 
-                status = data.get("status", "unknown")
-                self.status = f"Task status: {status}"
-                self.log(f"Task status: {status}")
-
-                if status == "succeeded":
-                    self.log("Task completed successfully!")
-                    return data
-
-                if status in ("failed", "error", "expired"):
-                    error_msg = data.get("error", {})
-                    error_str = f"Task failed with status: {status}, error: {error_msg}"
-                    self.log(error_str, "ERROR")
-                    raise TaskError(error_str)
+                result = status_checker(data)
+                if result is not None:
+                    return result
 
                 time.sleep(self.poll_interval)
 
@@ -468,8 +570,56 @@ class VideoGenerationComponent(Component):
         self.log(timeout_msg, "ERROR")
         raise TaskTimeoutError(timeout_msg)
 
+    def _check_standard_status(self, data: dict) -> dict | None:
+        """Check standard API task status. Returns data if done, None if pending."""
+        status = data.get("status", "unknown")
+        self.status = f"Task status: {status}"
+        self.log(f"Task status: {status}")
+
+        if status == "succeeded":
+            self.log("Task completed successfully!")
+            return data
+
+        if status in ("failed", "error", "expired"):
+            error_msg = data.get("error", {})
+            error_str = f"Task failed with status: {status}, error: {error_msg}"
+            self.log(error_str, "ERROR")
+            raise TaskError(error_str)
+
+        return None
+
+    def _check_jimeng_status(self, data: dict) -> dict | None:
+        """Check Jimeng API task status. Returns normalized data if done, None if pending."""
+        code = data.get("code", 0)
+        if code != JIMENG_CODE_SUCCESS:
+            msg = f"Jimeng poll error (code {code}): {data.get('message', 'unknown')}"
+            raise TaskError(msg)
+
+        jimeng_status = data.get("data", {}).get("status", "")
+        self.status = f"Task status: {jimeng_status}"
+        self.log(f"Task status: {jimeng_status}")
+
+        if jimeng_status == JIMENG_STATUS_DONE:
+            self.log("Task completed successfully!")
+            return data
+
+        if jimeng_status == JIMENG_STATUS_IN_QUEUE:
+            return None
+
+        # Unknown status — treat as pending
+        return None
+
     def _extract_video_url(self, data: dict) -> str:
         """Extract video URL from the task response."""
+        api_format = getattr(self, "api_format", API_FORMAT_STANDARD)
+
+        if api_format == API_FORMAT_JIMENG:
+            # Jimeng format: data.data.video_url
+            video_url = data.get("data", {}).get("video_url", "")
+            if video_url:
+                return video_url
+
+        # Standard format
         content = data.get("content")
         if isinstance(content, dict):
             url = content.get("video_url", "")
@@ -482,6 +632,12 @@ class VideoGenerationComponent(Component):
                     return item.get("video_url", {}).get("url", "")
                 if item.get("type") == "url":
                     return item.get("url", "")
+
+        # Fallback: try top-level output/video_url
+        for key in ("output", "video_url", "url"):
+            val = data.get(key, "")
+            if val and isinstance(val, str) and val.startswith("http"):
+                return val
 
         return ""
 
@@ -509,7 +665,8 @@ class VideoGenerationComponent(Component):
                     "task_id": task_id,
                     "model": model_name,
                     "mode": self.generation_mode,
-                    "status": result.get("status", ""),
+                    "api_format": getattr(self, "api_format", API_FORMAT_STANDARD),
+                    "status": "succeeded",
                     "video_url": video_url,
                 }
 

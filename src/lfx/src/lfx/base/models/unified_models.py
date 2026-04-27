@@ -36,6 +36,94 @@ from lfx.log.logger import logger
 from lfx.services.deps import get_variable_service, session_scope
 from lfx.utils.async_helpers import run_until_complete
 
+# ---------------------------------------------------------------------------
+# Global model-options cache (shared across all component instances)
+# ---------------------------------------------------------------------------
+import threading
+import time as _time
+
+_global_model_cache: dict[str, tuple[list[dict], float]] = {}
+_global_cache_lock = threading.Lock()
+_GLOBAL_CACHE_TTL = 60  # seconds
+
+
+def _global_cache_get(key: str) -> list[dict] | None:
+    """Return cached options if present and not expired, else None."""
+    with _global_cache_lock:
+        entry = _global_model_cache.get(key)
+        if entry is None:
+            return None
+        options, ts = entry
+        if _time.time() - ts > _GLOBAL_CACHE_TTL:
+            return None
+        return options
+
+
+def _global_cache_set(key: str, options: list[dict]) -> None:
+    with _global_cache_lock:
+        _global_model_cache[key] = (options, _time.time())
+
+
+def _apply_live_models(
+    all_models: list[dict],
+    live_models_data: list[tuple[str, list[dict]]],
+    enabled_providers: set[str],
+) -> None:
+    """Apply pre-fetched live model data to the all_models list in-place."""
+    from lfx.base.models.model_utils import _live_models_to_catalog_shape
+    from lfx.base.models.model_metadata import LIVE_MODEL_PROVIDERS
+
+    live_map = {provider: models for provider, models in live_models_data}
+    for provider in LIVE_MODEL_PROVIDERS:
+        if provider not in enabled_providers:
+            continue
+        live_models = live_map.get(provider, [])
+        catalog_models = _live_models_to_catalog_shape(live_models) if live_models else []
+        replaced = False
+        for provider_dict in all_models:
+            if provider_dict.get("provider") == provider:
+                provider_dict["models"] = catalog_models
+                provider_dict["num_models"] = len(catalog_models)
+                replaced = True
+                break
+        if not replaced and catalog_models:
+            all_models.append({
+                "provider": provider,
+                "models": catalog_models,
+                "num_models": len(catalog_models),
+            })
+
+
+def _schedule_live_model_refresh(
+    user_id: UUID | str,
+    enabled_providers: set[str],
+    model_type: str,
+    provider_metadata: dict | None,
+) -> None:
+    """Refresh live models in a background thread and update global cache."""
+    from lfx.base.models.model_utils import get_live_models_for_provider
+    from lfx.base.models.model_metadata import LIVE_MODEL_PROVIDERS
+
+    live_cache_key = f"live_{model_type}_{user_id}"
+
+    def _refresh():
+        # Check if cache was already populated by another thread
+        if _global_cache_get(live_cache_key) is not None:
+            return
+        try:
+            live_models_data: list[tuple[str, list[dict]]] = []
+            for provider in LIVE_MODEL_PROVIDERS:
+                if provider not in enabled_providers:
+                    continue
+                models = get_live_models_for_provider(user_id, provider, model_type)
+                live_models_data.append((provider, models))
+            _global_cache_set(live_cache_key, live_models_data)
+        except Exception:  # noqa: BLE001
+            logger.debug("Background live model refresh failed for user %s", user_id)
+
+    t = threading.Thread(target=_refresh, daemon=True)
+    t.start()
+
 # Mapping from class name to (module_path, attribute_name, install_hint | None).
 # Only the provider package that is actually needed gets imported at runtime.
 # install_hint overrides the auto-derived pip name for internal module paths.
@@ -1019,8 +1107,22 @@ def get_language_model_options(
             pass
 
     # Replace static defaults with actual available models from configured instances
+    # Use a separate cache for live models to avoid blocking
     if enabled_providers:
-        replace_with_live_models(all_models, user_id, enabled_providers, "llm", model_provider_metadata)
+        live_cache_key = f"live_llm_{user_id}"
+        live_models_data = _global_cache_get(live_cache_key)
+        if live_models_data is not None:
+            # Use cached live models — fast path
+            _apply_live_models(all_models, live_models_data, enabled_providers)
+        else:
+            # No live cache yet — try synchronous fetch but with short timeout,
+            # and schedule background refresh for next time
+            try:
+                replace_with_live_models(all_models, user_id, enabled_providers, "llm", model_provider_metadata)
+            except Exception:  # noqa: BLE001
+                logger.debug("Live model fetch failed, using static defaults")
+            # Schedule background refresh regardless
+            _schedule_live_model_refresh(user_id, enabled_providers, "llm", model_provider_metadata)
 
     # Get custom models for this user
     custom_models: dict[str, list[str]] = {}
@@ -1319,13 +1421,22 @@ def get_embedding_model_options(
 
     # Replace static defaults with actual available models from configured instances
     if enabled_providers:
-        replace_with_live_models(
-            all_models,
-            user_id,
-            enabled_providers,
-            "embeddings",
-            model_provider_metadata,
-        )
+        live_cache_key = f"live_embeddings_{user_id}"
+        live_models_data = _global_cache_get(live_cache_key)
+        if live_models_data is not None:
+            _apply_live_models(all_models, live_models_data, enabled_providers)
+        else:
+            try:
+                replace_with_live_models(
+                    all_models,
+                    user_id,
+                    enabled_providers,
+                    "embeddings",
+                    model_provider_metadata,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("Live embedding model fetch failed, using static defaults")
+            _schedule_live_model_refresh(user_id, enabled_providers, "embeddings", model_provider_metadata)
 
     options = []
 
@@ -1720,14 +1831,9 @@ def update_model_options_in_build_config(
 ) -> dict:
     """Helper function to update build config with cached model options.
 
-    Uses instance-level caching to avoid expensive database calls on every field change.
-    Cache is refreshed when:
-    - api_key changes (may enable/disable providers)
-    - Initial load (field_name is None)
-    - Cache is empty or expired
-    - Model field is being refreshed (field_name == model_field_name)
-
-    If the component specifies static options, those are preserved and not refreshed.
+    Uses a process-level global cache shared across all component instances.
+    Live model fetching (NewAPI/Ollama/WatsonX) is done in a background thread
+    so the initial response returns quickly with cached/static models.
 
     Args:
         component: Component instance with cache, user_id, and log attributes
@@ -1741,73 +1847,45 @@ def update_model_options_in_build_config(
     Returns:
         Updated build_config dict with model options and providers set
     """
-    import time
-
     # Check if component specified static options - if so, preserve them
-    # The cache key for static options detection
     static_options_cache_key = f"{cache_key_prefix}_static_options_detected"
 
-    # On initial load, check if the component has static options
     if field_name is None and static_options_cache_key not in component.cache:
-        # Check if the model field in build_config already has options set
         existing_options = build_config.get("model", {}).get("options")
-        if existing_options:
-            # Component specified static options - mark them as static
-            component.cache[static_options_cache_key] = True
-        else:
-            component.cache[static_options_cache_key] = False
+        component.cache[static_options_cache_key] = bool(existing_options)
 
-    # If component has static options, skip the refresh logic entirely
     if component.cache.get(static_options_cache_key, False):
-        # Static options - don't override them
-        # Just handle the visibility logic and return
         if field_value == "connect_other_models":
-            # User explicitly selected "Connect other models", show the handle
             if cache_key_prefix == "embedding_model_options":
                 build_config["model"]["input_types"] = ["Embeddings"]
             else:
                 build_config["model"]["input_types"] = ["LanguageModel"]
         else:
-            # Default case or model selection: hide the handle
             build_config["model"]["input_types"] = []
         return build_config
 
-    # Cache key based on user_id
-    cache_key = f"{cache_key_prefix}_{component.user_id}"
-    cache_timestamp_key = f"{cache_key}_timestamp"
-    cache_ttl = 30  # 30 seconds TTL to catch global variable changes faster
+    # Global cache key based on user_id and function type
+    global_cache_key = f"{cache_key_prefix}_{component.user_id}"
 
-    # Check if cache is expired
-    cache_expired = False
-    if cache_timestamp_key in component.cache:
-        time_since_cache = time.time() - component.cache[cache_timestamp_key]
-        cache_expired = time_since_cache > cache_ttl
-
-    # Check if we need to refresh
-    should_refresh = (
-        field_name == "api_key"  # API key changed
-        or field_name is None  # Initial load
-        or field_name == model_field_name  # Model field refresh button clicked
-        or cache_key not in component.cache  # Cache miss
-        or cache_expired  # Cache expired
+    # Determine if a forced refresh is needed (user action)
+    force_refresh = (
+        field_name == "api_key"
+        or field_name == model_field_name
     )
 
-    if should_refresh:
-        # Fetch options based on user's enabled models
+    options = None
+    if not force_refresh:
+        options = _global_cache_get(global_cache_key)
+
+    if options is None:
         try:
             options = get_options_func(user_id=component.user_id)
-            # Cache the results with timestamp
-            component.cache[cache_key] = {"options": options}
-            component.cache[cache_timestamp_key] = time.time()
+            _global_cache_set(global_cache_key, options)
         except KeyError as exc:
-            # If we can't get user-specific options, fall back to empty
             component.log("Failed to fetch user-specific model options: %s", exc)
-            component.cache[cache_key] = {"options": []}
-            component.cache[cache_timestamp_key] = time.time()
+            options = []
 
-    # Use cached results
-    cached = component.cache.get(cache_key, {"options": []})
-    build_config[model_field_name]["options"] = cached["options"]
+    build_config[model_field_name]["options"] = options
 
     # Set default value on initial load when model field is empty
     # Check the actual model field value, not the triggering field's value.
