@@ -30,6 +30,7 @@ ENABLED_MODELS_VAR = "__enabled_models__"
 CUSTOM_MODELS_VAR = "__custom_models__"
 DEFAULT_LANGUAGE_MODEL_VAR = "__default_language_model__"
 DEFAULT_EMBEDDING_MODEL_VAR = "__default_embedding_model__"
+COMPONENT_MODEL_BINDINGS_VAR = "__component_model_bindings__"
 
 # Security limits
 MAX_STRING_LENGTH = 200  # Maximum length for model IDs and provider names
@@ -1084,3 +1085,173 @@ async def clear_default_model(
         ) from e
 
     return {"default_model": None}
+
+
+# ── Component-Model Bindings ───────────────────────────────────────────
+
+
+async def _get_component_model_bindings(session: DbSession, current_user: CurrentActiveUser) -> dict[str, dict]:
+    """Get all component-model bindings for the current user."""
+    variable_service = get_variable_service()
+    if not isinstance(variable_service, DatabaseVariableService):
+        return {}
+    try:
+        var = await variable_service.get_variable_object(
+            user_id=current_user.id, name=COMPONENT_MODEL_BINDINGS_VAR, session=session
+        )
+        if var.value and var.value.strip():
+            parsed = json.loads(var.value)
+            if isinstance(parsed, dict):
+                return {k: v for k, v in parsed.items() if isinstance(v, dict)}
+    except ValueError:
+        pass
+    except (json.JSONDecodeError, TypeError):
+        logger.debug("Failed to parse component model bindings for user %s", current_user.id)
+    return {}
+
+
+async def _save_component_model_binding(
+    variable_service: DatabaseVariableService,
+    session: DbSession,
+    user_id,
+    component_name: str,
+    binding: dict[str, str],
+) -> None:
+    """Save or update a single component-model binding."""
+    from langflow.services.database.models.variable.model import VariableUpdate
+
+    # Read existing bindings
+    bindings: dict[str, dict] = {}
+    try:
+        var = await variable_service.get_variable_object(
+            user_id=user_id, name=COMPONENT_MODEL_BINDINGS_VAR, session=session
+        )
+        if var.value and var.value.strip():
+            parsed = json.loads(var.value)
+            if isinstance(parsed, dict):
+                bindings = {k: v for k, v in parsed.items() if isinstance(v, dict)}
+    except (ValueError, json.JSONDecodeError, TypeError):
+        pass
+
+    bindings[component_name] = binding
+    bindings_json = json.dumps(bindings)
+
+    try:
+        existing_var = await variable_service.get_variable_object(
+            user_id=user_id, name=COMPONENT_MODEL_BINDINGS_VAR, session=session
+        )
+        if existing_var is None or existing_var.id is None:
+            msg = f"Variable {COMPONENT_MODEL_BINDINGS_VAR} not found"
+            raise ValueError(msg)
+        await variable_service.update_variable_fields(
+            user_id=user_id,
+            variable_id=existing_var.id,
+            variable=VariableUpdate(
+                id=existing_var.id,
+                name=COMPONENT_MODEL_BINDINGS_VAR,
+                value=bindings_json,
+                type=GENERIC_TYPE,
+            ),
+            session=session,
+        )
+    except ValueError:
+        await variable_service.create_variable(
+            user_id=user_id,
+            name=COMPONENT_MODEL_BINDINGS_VAR,
+            value=bindings_json,
+            type_=GENERIC_TYPE,
+            session=session,
+        )
+
+
+class ComponentBindingRequest(BaseModel):
+    component_name: str
+    model_name: str
+    provider: str
+
+    @field_validator("component_name", "model_name", "provider")
+    @classmethod
+    def validate_non_empty_string(cls, v: str) -> str:
+        if not v or not v.strip():
+            msg = "Field cannot be empty"
+            raise ValueError(msg)
+        if len(v) > MAX_STRING_LENGTH:
+            msg = f"Field exceeds maximum length of {MAX_STRING_LENGTH} characters"
+            raise ValueError(msg)
+        return v.strip()
+
+
+@router.get("/component_bindings", status_code=200)
+async def get_component_bindings(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+):
+    """Get all component-model bindings for the current user."""
+    bindings = await _get_component_model_bindings(session, current_user)
+    return {"bindings": bindings}
+
+
+@router.post("/component_bindings", status_code=200)
+async def set_component_binding(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    request: ComponentBindingRequest,
+):
+    """Save a component-model binding for the current user."""
+    variable_service = get_variable_service()
+    if not isinstance(variable_service, DatabaseVariableService):
+        raise HTTPException(status_code=500, detail="Variable service unavailable")
+
+    binding = {"model_name": request.model_name, "provider": request.provider}
+    await _save_component_model_binding(
+        variable_service, session, current_user.id,
+        request.component_name, binding,
+    )
+    logger.info(
+        "User %s bound component %s to %s (%s)",
+        current_user.id, request.component_name,
+        request.model_name, request.provider,
+    )
+    return {"bindings": await _get_component_model_bindings(session, current_user)}
+
+
+@router.delete("/component_bindings", status_code=200)
+async def clear_component_binding(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    component_name: str = Query(..., description="Component name to unbind"),
+):
+    """Clear a specific component-model binding."""
+    variable_service = get_variable_service()
+    if not isinstance(variable_service, DatabaseVariableService):
+        raise HTTPException(status_code=500, detail="Variable service unavailable")
+
+    from langflow.services.database.models.variable.model import VariableUpdate
+
+    bindings = await _get_component_model_bindings(session, current_user)
+    bindings.pop(component_name, None)
+    bindings_json = json.dumps(bindings)
+
+    try:
+        existing_var = await variable_service.get_variable_object(
+            user_id=current_user.id, name=COMPONENT_MODEL_BINDINGS_VAR, session=session
+        )
+        if existing_var and existing_var.id:
+            await variable_service.update_variable_fields(
+                user_id=current_user.id,
+                variable_id=existing_var.id,
+                variable=VariableUpdate(
+                    id=existing_var.id,
+                    name=COMPONENT_MODEL_BINDINGS_VAR,
+                    value=bindings_json,
+                    type=GENERIC_TYPE,
+                ),
+                session=session,
+            )
+    except ValueError:
+        pass
+
+    return {"bindings": bindings}

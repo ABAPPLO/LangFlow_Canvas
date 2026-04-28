@@ -1030,6 +1030,7 @@ async def custom_component(
 async def custom_component_update(
     code_request: UpdateCustomComponentRequest,
     user: CurrentActiveUser,
+    session: DbSession,
 ):
     """Update an existing custom component with new code and configuration.
 
@@ -1075,6 +1076,32 @@ async def custom_component_update(
             field_value=code_request.field_value,
             field_name=code_request.field,
         )
+
+        # Save component-model binding when user changes model field
+        if code_request.field == "model" and code_request.field_value:
+            try:
+                model_value = code_request.field_value
+                model_info = None
+                if isinstance(model_value, list) and len(model_value) > 0:
+                    model_info = model_value[0] if isinstance(model_value[0], dict) else None
+                elif isinstance(model_value, dict):
+                    model_info = model_value
+
+                if model_info and model_info.get("name") and model_info.get("provider"):
+                    component_name = getattr(cc_instance, "name", None) or cc_instance.__class__.__name__
+                    from langflow.api.v1.models import _save_component_model_binding
+                    from langflow.services.deps import get_variable_service
+                    from langflow.services.variable.service import DatabaseVariableService
+
+                    variable_service = get_variable_service()
+                    if isinstance(variable_service, DatabaseVariableService):
+                        await _save_component_model_binding(
+                            variable_service, session, user.id,
+                            component_name,
+                            {"model_name": model_info["name"], "provider": model_info["provider"]},
+                        )
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to save component binding", exc_info=True)
         if "code" not in updated_build_config or not updated_build_config.get("code", {}).get("value"):
             updated_build_config = add_code_field_to_build_config(updated_build_config, code_request.code)
         component_node["template"] = updated_build_config

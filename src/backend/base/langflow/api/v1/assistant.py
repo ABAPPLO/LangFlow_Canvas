@@ -49,20 +49,20 @@ PRIORITY_COMPONENTS = {
 # Categories to exclude from list_components (third-party bundles shown in UI "Bundles" section)
 _EXCLUDED_CATEGORIES: set[str] = {
     "aiml", "agentics", "agentql", "altk", "languagemodels", "embeddings",
-    "memories", "amazon", "anthropic", "apify", "arxiv", "assemblyai",
+    "memories", "amazon", "anthropic", "apify", "arxiv", "assemblyai", "AssemblyAI",
     "azure", "baidu", "bing", "cassandra", "chroma", "clickhouse",
     "cleanlab", "cloudflare", "cohere", "cometapi", "composio", "confluence",
     "couchbase", "crewai", "cuga", "datastax", "deepseek", "docling",
     "duckduckgo", "elastic", "exa", "FAISS", "firecrawl", "git",
     "glean", "gmail", "google", "groq", "homeassistant", "huggingface",
-    "ibm", "icosacomputing", "jigsawstack", "langchain_utilities", "langwatch",
+    "ibm", "icosacomputing", "jigsawstack", "langchain_utilities", "langwatch", "LangWatch",
     "litellm", "lmstudio", "maritalk", "mem0", "milvus", "mistral",
-    "mongodb", "needle", "notdiamond", "Notion", "novita", "nvidia",
+    "mongodb", "needle", "notdiamond", "Notion", "notion", "novita", "nvidia",
     "olivya", "ollama", "openai", "openrouter", "perplexity", "pgvector",
     "pinecone", "qdrant", "redis", "sambanova", "scrapegraph", "searchapi",
     "serpapi", "serper", "supabase", "tavily", "twelvelabs", "unstructured",
     "upstash", "vlmrun", "vectara", "vectorstores", "vllm", "weaviate",
-    "vertexai", "wikipedia", "wolframalpha", "xai", "yahoosearch", "youtube",
+    "vertexai", "wikipedia", "wolframalpha", "xai", "yahoosearch", "youtube", "YouTube",
     "zep",
 }
 
@@ -114,16 +114,22 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "build_flow",
             "description": (
-                "Add or update nodes on the canvas. Existing nodes NOT in the request are kept. "
+                "Build workflow on canvas. Auto-deduplicates by component type — if a type already "
+                "exists on canvas, it will be updated instead of duplicated. "
+                "Set clear=true to wipe the canvas before building (for starting over). "
                 "Nodes: [{id, type, values?}]. Edges: [{source, source_output, target, target_input}]. "
                 "The 'type' must be from list_components. "
                 "'values' MUST set key parameters — use get_component_details to check available_options first. "
                 "For model fields use {\"model\": [{\"name\": \"dall-e-3\"}]}, for dropdowns use the exact option string. "
-                "Edges connect the specified nodes. Existing edges are preserved."
+                "Edges connect the specified nodes. Existing edges are preserved unless clear=true."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "clear": {
+                        "type": "boolean",
+                        "description": "If true, clear existing canvas before building. Use when starting a new workflow.",
+                    },
                     "nodes": {
                         "type": "array",
                         "items": {
@@ -161,7 +167,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_flow",
-            "description": "Run the current workflow and return results. Optionally provide input_value.",
+            "description": (
+                "Run the current workflow and return results. Auto-saves on success. "
+                "On failure, returns diagnosed error with specific fix suggestions."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -170,27 +179,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                         "description": "Optional input text to test the flow",
                     },
                 },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "diagnose_run_error",
-            "description": (
-                "Diagnose a run_flow error. Analyzes the error message, checks each component's "
-                "configuration (API keys, model names, parameter values), and returns specific fixes. "
-                "Call this when run_flow fails, then apply the fixes via build_flow."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "error_message": {
-                        "type": "string",
-                        "description": "The error message from the failed run_flow call",
-                    },
-                },
-                "required": ["error_message"],
             },
         },
     },
@@ -208,25 +196,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "validate_flow",
-            "description": (
-                "Validate the current workflow for issues. Checks: edge connections, required parameters, "
-                "parameter values match available options, model types match component purpose "
-                "(e.g. image components need image models, not chat models). "
-                "Returns a list of issues with severity (error/warning). Call after build_flow."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "prepare_flow",
             "description": (
                 "Pre-flight check and auto-fix before run_flow. Validates the flow AND automatically fixes "
                 "common issues: wrong model types, empty required fields, missing defaults. "
                 "Returns what was fixed and what still needs manual attention. "
-                "Call this instead of validate_flow when ready to run."
+                "Call this when ready to run."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -234,9 +209,103 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "save_flow",
-            "description": "Save the current workflow permanently to the database. Call after testing passes.",
-            "parameters": {"type": "object", "properties": {}},
+            "name": "update_node",
+            "description": (
+                "Update parameters of a single node on the canvas without rebuilding the entire flow. "
+                "Use this to change model, prompt, or any field on an existing node. "
+                "For model fields use {\"model\": [{\"name\": \"gpt-4o\"}]}, for dropdowns use the exact option string."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {
+                        "type": "string",
+                        "description": "The node ID to update",
+                    },
+                    "values": {
+                        "type": "object",
+                        "description": "Parameters to update. Only specified fields are changed, others are preserved.",
+                    },
+                },
+                "required": ["node_id", "values"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_nodes",
+            "description": (
+                "Delete one or more nodes from the canvas. All edges connected to deleted nodes "
+                "are also removed. Use to clean up unwanted nodes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of node IDs to delete",
+                    },
+                },
+                "required": ["node_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_edge",
+            "description": (
+                "Add a connection between two nodes. Both nodes must exist on the canvas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source node ID"},
+                    "source_output": {"type": "string", "description": "Output field name on source node"},
+                    "target": {"type": "string", "description": "Target node ID"},
+                    "target_input": {"type": "string", "description": "Input field name on target node"},
+                },
+                "required": ["source", "source_output", "target", "target_input"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_edge",
+            "description": (
+                "Delete a connection between two nodes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source node ID"},
+                    "target": {"type": "string", "description": "Target node ID"},
+                },
+                "required": ["source", "target"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_component",
+            "description": (
+                "Run a single component on the canvas and return its output. "
+                "Useful for debugging individual components without running the full flow."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {
+                        "type": "string",
+                        "description": "The node ID to run",
+                    },
+                },
+                "required": ["node_id"],
+            },
         },
     },
 ]
@@ -311,6 +380,8 @@ def _extract_component_details(comp_data: dict) -> dict:
             "display_name": field_data.get("display_name", field_name),
             "type": field_data.get("type", "str"),
         }
+        if field_data.get("_input_type"):
+            field_info["_input_type"] = field_data["_input_type"]
         if field_data.get("required"):
             field_info["required"] = True
         if field_data.get("value") is not None:
@@ -358,6 +429,40 @@ def _extract_component_details(comp_data: dict) -> dict:
     }
 
 
+async def _enrich_model_options(details: dict, user_id: str | None) -> dict:
+    """Enrich ModelInput fields with live model options from provider configuration."""
+    has_model_field = any(
+        f.get("_input_type") == "ModelInput" and not f.get("has_options")
+        for f in details.get("fields", [])
+    )
+    if not has_model_field:
+        return details
+
+    try:
+        from lfx.base.models.unified_models import get_language_model_options
+
+        options = get_language_model_options(user_id=user_id)
+        if not options:
+            return details
+
+        # Build compact model list for AI
+        model_names = []
+        for item in options[:20]:
+            if isinstance(item, dict):
+                name = item.get("name", "")
+                provider = item.get("provider", "")
+                model_names.append(f"{name} ({provider})" if provider else name)
+
+        for field in details.get("fields", []):
+            if field.get("_input_type") == "ModelInput" and not field.get("has_options"):
+                field["has_options"] = True
+                field["available_options"] = model_names
+    except Exception:  # noqa: BLE001
+        logger.debug("[Assistant] Failed to load live model options for details enrichment")
+
+    return details
+
+
 # ── System prompt ──────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
@@ -392,31 +497,38 @@ AVAILABLE TOOLS:
 4. **get_current_flow** — Get current canvas state (nodes, edges, values).
    Args: {}
 
-5. **validate_flow** — Check edges, parameters, and model-task match.
-   Args: {}
-
-6. **prepare_flow** — Pre-flight check + auto-fix before run_flow.
+5. **prepare_flow** — Validate + auto-fix before run_flow.
    Args: {}
    Validates AND auto-fixes: wrong models, empty required fields, missing defaults.
-   Returns fixed issues + remaining problems. Call instead of validate_flow when ready to run.
+   Call this when ready to run.
 
-7. **run_flow** — Test the workflow.
-   Args: {"input_value": "optional test input"}
+6. **update_node** — Update a single node's parameters.
+   Args: {"node_id": "id", "values": {"field": "value"}}
+   Use to fix specific fields without rebuilding the entire flow.
 
-8. **diagnose_run_error** — Diagnose a run_flow failure and return specific fixes.
-   Args: {"error_message": "the error from run_flow"}
+7. **delete_nodes** — Remove nodes and their connected edges.
+   Args: {"node_ids": ["id1", "id2"]}
 
-9. **save_flow** — Save workflow to database.
-   Args: {}
+8. **add_edge** — Add a connection between two nodes.
+   Args: {"source": "id", "source_output": "name", "target": "id", "target_input": "name"}
 
-WORKFLOW:
+9. **delete_edge** — Remove a connection between two nodes.
+   Args: {"source": "id", "target": "id"}
+
+10. **run_flow** — Execute the workflow. Auto-saves on success, includes diagnosis on failure.
+    Args: {"input_value": "optional test input"}
+
+11. **run_component** — Run a single component for debugging.
+    Args: {"node_id": "id"}
+
+WORKFLOW (follow strictly):
   Step 1: list_components → get_component_details (check options for EACH component)
   Step 2: build_flow (set correct values from available_options)
-  Step 3: prepare_flow (auto-fix issues, check if ready to run)
-          → if errors remain, fix via build_flow and retry prepare_flow
-  Step 4: run_flow (test execution)
-  Step 4b: if run_flow fails → diagnose_run_error → apply fixes → rebuild and retry
-  Step 5: save_flow (only after run_flow succeeds)
+  Step 3: prepare_flow (auto-fix issues)
+          → if errors remain: use update_node / add_edge / delete_edge to fix, then retry prepare_flow
+  Step 4: run_flow (auto-saves on success)
+          → if fails: error response includes diagnosis → use update_node to fix → retry run_flow
+  Step 5: Report success to user
 
 PARAMETER GUIDELINES:
   - CRITICAL: Always set "values" in build_flow, especially for model fields.
@@ -427,15 +539,12 @@ PARAMETER GUIDELINES:
     * Embeddings → text-embedding-3-small
   - ModelInput value format: {"model": [{"name": "dall-e-3"}]}
   - DropdownInput value format: {"model_name": "gpt-4o"}
-  - After build_flow, ALWAYS call validate_flow to catch parameter issues.
 
 CRITICAL SUCCESS CRITERIA:
   - build_flow succeeding does NOT mean the task is done.
   - You MUST run run_flow to verify the workflow actually works.
-  - If run_flow fails: call diagnose_run_error to get specific fixes, apply fixes via build_flow, then retry run_flow.
-  - If run_flow succeeds: call save_flow immediately.
-  - Task is ONLY complete when run_flow succeeds AND save_flow succeeds.
-  - Max 5 total build_flow attempts. If still failing after 5 tries, report the error to the user.
+  - If run_flow fails: read the diagnosis in the error response, fix with update_node, then retry run_flow.
+  - Max 5 total attempts. If still failing after 5 tries, report the error to the user.
 
 Respond in the same language as the user's message.
 """
@@ -498,12 +607,14 @@ class _ToolContext:
             comp_data = components.get(type_name)
             if isinstance(comp_data, dict):
                 details = _extract_component_details(comp_data)
+                # Enrich ModelInput fields with live model options
+                details = await _enrich_model_options(details, self.user_id)
                 return {"content": [{"type": "text", "text": json.dumps(details, ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": f"Component type '{type_name}' not found."}]}
 
-    async def build_flow(self, nodes: list[dict], edges: list[dict]) -> dict:
+    async def build_flow(self, nodes: list[dict], edges: list[dict], clear: bool = False) -> dict:
         await self.ensure_types()
-        logger.warning("[Assistant] build_flow called: nodes=%d edges=%d", len(nodes), len(edges))
+        logger.warning("[Assistant] build_flow called: nodes=%d edges=%d clear=%s", len(nodes), len(edges), clear)
 
         # Expand new nodes
         compact_data = {"nodes": nodes, "edges": []}  # edges handled via compact_edges
@@ -516,50 +627,130 @@ class _ToolContext:
         new_nodes = expanded_new.get("nodes", [])
         new_node_map = {n["id"]: n for n in new_nodes}
 
+        # Build a type -> existing_node map for deduplication
+        new_type_map: dict[str, dict] = {}
+        for n in new_nodes:
+            ntype = n.get("data", {}).get("type", "")
+            if ntype:
+                new_type_map[ntype] = n
+
         # Load existing canvas
         existing_nodes, existing_edges = await self._load_current_canvas()
 
-        # Merge: update existing or add new nodes
-        merged_nodes = []
-        for existing in existing_nodes:
-            if existing["id"] in new_node_map:
-                merged_nodes.append(new_node_map.pop(existing["id"]))
-            else:
-                merged_nodes.append(existing)
-        merged_nodes.extend(new_node_map.values())
+        if clear:
+            # Clear canvas — only keep new nodes
+            merged_nodes = list(new_nodes)
+            deduped = len(existing_nodes)
+        else:
+            # Deduplicate by component type: if new node has same type as existing,
+            # remap to use existing node's ID and update in-place
+            id_remap: dict[str, str] = {}  # new_id -> existing_id
+            existing_types: dict[str, dict] = {}
+            for existing in existing_nodes:
+                etype = existing.get("data", {}).get("type", "")
+                if etype:
+                    existing_types[etype] = existing
+
+            for n in new_nodes:
+                ntype = n.get("data", {}).get("type", "")
+                if ntype and ntype in existing_types and n["id"] != existing_types[ntype]["id"]:
+                    old_id = n["id"]
+                    existing_id = existing_types[ntype]["id"]
+                    id_remap[old_id] = existing_id
+                    logger.warning("[Assistant] dedup: %s ('%s') -> reuse existing '%s'",
+                                   old_id, ntype, existing_id)
+
+            # Remap node IDs in expanded nodes
+            for n in new_nodes:
+                old_id = n["id"]
+                if old_id in id_remap:
+                    n["id"] = id_remap[old_id]
+
+            # Remap edge references
+            if edges:
+                edges = [
+                    {
+                        **e,
+                        "source": id_remap.get(e.get("source", ""), e.get("source", "")),
+                        "target": id_remap.get(e.get("target", ""), e.get("target", "")),
+                    }
+                    for e in edges
+                ]
+
+            # Rebuild new_node_map after remapping
+            new_node_map = {n["id"]: n for n in new_nodes}
+
+            # Merge: update existing or add new nodes
+            merged_nodes = []
+            for existing in existing_nodes:
+                if existing["id"] in new_node_map:
+                    merged_nodes.append(new_node_map.pop(existing["id"]))
+                else:
+                    merged_nodes.append(existing)
+            merged_nodes.extend(new_node_map.values())
+            deduped = 0
 
         # Expand edges against merged nodes
         if edges:
-            expanded_edges = self._expand_edges(edges, merged_nodes)
+            expanded_new_edges = self._expand_edges(edges, merged_nodes)
+            if clear:
+                expanded_edges = expanded_new_edges
+            else:
+                # Build set of (target_node, target_input_name) from new edges
+                # to detect conflicts — a target input should only have one source
+                new_target_inputs: set[tuple[str, str]] = set()
+                for ne in expanded_new_edges:
+                    ne_data = ne.get("data", {})
+                    th = ne_data.get("targetHandle", {})
+                    if isinstance(th, dict):
+                        new_target_inputs.add((ne.get("target", ""), th.get("id", "")))
+
+                # Remove old edges that conflict with new target inputs
+                if new_target_inputs:
+                    kept = []
+                    for oe in existing_edges:
+                        oe_data = oe.get("data", {})
+                        oth = oe_data.get("targetHandle", {})
+                        if isinstance(oth, dict):
+                            okey = (oe.get("target", ""), oth.get("id", ""))
+                            if okey in new_target_inputs:
+                                continue  # Old edge conflicts, remove it
+                        kept.append(oe)
+                    existing_edges = kept
+
+                # Merge with dedup by (source, sourceHandle, target, targetHandle)
+                existing_keys = {
+                    (e.get("source"), e.get("sourceHandle"), e.get("target"), e.get("targetHandle"))
+                    for e in existing_edges
+                }
+                for ne in expanded_new_edges:
+                    key = (ne.get("source"), ne.get("sourceHandle"), ne.get("target"), ne.get("targetHandle"))
+                    if key not in existing_keys:
+                        existing_edges.append(ne)
+                        existing_keys.add(key)
+                expanded_edges = existing_edges
+        elif clear:
+            expanded_edges = []
         else:
             expanded_edges = existing_edges
 
         node_count = len(merged_nodes)
         edge_count = len(expanded_edges)
-        logger.warning("[Assistant] merged canvas: %d nodes (%d existing + %d new), %d edges",
-                        node_count, len(existing_nodes), len(new_nodes), edge_count)
+        logger.warning("[Assistant] merged canvas: %d nodes, %d edges (cleared=%s, deduped=%d)",
+                        node_count, edge_count, clear, deduped)
+
+        # Assign layout positions based on edge topology
+        self._assign_layout(merged_nodes, edges)
 
         self.last_canvas_data = {"nodes": merged_nodes, "edges": expanded_edges}
         self.last_compact_edges = edges
 
-        # Persist to DB immediately so subsequent tools in later turns can find it
-        try:
-            from langflow.services.deps import session_scope
+        # Persist to DB immediately
+        await self._persist_canvas()
 
-            async with session_scope() as session:
-                from sqlmodel import select
-                from langflow.services.database.models.flow.model import Flow
-
-                db_flow = (await session.exec(select(Flow).where(Flow.id == self.flow_id))).first()
-                if db_flow:
-                    db_flow.data = self.last_canvas_data
-                    session.add(db_flow)
-                    await session.commit()
-                    logger.warning("[Assistant] build_flow saved canvas to DB")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[Assistant] build_flow failed to save to DB: %s", e)
-
-        return {"content": [{"type": "text", "text": f"Canvas updated: {node_count} nodes, {edge_count} edges ({len(existing_nodes)} kept, {len(new_nodes)} added/updated)."}]}
+        status = f"Canvas cleared and rebuilt: {node_count} nodes, {edge_count} edges." if clear \
+            else f"Canvas updated: {node_count} nodes, {edge_count} edges."
+        return {"content": [{"type": "text", "text": status}]}
 
     async def _load_current_canvas(self) -> tuple[list[dict], list[dict]]:
         """Load existing canvas nodes and edges from DB or last_canvas_data."""
@@ -645,24 +836,63 @@ class _ToolContext:
 
         return result_edges
 
+    def _assign_layout(self, nodes: list[dict], compact_edges: list[dict]) -> None:
+        """Assign layout positions to all nodes based on edge topology.
+
+        Uses topological sort to place nodes left-to-right with vertical spacing
+        for nodes in the same layer. Always re-layouts all nodes for consistency.
+        """
+        from collections import deque
+
+        spacing_x = 500
+        spacing_y = 350
+        start_x = 100
+        start_y = 100
+
+        node_ids = {n.get("id") for n in nodes}
+        in_degree: dict[str, int] = dict.fromkeys(node_ids, 0)
+        children: dict[str, list[str]] = {nid: [] for nid in node_ids}
+
+        for ce in compact_edges:
+            src = ce.get("source", "")
+            tgt = ce.get("target", "")
+            if src in node_ids and tgt in node_ids:
+                in_degree[tgt] = in_degree.get(tgt, 0) + 1
+                children.setdefault(src, []).append(tgt)
+
+        queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
+        layers: list[list[str]] = []
+
+        while queue:
+            layer = []
+            for _ in range(len(queue)):
+                nid = queue.popleft()
+                layer.append(nid)
+                for child in children.get(nid, []):
+                    in_degree[child] -= 1
+                    if in_degree[child] == 0:
+                        queue.append(child)
+            if layer:
+                layers.append(layer)
+
+        placed = {nid for layer in layers for nid in layer}
+        remaining = [nid for nid in node_ids if nid not in placed]
+        if remaining:
+            layers.append(remaining)
+
+        node_map = {n.get("id"): n for n in nodes}
+        for col_idx, layer in enumerate(layers):
+            for row_idx, nid in enumerate(layer):
+                node = node_map.get(nid)
+                if node:
+                    node["position"] = {
+                        "x": start_x + col_idx * spacing_x,
+                        "y": start_y + row_idx * spacing_y,
+                    }
+
     async def run_flow(self, input_value: str = "") -> dict:
-        # If there's unsaved canvas data from build_flow, persist it first
-        if self.last_canvas_data is not None:
-            try:
-                from langflow.services.deps import session_scope
-
-                async with session_scope() as session:
-                    from sqlmodel import select
-                    from langflow.services.database.models.flow.model import Flow
-
-                    db_flow = (await session.exec(select(Flow).where(Flow.id == self.flow_id))).first()
-                    if db_flow:
-                        db_flow.data = self.last_canvas_data
-                        session.add(db_flow)
-                        await session.commit()
-                        logger.warning("[Assistant] auto-saved canvas data before run_flow")
-            except Exception as e:  # noqa: BLE001
-                logger.warning("[Assistant] auto-save before run failed: %s", e)
+        # Auto-save canvas data before running
+        await self._persist_canvas()
 
         # Load flow data
         try:
@@ -675,10 +905,13 @@ class _ToolContext:
         if flow.data is None:
             return {"content": [{"type": "text", "text": "Flow has no data. Please build the flow first."}]}
 
-        # Find the last output component (stop_component_id)
         flow_data = flow.data
         nodes = flow_data.get("nodes", [])
         edges = flow_data.get("edges", [])
+
+        if not nodes:
+            return {"content": [{"type": "text", "text": "Canvas is empty. Build the flow first."}]}
+
         stop_component_id = self._find_output_component(nodes, edges)
         logger.warning("[Assistant] run_flow: stop_component_id=%s", stop_component_id)
 
@@ -691,20 +924,19 @@ class _ToolContext:
                 user_id=self.user_id,
             )
 
-            # Set input value if provided
             inputs_dict = {}
             if input_value:
                 inputs_dict["input_value"] = input_value
                 inputs_dict["client_request_time"] = str(int(time.time() * 1000))
 
-            # Sort and run vertices up to stop_component_id
             first_layer = graph.sort_vertices(stop_component_id=stop_component_id)
             vertices_to_run = list(graph.vertices_to_run)
             logger.warning("[Assistant] run_flow: %d vertices to run", len(vertices_to_run))
 
-            results: list[dict] = []
-            from itertools import chain
+            if not vertices_to_run:
+                return {"content": [{"type": "text", "text": "No vertices to run. The flow may have connection issues. Check edges with get_current_flow."}]}
 
+            results: list[dict] = []
             all_layers = [first_layer, *graph.vertices_layers]
             for layer in all_layers:
                 for vertex_id in layer:
@@ -712,7 +944,6 @@ class _ToolContext:
                     if vertex is None:
                         continue
 
-                    # Inject input_value into the first input vertex
                     is_first_vertex = first_layer and vertex_id == first_layer[0]
                     if inputs_dict and is_first_vertex:
                         vertex.update_raw_params(inputs_dict)
@@ -732,10 +963,46 @@ class _ToolContext:
                         })
 
             logger.warning("[Assistant] run_flow completed: %d results", len(results))
+
+            # Auto-save on success — already persisted before run, just confirm
             return {"content": [{"type": "text", "text": json.dumps(results, ensure_ascii=False)}]}
+
         except Exception as e:  # noqa: BLE001
+            error_msg = str(e)
             logger.exception("[Assistant] run_flow error: %s", e)
-            return {"content": [{"type": "text", "text": f"Error running flow: {e}"}]}
+            # Include diagnosis in the error response
+            diagnosis = self._diagnose_error(error_msg, nodes)
+            error_response = {
+                "error": error_msg[:500],
+                "diagnosis": diagnosis,
+            }
+            return {"content": [{"type": "text", "text": json.dumps(error_response, ensure_ascii=False)}]}
+
+    def _diagnose_error(self, error_message: str, nodes: list[dict]) -> list[dict]:
+        """Quick diagnosis of run_flow errors."""
+        error_lower = error_message.lower()
+        findings: list[dict[str, str]] = []
+
+        # Credential errors
+        if any(kw in error_lower for kw in ["api key", "api_key", "unauthorized", "401", "403", "authentication"]):
+            findings.append({"fix": "API key missing or invalid. Configure it in Model Providers or check environment variables."})
+
+        # Model errors
+        if any(kw in error_lower for kw in ["model not found", "does not exist", "invalid model", "unknown model"]):
+            findings.append({"fix": "Model name is incorrect. Use get_component_details to check available models, then fix with update_node."})
+
+        # Network errors
+        if any(kw in error_lower for kw in ["connection", "timeout", "refused", "network"]):
+            findings.append({"fix": "Network error. Check base_url in Model Providers is correct and accessible."})
+
+        # Type errors
+        if any(kw in error_lower for kw in ["type error", "attributeerror", "unexpected type"]):
+            findings.append({"fix": "Type mismatch between components. Check that connected outputs match input types."})
+
+        if not findings:
+            findings.append({"fix": "Check all component parameters with get_component_details. Use update_node to fix issues."})
+
+        return findings
 
     def _find_output_component(self, nodes: list[dict], edges: list[dict]) -> str | None:
         """Find the last output component in the flow — the one with no outgoing edges."""
@@ -820,283 +1087,6 @@ class _ToolContext:
         }
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
-    async def validate_flow(self) -> dict:
-        """Validate the current workflow for issues."""
-        try:
-            flow = await get_flow_by_id_or_endpoint_name(
-                flow_id_or_name=self.flow_id, user_id=self.user_id,
-            )
-        except (ValueError, RuntimeError) as e:
-            return {"content": [{"type": "text", "text": f"Error loading flow: {e}"}]}
-
-        flow_data = self.last_canvas_data or flow.data
-        if not flow_data:
-            return {"content": [{"type": "text", "text": "No flow data to validate. Build the flow first."}]}
-
-        await self.ensure_types()
-        issues: list[dict[str, str]] = []
-
-        nodes = flow_data.get("nodes", [])
-        edges = flow_data.get("edges", [])
-
-        # Build node lookup: id -> node data
-        node_map: dict[str, dict] = {}
-        for node in nodes:
-            node_map[node.get("id", "")] = node
-
-        # Check 1: Edge connection validity
-        for i, edge in enumerate(edges):
-            edge_data = edge.get("data", {})
-            sh = edge_data.get("sourceHandle", {})
-            th = edge_data.get("targetHandle", {})
-            source_id = edge.get("source", "")
-            target_id = edge.get("target", "")
-            source_output = sh.get("name", "")
-            target_input = th.get("fieldName", "")
-
-            # Check source node exists
-            source_node = node_map.get(source_id)
-            if not source_node:
-                issues.append({
-                    "severity": "error",
-                    "edge_index": str(i),
-                    "issue": f"Edge {i}: source node '{source_id}' not found on canvas",
-                })
-                continue
-
-            # Check target node exists
-            target_node = node_map.get(target_id)
-            if not target_node:
-                issues.append({
-                    "severity": "error",
-                    "edge_index": str(i),
-                    "issue": f"Edge {i}: target node '{target_id}' not found on canvas",
-                })
-                continue
-
-            # Check source output exists on source component
-            source_type = source_node.get("data", {}).get("type", "")
-            source_comp = self._find_component(source_type)
-            if source_comp:
-                source_outputs = source_comp.get("outputs", [])
-                output_names = [o.get("name", "") for o in source_outputs if isinstance(o, dict)]
-                if source_output not in output_names:
-                    issues.append({
-                        "severity": "error",
-                        "edge_index": str(i),
-                        "issue": (
-                            f"Edge {i}: source output '{source_output}' not found on '{source_type}'. "
-                            f"Available: {output_names}"
-                        ),
-                    })
-
-            # Check target input exists on target component
-            target_type = target_node.get("data", {}).get("type", "")
-            target_comp = self._find_component(target_type)
-            if target_comp:
-                template = target_comp.get("template", {})
-                if target_input not in template and target_input:
-                    field_names = [k for k, v in template.items() if isinstance(v, dict) and not k.startswith("_")]
-                    issues.append({
-                        "severity": "warning",
-                        "edge_index": str(i),
-                        "issue": (
-                            f"Edge {i}: target input '{target_input}' not found on '{target_type}'. "
-                            f"Available fields: {field_names[:10]}"
-                        ),
-                    })
-
-            # Check type compatibility
-            if source_comp and target_comp:
-                source_outputs = source_comp.get("outputs", [])
-                src_out = next((o for o in source_outputs if isinstance(o, dict) and o.get("name") == source_output), None)
-                out_types = set(src_out.get("types", [])) if src_out else set()
-
-                target_template = target_comp.get("template", {})
-                tgt_field = target_template.get(target_input, {})
-                if isinstance(tgt_field, dict):
-                    in_types = set(tgt_field.get("input_types", []))
-                    if not in_types and tgt_field.get("type"):
-                        in_types = {tgt_field["type"]}
-
-                    if out_types and in_types:
-                        overlap = out_types & in_types
-                        if not overlap and out_types != {"str"} and in_types != {"str"}:
-                            issues.append({
-                                "severity": "warning",
-                                "edge_index": str(i),
-                                "issue": (
-                                    f"Edge {i}: type mismatch between '{source_type}.{source_output}' "
-                                    f"(output: {list(out_types)}) and '{target_type}.{target_input}' "
-                                    f"(input: {list(in_types)})"
-                                ),
-                            })
-
-        # Check 2: Required parameters
-        for node in nodes:
-            node_type = node.get("data", {}).get("type", "")
-            node_id = node.get("id", "")
-            comp = self._find_component(node_type)
-            if not comp:
-                continue
-
-            template = comp.get("template", {})
-            node_template = node.get("data", {}).get("node", {}).get("template", {})
-
-            for field_name, field_data in template.items():
-                if not isinstance(field_data, dict) or field_name.startswith("_"):
-                    continue
-                if not field_data.get("required"):
-                    continue
-                # Check if value is set in the node
-                node_field = node_template.get(field_name, {})
-                val = node_field.get("value") if isinstance(node_field, dict) else None
-                if val is None or val == "" or val == []:
-                    display_name = field_data.get("display_name", field_name)
-                    issues.append({
-                        "severity": "warning",
-                        "node_id": node_id,
-                        "node_type": node_type,
-                        "issue": f"Node '{node_id}' ({node_type}): required field '{display_name}' ({field_name}) is empty",
-                    })
-
-        # Check 3: Disconnected nodes (no edges)
-        if len(nodes) > 1:
-            connected_ids: set[str] = set()
-            for edge in edges:
-                connected_ids.add(edge.get("source", ""))
-                connected_ids.add(edge.get("target", ""))
-            for node in nodes:
-                nid = node.get("id", "")
-                if nid and nid not in connected_ids:
-                    issues.append({
-                        "severity": "warning",
-                        "node_id": nid,
-                        "issue": f"Node '{nid}' ({node.get('data', {}).get('type', '')}) is not connected to any other node",
-                    })
-
-        # Check 4: Parameter value validation against available options
-        for node in nodes:
-            node_type = node.get("data", {}).get("type", "")
-            node_id = node.get("id", "")
-            comp = self._find_component(node_type)
-            if not comp:
-                continue
-
-            template = comp.get("template", {})
-            node_template = node.get("data", {}).get("node", {}).get("template", {})
-
-            for field_name, field_data in template.items():
-                if not isinstance(field_data, dict) or field_name.startswith("_"):
-                    continue
-
-                input_type = field_data.get("_input_type", "")
-                raw_options = field_data.get("options")
-
-                node_field = node_template.get(field_name, {})
-                if not isinstance(node_field, dict):
-                    continue
-                current_value = node_field.get("value")
-
-                if current_value is None or current_value == "" or not raw_options:
-                    continue
-
-                # DropdownInput: options is list[str]
-                if input_type == "DropdownInput" and isinstance(raw_options, list):
-                    if field_data.get("combobox"):
-                        continue
-                    valid_strings = [o for o in raw_options if isinstance(o, str)]
-                    if valid_strings and isinstance(current_value, str) and current_value not in valid_strings:
-                        display_name = field_data.get("display_name", field_name)
-                        issues.append({
-                            "severity": "warning",
-                            "node_id": node_id,
-                            "node_type": node_type,
-                            "issue": (
-                                f"Node '{node_id}' ({node_type}): '{display_name}' value '{current_value}' "
-                                f"not in available options. Available: {valid_strings[:10]}"
-                            ),
-                        })
-
-                # ModelInput: options is list[dict]
-                elif input_type == "ModelInput" and isinstance(raw_options, list):
-                    available_names = []
-                    for item in raw_options:
-                        if isinstance(item, dict) and item.get("name"):
-                            available_names.append(item["name"])
-                        elif isinstance(item, str):
-                            available_names.append(item)
-
-                    if not available_names:
-                        continue
-
-                    value_model_name = None
-                    if isinstance(current_value, list) and current_value:
-                        first = current_value[0]
-                        value_model_name = first.get("name", "") if isinstance(first, dict) else str(first)
-                    elif isinstance(current_value, str) and current_value != "connect_other_models":
-                        value_model_name = current_value
-
-                    if value_model_name and value_model_name not in available_names:
-                        display_name = field_data.get("display_name", field_name)
-                        issues.append({
-                            "severity": "warning",
-                            "node_id": node_id,
-                            "node_type": node_type,
-                            "issue": (
-                                f"Node '{node_id}' ({node_type}): '{display_name}' model '{value_model_name}' "
-                                f"not in available options. Available: {available_names[:10]}"
-                            ),
-                        })
-
-        # Check 5: Model-task mismatch (heuristic)
-        _CHAT_MODEL_KEYWORDS = {"gpt-4o", "gpt-4", "gpt-3.5", "claude-sonnet", "claude-opus", "claude-haiku", "deepseek"}
-        _TASK_RULES: dict[str, dict[str, Any]] = {
-            "ImageGeneration": {
-                "expected_keywords": ("dall-e", "image", "stable", "flux", "midjourney", "imagen", "seedream"),
-                "message": "For image generation, use an image model like dall-e-3, NOT a chat model.",
-            },
-        }
-
-        for node in nodes:
-            node_type = node.get("data", {}).get("type", "")
-            node_id = node.get("id", "")
-            rule = _TASK_RULES.get(node_type)
-            if not rule:
-                continue
-
-            node_template = node.get("data", {}).get("node", {}).get("template", {})
-            for _fn, fd in node_template.items():
-                if not isinstance(fd, dict) or fd.get("_input_type") != "ModelInput":
-                    continue
-                val = fd.get("value")
-                if not val:
-                    continue
-                model_name = ""
-                if isinstance(val, list) and val:
-                    model_name = val[0].get("name", "") if isinstance(val[0], dict) else str(val[0])
-                elif isinstance(val, str):
-                    model_name = val
-                if not model_name:
-                    continue
-                name_lower = model_name.lower()
-                is_chat = any(kw in name_lower for kw in _CHAT_MODEL_KEYWORDS)
-                has_expected = any(kw in name_lower for kw in rule["expected_keywords"])
-                if is_chat and not has_expected:
-                    issues.append({
-                        "severity": "error",
-                        "node_id": node_id,
-                        "node_type": node_type,
-                        "issue": f"Node '{node_id}' ({node_type}): model '{model_name}' is a chat model. {rule['message']}",
-                    })
-
-        if not issues:
-            result_text = "Workflow validation passed. No issues found."
-        else:
-            result_text = json.dumps({"issues": issues, "total": len(issues)}, ensure_ascii=False)
-
-        return {"content": [{"type": "text", "text": result_text}]}
-
     async def prepare_flow(self) -> dict:
         """Pre-flight check and auto-fix before run_flow."""
         # Load canvas
@@ -1114,7 +1104,20 @@ class _ToolContext:
                 "fix_model": "dall-e-3",
                 "message": "Image generation needs an image model, not a chat model.",
             },
+            "VideoGeneration": {
+                "expected_keywords": ("seedance", "video", "cogvideox", "kling", "sora", "wan"),
+                "fix_model": "seedance-2.0",
+                "message": "Video generation needs a video model, not a chat model.",
+            },
         }
+
+        # Pre-load live model options for ModelInput fields
+        live_model_options: list[dict] = []
+        try:
+            from lfx.base.models.unified_models import get_language_model_options
+            live_model_options = get_language_model_options(user_id=self.user_id)
+        except Exception:  # noqa: BLE001
+            logger.debug("[Assistant] prepare_flow: failed to load live model options")
 
         modified = False
 
@@ -1148,9 +1151,10 @@ class _ToolContext:
                             (isinstance(current_value, list) and not current_value))
 
                 if is_empty:
-                    raw_options = field_data.get("options", [])
-                    if raw_options and isinstance(raw_options, list):
-                        first_opt = raw_options[0]
+                    # Prefer live model options over static component index
+                    model_options = live_model_options or field_data.get("options", [])
+                    if model_options and isinstance(model_options, list):
+                        first_opt = model_options[0]
                         if isinstance(first_opt, dict) and first_opt.get("name"):
                             new_val = [{"name": first_opt["name"], "provider": first_opt.get("provider", "")}]
                             node_field["value"] = new_val
@@ -1182,11 +1186,13 @@ class _ToolContext:
                     is_chat = any(kw in name_lower for kw in _CHAT_MODEL_KEYWORDS)
                     has_expected = any(kw in name_lower for kw in rule["expected_keywords"])
                     if is_chat and not has_expected:
-                        # Find a suitable model from available options
-                        comp_field = comp_template.get(field_name, {})
-                        raw_opts = comp_field.get("options", []) if isinstance(comp_field, dict) else []
+                        # Find a suitable model from live options (fallback to static)
+                        model_opts = live_model_options
+                        if not model_opts:
+                            comp_field = comp_template.get(field_name, {})
+                            model_opts = comp_field.get("options", []) if isinstance(comp_field, dict) else []
                         fix_model = None
-                        for opt in raw_opts:
+                        for opt in model_opts:
                             if isinstance(opt, dict):
                                 opt_name = opt.get("name", "")
                                 if any(kw in opt_name.lower() for kw in rule["expected_keywords"]):
@@ -1313,157 +1319,6 @@ class _ToolContext:
         }
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
-    async def diagnose_run_error(self, error_message: str) -> dict:
-        """Diagnose a run_flow error and return specific fixes."""
-        try:
-            flow = await get_flow_by_id_or_endpoint_name(
-                flow_id_or_name=self.flow_id, user_id=self.user_id,
-            )
-        except (ValueError, RuntimeError) as e:
-            return {"content": [{"type": "text", "text": f"Error loading flow: {e}"}]}
-
-        flow_data = self.last_canvas_data or flow.data
-        if not flow_data:
-            return {"content": [{"type": "text", "text": "No flow data found."}]}
-
-        await self.ensure_types()
-        error_lower = error_message.lower()
-        findings: list[dict[str, str]] = []
-
-        nodes = flow_data.get("nodes", [])
-        error_snippet = error_message[:500]
-
-        # 1. Identify failing component from error
-        failing_node_id = None
-        failing_node_type = None
-        for node in nodes:
-            node_id = node.get("id", "")
-            node_type = node.get("data", {}).get("type", "")
-            if node_id in error_snippet or node_type in error_snippet:
-                failing_node_id = node_id
-                failing_node_type = node_type
-                break
-
-        # 2. Check API key / credential issues
-        _CREDENTIAL_KEYWORDS = ["api key", "api_key", "unauthorized", "401", "403", "authentication", "credential", "no api key"]
-        if any(kw in error_lower for kw in _CREDENTIAL_KEYWORDS):
-            for node in nodes:
-                node_type = node.get("data", {}).get("type", "")
-                node_id = node.get("id", "")
-                comp = self._find_component(node_type)
-                if not comp:
-                    continue
-                template = comp.get("template", {})
-                node_template = node.get("data", {}).get("node", {}).get("template", {})
-                for field_name, field_data in template.items():
-                    if not isinstance(field_data, dict):
-                        continue
-                    if "api_key" in field_name.lower():
-                        node_val = node_template.get(field_name, {})
-                        val = node_val.get("value") if isinstance(node_val, dict) else None
-                        if not val or val == "" or (isinstance(val, str) and val.startswith("sk-") is False and val.isupper()):
-                            findings.append({
-                                "node_id": node_id,
-                                "node_type": node_type,
-                                "fix": f"Set '{field_name}' field. The API key is missing or not configured.",
-                                "action": f'Add to values: {{"{field_name}": "YOUR_API_KEY"}} or configure it in Settings > Variables.',
-                            })
-
-        # 3. Check model not found / unsupported errors
-        _MODEL_ERROR_KEYWORDS = ["model not found", "does not exist", "not supported", "invalid model", "unknown model"]
-        if any(kw in error_lower for kw in _MODEL_ERROR_KEYWORDS):
-            for node in nodes:
-                node_type = node.get("data", {}).get("type", "")
-                node_id = node.get("id", "")
-                node_template = node.get("data", {}).get("node", {}).get("template", {})
-                for field_name, fd in node_template.items():
-                    if not isinstance(fd, dict):
-                        continue
-                    input_type = fd.get("_input_type", "")
-                    val = fd.get("value")
-                    if input_type == "ModelInput" and val:
-                        model_name = ""
-                        if isinstance(val, list) and val:
-                            model_name = val[0].get("name", "") if isinstance(val[0], dict) else str(val[0])
-                        elif isinstance(val, str):
-                            model_name = val
-                        if model_name and model_name in error_snippet:
-                            comp = self._find_component(node_type)
-                            if comp:
-                                raw_opts = comp.get("template", {}).get(field_name, {}).get("options", [])
-                                if isinstance(raw_opts, list):
-                                    available = [o.get("name", "") if isinstance(o, dict) else str(o) for o in raw_opts[:10]]
-                                    findings.append({
-                                        "node_id": node_id,
-                                        "node_type": node_type,
-                                        "fix": f"Model '{model_name}' not available. Available: {available}",
-                                        "action": f'Change values: {{"{field_name}": [{{"name": "CORRECT_MODEL"}}]}}',
-                                    })
-
-        # 4. Check connection / network errors
-        _NETWORK_KEYWORDS = ["connection", "timeout", "refused", "connect", "network", "unreachable", "dns"]
-        if any(kw in error_lower for kw in _NETWORK_KEYWORDS):
-            for node in nodes:
-                node_type = node.get("data", {}).get("type", "")
-                node_id = node.get("id", "")
-                node_template = node.get("data", {}).get("node", {}).get("template", {})
-                for field_name in ("base_url", "api_base"):
-                    fd = node_template.get(field_name, {})
-                    if isinstance(fd, dict) and fd.get("value"):
-                        base_url = fd["value"]
-                        findings.append({
-                            "node_id": node_id,
-                            "node_type": node_type,
-                            "fix": f"Network error reaching '{base_url}'. Check if the URL is correct and accessible.",
-                            "action": f'Update base_url in values or check network connectivity.',
-                        })
-
-        # 5. Check input/output type errors
-        _TYPE_ERROR_KEYWORDS = ["type error", "unexpected type", "attributeerror", "type mismatch", "cannot convert"]
-        if any(kw in error_lower for kw in _TYPE_ERROR_KEYWORDS):
-            if failing_node_type:
-                findings.append({
-                    "node_id": failing_node_id or "",
-                    "node_type": failing_node_type,
-                    "fix": f"Type error in '{failing_node_type}'. Check if input types match output types between connected components.",
-                    "action": "Review connections and ensure output types match input types.",
-                })
-
-        # 6. Generic fallback — suggest checking all model components
-        if not findings:
-            for node in nodes:
-                node_type = node.get("data", {}).get("type", "")
-                node_id = node.get("id", "")
-                node_template = node.get("data", {}).get("node", {}).get("template", {})
-                for field_name, fd in node_template.items():
-                    if not isinstance(fd, dict):
-                        continue
-                    if fd.get("_input_type") == "ModelInput":
-                        val = fd.get("value")
-                        if not val:
-                            findings.append({
-                                "node_id": node_id,
-                                "node_type": node_type,
-                                "fix": f"Model field '{field_name}' is empty on '{node_type}'.",
-                                "action": f'Set model: {{"{field_name}": [{{"name": "MODEL_NAME"}}]}}',
-                            })
-
-        if not findings:
-            result_text = json.dumps({
-                "error": error_snippet,
-                "diagnosis": "Could not identify specific issues. Try calling get_component_details for each component to verify parameters.",
-            }, ensure_ascii=False)
-        else:
-            result_text = json.dumps({
-                "error": error_snippet,
-                "findings": findings,
-                "total": len(findings),
-            }, ensure_ascii=False)
-
-        return {"content": [{"type": "text", "text": result_text}]}
-
-        return {"content": [{"type": "text", "text": result_text}]}
-
     def _find_component(self, type_name: str) -> dict | None:
         """Find component data by type name from all_types."""
         if not self.all_types:
@@ -1476,7 +1331,161 @@ class _ToolContext:
                 return comp
         return None
 
-    async def save_flow(self) -> dict:
+    # ── update_node ─────────────────────────────────────────────────────
+
+    async def update_node(self, node_id: str, values: dict) -> dict:
+        """Update parameters of a single node without rebuilding the entire flow."""
+        existing_nodes, existing_edges = await self._load_current_canvas()
+        if not existing_nodes:
+            return {"content": [{"type": "text", "text": "Canvas is empty. Build the flow first."}]}
+
+        target_node = None
+        for node in existing_nodes:
+            if node.get("id") == node_id:
+                target_node = node
+                break
+
+        if target_node is None:
+            available = [n.get("id") for n in existing_nodes]
+            return {"content": [{"type": "text", "text": f"Node '{node_id}' not found. Available: {available}"}]}
+
+        node_template = target_node.get("data", {}).get("node", {}).get("template", {})
+        updated_fields = []
+        for field_name, field_value in values.items():
+            if field_name in node_template and isinstance(node_template[field_name], dict):
+                node_template[field_name]["value"] = field_value
+            else:
+                node_template[field_name] = {"value": field_value}
+            updated_fields.append(field_name)
+
+        # Save to DB
+        self.last_canvas_data = {"nodes": existing_nodes, "edges": existing_edges}
+        await self._persist_canvas()
+
+        logger.warning("[Assistant] update_node '%s': updated %s", node_id, updated_fields)
+        return {"content": [{"type": "text", "text": f"Node '{node_id}' updated: {updated_fields}"}]}
+
+    # ── delete_nodes ─────────────────────────────────────────────────────
+
+    async def delete_nodes(self, node_ids: list[str]) -> dict:
+        """Delete nodes and their connected edges."""
+        existing_nodes, existing_edges = await self._load_current_canvas()
+        if not existing_nodes:
+            return {"content": [{"type": "text", "text": "Canvas is empty. Nothing to delete."}]}
+
+        ids_to_delete = set(node_ids)
+        kept_nodes = [n for n in existing_nodes if n.get("id") not in ids_to_delete]
+        deleted_count = len(existing_nodes) - len(kept_nodes)
+
+        if deleted_count == 0:
+            available = [n.get("id") for n in existing_nodes]
+            return {"content": [{"type": "text", "text": f"No matching nodes found. Available: {available}"}]}
+
+        # Remove edges connected to deleted nodes
+        kept_edges = [
+            e for e in existing_edges
+            if e.get("source") not in ids_to_delete and e.get("target") not in ids_to_delete
+        ]
+        removed_edges = len(existing_edges) - len(kept_edges)
+
+        # Save
+        self.last_canvas_data = {"nodes": kept_nodes, "edges": kept_edges}
+        self.last_compact_edges = None
+        await self._persist_canvas()
+
+        logger.warning("[Assistant] delete_nodes: removed %d nodes, %d edges", deleted_count, removed_edges)
+        return {"content": [{"type": "text", "text": f"Deleted {deleted_count} nodes and {removed_edges} connected edges. Canvas: {len(kept_nodes)} nodes, {len(kept_edges)} edges remaining."}]}
+
+    # ── add_edge ─────────────────────────────────────────────────────────
+
+    async def add_edge(self, source: str, source_output: str, target: str, target_input: str) -> dict:
+        """Add a connection between two nodes."""
+        existing_nodes, existing_edges = await self._load_current_canvas()
+        if not existing_nodes:
+            return {"content": [{"type": "text", "text": "Canvas is empty. Build the flow first."}]}
+
+        node_map = {n.get("id"): n for n in existing_nodes}
+        if source not in node_map:
+            return {"content": [{"type": "text", "text": f"Source node '{source}' not found."}]}
+        if target not in node_map:
+            return {"content": [{"type": "text", "text": f"Target node '{target}' not found."}]}
+
+        # Check if target_input already has a connection (one input can only have one source)
+        for e in existing_edges:
+            if e.get("target") == target and e.get("targetHandle"):
+                # Decode target_handle to extract input field name
+                existing_target_input = target_input
+                edge_data = e.get("data", {})
+                target_handle = edge_data.get("targetHandle", {})
+                if isinstance(target_handle, dict):
+                    existing_target_input = target_handle.get("id", target_input)
+                if existing_target_input == target_input:
+                    existing_source = e.get("source", "")
+                    return {"content": [{"type": "text", "text": f"Cannot add edge: target input '{target_input}' on node '{target}' already has a connection from '{existing_source}'. Remove the existing edge first."}]}
+
+        new_compact_edge = {"source": source, "source_output": source_output, "target": target, "target_input": target_input}
+        expanded_edges = self._expand_edges([new_compact_edge], existing_nodes)
+        if not expanded_edges:
+            return {"content": [{"type": "text", "text": f"Could not create edge: check that '{source_output}' is a valid output and '{target_input}' is a valid input."}]}
+
+        # Deduplicate
+        existing_keys = {
+            (e.get("source"), e.get("sourceHandle"), e.get("target"), e.get("targetHandle"))
+            for e in existing_edges
+        }
+        for ne in expanded_edges:
+            key = (ne.get("source"), ne.get("sourceHandle"), ne.get("target"), ne.get("targetHandle"))
+            if key not in existing_keys:
+                existing_edges.append(ne)
+                existing_keys.add(key)
+
+        self.last_canvas_data = {"nodes": existing_nodes, "edges": existing_edges}
+        await self._persist_canvas()
+
+        logger.warning("[Assistant] add_edge: %s/%s -> %s/%s", source, source_output, target, target_input)
+        return {"content": [{"type": "text", "text": f"Edge added: {source}/{source_output} -> {target}/{target_input}. Total edges: {len(existing_edges)}"}]}
+
+    # ── delete_edge ──────────────────────────────────────────────────────
+
+    async def delete_edge(self, source: str, target: str) -> dict:
+        """Delete a connection between two nodes."""
+        existing_nodes, existing_edges = await self._load_current_canvas()
+        if not existing_edges:
+            return {"content": [{"type": "text", "text": "No edges on canvas."}]}
+
+        kept_edges = [
+            e for e in existing_edges
+            if not (e.get("source") == source and e.get("target") == target)
+        ]
+        removed = len(existing_edges) - len(kept_edges)
+        if removed == 0:
+            return {"content": [{"type": "text", "text": f"No edge found from '{source}' to '{target}'."}]}
+
+        self.last_canvas_data = {"nodes": existing_nodes, "edges": kept_edges}
+        await self._persist_canvas()
+
+        logger.warning("[Assistant] delete_edge: %s -> %s (%d removed)", source, target, removed)
+        return {"content": [{"type": "text", "text": f"Deleted {removed} edge(s) from '{source}' to '{target}'. Remaining edges: {len(kept_edges)}"}]}
+
+    # ── run_component ────────────────────────────────────────────────────
+
+    async def run_component(self, node_id: str) -> dict:
+        """Run a single component and return its output."""
+        from langflow.api.utils.core import build_graph_from_data
+
+        existing_nodes, existing_edges = await self._load_current_canvas()
+        if not existing_nodes:
+            return {"content": [{"type": "text", "text": "Canvas is empty. Build the flow first."}]}
+
+        node_map = {n.get("id"): n for n in existing_nodes}
+        if node_id not in node_map:
+            available = list(node_map.keys())
+            return {"content": [{"type": "text", "text": f"Node '{node_id}' not found. Available: {available}"}]}
+
+        # Auto-save before running
+        if self.last_canvas_data is not None:
+            await self._persist_canvas()
+
         try:
             flow = await get_flow_by_id_or_endpoint_name(
                 flow_id_or_name=self.flow_id, user_id=self.user_id,
@@ -1484,30 +1493,79 @@ class _ToolContext:
         except (ValueError, RuntimeError) as e:
             return {"content": [{"type": "text", "text": f"Error loading flow: {e}"}]}
 
-        canvas_data = self.last_canvas_data or flow.data
-        if canvas_data is None:
-            return {"content": [{"type": "text", "text": "No canvas data to save. Build the flow first."}]}
-
+        flow_data = flow.data if flow.data else {"nodes": [], "edges": []}
         try:
+            graph = await build_graph_from_data(
+                flow_id=self.flow_id,
+                payload=flow_data,
+                user_id=self.user_id,
+            )
+            graph.sort_vertices(stop_component_id=node_id)
+            vertices_to_run = list(graph.vertices_to_run)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[Assistant] run_component graph error: %s", e)
+            return {"content": [{"type": "text", "text": f"Error building graph: {e}"}]}
+
+        if node_id not in {v for layer in ([graph.first_layer, *graph.vertices_layers]) for v in layer}:
+            return {"content": [{"type": "text", "text": f"Node '{node_id}' is not reachable in the graph. Check connections."}]}
+
+        results = []
+        from itertools import chain
+        all_layers = [graph.first_layer, *graph.vertices_layers]
+        for layer in all_layers:
+            for vid in layer:
+                try:
+                    build_result = await graph.build_vertex(
+                        vid,
+                        inputs_dict=None,
+                        user_id=self.user_id,
+                        fallback_to_env_vars=True,
+                    )
+                    result_dict = build_result.result_dict
+                    if result_dict and vid == node_id:
+                        results.append({
+                            "component": vid,
+                            "result": str(result_dict.get("message", "")),
+                            "artifacts": str(result_dict.get("artifacts", "")),
+                        })
+                except Exception as e:  # noqa: BLE001
+                    if vid == node_id:
+                        results.append({"component": vid, "error": str(e)})
+                    logger.warning("[Assistant] run_component vertex %s error: %s", vid, e)
+
+                # Stop after target node
+                if vid == node_id:
+                    break
+            if any(r.get("component") == node_id for r in results):
+                break
+
+        logger.warning("[Assistant] run_component '%s': %d results", node_id, len(results))
+        return {"content": [{"type": "text", "text": json.dumps(results, ensure_ascii=False, default=str)}]}
+
+    # ── Helper: persist canvas to DB ─────────────────────────────────────
+
+    async def _persist_canvas(self) -> None:
+        """Save current last_canvas_data to DB."""
+        if not self.last_canvas_data:
+            return
+        try:
+            import uuid
+
             from langflow.services.deps import session_scope
 
             async with session_scope() as session:
                 from sqlmodel import select
                 from langflow.services.database.models.flow.model import Flow
 
-                db_flow = (await session.exec(select(Flow).where(Flow.id == self.flow_id))).first()
-                if not db_flow:
-                    return {"content": [{"type": "text", "text": f"Flow {self.flow_id} not found."}]}
-
-                db_flow.data = canvas_data
-                session.add(db_flow)
-                await session.commit()
-
-            logger.warning("[Assistant] flow %s saved", self.flow_id)
-            return {"content": [{"type": "text", "text": "Workflow saved successfully."}]}
+                flow_uuid = uuid.UUID(self.flow_id) if isinstance(self.flow_id, str) else self.flow_id
+                db_flow = (await session.exec(select(Flow).where(Flow.id == flow_uuid))).first()
+                if db_flow:
+                    db_flow.data = self.last_canvas_data
+                    session.add(db_flow)
+                    await session.commit()
+                    logger.warning("[Assistant] canvas persisted to DB")
         except Exception as e:  # noqa: BLE001
-            logger.exception("[Assistant] save_flow error: %s", e)
-            return {"content": [{"type": "text", "text": f"Error saving flow: {e}"}]}
+            logger.warning("[Assistant] _persist_canvas failed: %s", e)
 
 
 # ── Provider credential resolution ─────────────────────────────────────
@@ -1613,19 +1671,28 @@ async def _execute_tool(ctx: _ToolContext, tool_name: str, arguments: dict) -> s
         elif tool_name == "get_component_details":
             result = await ctx.get_component_details(arguments.get("type", ""))
         elif tool_name == "build_flow":
-            result = await ctx.build_flow(arguments.get("nodes", []), arguments.get("edges", []))
+            result = await ctx.build_flow(arguments.get("nodes", []), arguments.get("edges", []), arguments.get("clear", False))
         elif tool_name == "run_flow":
             result = await ctx.run_flow(arguments.get("input_value", ""))
-        elif tool_name == "diagnose_run_error":
-            result = await ctx.diagnose_run_error(arguments.get("error_message", ""))
         elif tool_name == "get_current_flow":
             result = await ctx.get_current_flow()
-        elif tool_name == "validate_flow":
-            result = await ctx.validate_flow()
         elif tool_name == "prepare_flow":
             result = await ctx.prepare_flow()
-        elif tool_name == "save_flow":
-            result = await ctx.save_flow()
+        elif tool_name == "update_node":
+            result = await ctx.update_node(arguments.get("node_id", ""), arguments.get("values", {}))
+        elif tool_name == "delete_nodes":
+            result = await ctx.delete_nodes(arguments.get("node_ids", []))
+        elif tool_name == "add_edge":
+            result = await ctx.add_edge(
+                arguments.get("source", ""),
+                arguments.get("source_output", ""),
+                arguments.get("target", ""),
+                arguments.get("target_input", ""),
+            )
+        elif tool_name == "delete_edge":
+            result = await ctx.delete_edge(arguments.get("source", ""), arguments.get("target", ""))
+        elif tool_name == "run_component":
+            result = await ctx.run_component(arguments.get("node_id", ""))
         else:
             return f"Unknown tool: {tool_name}"
 

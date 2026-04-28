@@ -695,6 +695,22 @@ def get_all_variables_for_provider(user_id: UUID | str | None, provider: str) ->
     return run_until_complete(_get_all_variables())
 
 
+# Well-known default base URLs for providers with public APIs.
+# Used by _resolve_credentials in image/video/multimodal components
+# to avoid requiring users to configure a base URL when using the
+# provider's standard endpoint.
+_PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
+    "OpenAI": "https://api.openai.com/v1/",
+    "Anthropic": "https://api.anthropic.com/",
+    "Google": "https://generativelanguage.googleapis.com/",
+}
+
+
+def get_default_base_url(provider: str) -> str | None:
+    """Return the well-known default base URL for a provider, or None."""
+    return _PROVIDER_DEFAULT_BASE_URLS.get(provider)
+
+
 def _validate_and_get_enabled_providers(
     all_variables: dict[str, Any],
     provider_variable_map: dict[str, str],
@@ -1903,7 +1919,8 @@ def update_model_options_in_build_config(
             # Determine model type based on cache_key_prefix
             model_type = "embeddings" if cache_key_prefix == "embedding_model_options" else "language"
 
-            # Try to get user's default model from the variable service
+            binding_model_name = None
+            binding_provider = None
             default_model_name = None
             default_model_provider = None
             try:
@@ -1912,59 +1929,71 @@ def update_model_options_in_build_config(
                     async with session_scope() as session:
                         variable_service = get_variable_service()
                         if variable_service is None:
-                            return None, None
+                            return None, None, None, None
                         from langflow.services.variable.service import (
                             DatabaseVariableService,
                         )
 
                         if not isinstance(variable_service, DatabaseVariableService):
-                            return None, None
+                            return None, None, None, None
 
-                        # Variable names match those in the API
+                        uid = UUID(component.user_id) if isinstance(component.user_id, str) else component.user_id
+
+                        # Priority 1: Component-specific binding
+                        comp_name = getattr(component, "name", None) or component.__class__.__name__
+                        try:
+                            var = await variable_service.get_variable_object(
+                                user_id=uid, name="__component_model_bindings__", session=session,
+                            )
+                            if var and var.value:
+                                parsed = json.loads(var.value)
+                                binding = parsed.get(comp_name)
+                                if isinstance(binding, dict):
+                                    return binding.get("model_name"), binding.get("provider"), None, None
+                        except (ValueError, json.JSONDecodeError, TypeError):
+                            pass
+
+                        # Priority 2: Global default model
                         var_name = (
                             "__default_embedding_model__"
                             if model_type == "embeddings"
                             else "__default_language_model__"
                         )
-
                         try:
                             var = await variable_service.get_variable_object(
-                                user_id=(
-                                    UUID(component.user_id) if isinstance(component.user_id, str) else component.user_id
-                                ),
-                                name=var_name,
-                                session=session,
+                                user_id=uid, name=var_name, session=session,
                             )
                             if var and var.value:
                                 parsed_value = json.loads(var.value)
                                 if isinstance(parsed_value, dict):
-                                    return parsed_value.get("model_name"), parsed_value.get("provider")
+                                    return None, None, parsed_value.get("model_name"), parsed_value.get("provider")
                         except (ValueError, json.JSONDecodeError, TypeError):
-                            # Variable not found or invalid format
                             logger.info(
                                 "Variable not found or invalid format: var_name=%s, user_id=%s, model_type=%s",
-                                var_name,
-                                component.user_id,
-                                model_type,
-                                exc_info=True,
+                                var_name, component.user_id, model_type, exc_info=True,
                             )
-                        return None, None
+                        return None, None, None, None
 
-                default_model_name, default_model_provider = run_until_complete(_get_default_model())
+                binding_model_name, binding_provider, default_model_name, default_model_provider = (
+                    run_until_complete(_get_default_model())
+                )
             except Exception:  # noqa: BLE001
-                # If we can't get default model, continue without it
                 logger.info("Failed to get default model, continue without it", exc_info=True)
 
-            # Find the default model in options
+            # Find the default model in options (binding first, then global default)
             default_model = None
-            if default_model_name and default_model_provider:
-                # Look for the user's preferred default model
+            if binding_model_name and binding_provider:
+                for opt in options:
+                    if opt.get("name") == binding_model_name and opt.get("provider") == binding_provider:
+                        default_model = opt
+                        break
+            if not default_model and default_model_name and default_model_provider:
                 for opt in options:
                     if opt.get("name") == default_model_name and opt.get("provider") == default_model_provider:
                         default_model = opt
                         break
 
-            # If user's default not found, fallback to first option
+            # If neither found, fallback to first option
             if not default_model and options:
                 default_model = options[0]
 

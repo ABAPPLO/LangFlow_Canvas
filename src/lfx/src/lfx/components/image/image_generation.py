@@ -187,6 +187,7 @@ class ImageGenerationComponent(Component):
         from lfx.base.models.unified_models import (
             get_all_variables_for_provider,
             get_api_key_for_provider,
+            get_default_base_url,
         )
 
         model_data = self.model
@@ -207,13 +208,17 @@ class ImageGenerationComponent(Component):
             )
             raise ValueError(msg)
 
-        # Resolve base URL
+        # Resolve base URL from provider variables
         base_url = None
         provider_vars = get_all_variables_for_provider(self.user_id, provider)
         for var_key, value in provider_vars.items():
             if "BASE_URL" in var_key and value:
                 base_url = value
                 break
+
+        # Fall back to the provider's well-known default base URL
+        if not base_url:
+            base_url = get_default_base_url(provider)
 
         if not base_url:
             msg = (
