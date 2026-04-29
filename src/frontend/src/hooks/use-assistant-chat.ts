@@ -346,6 +346,17 @@ function handleSSEEvent(
       break;
     }
 
+    case "trigger_build": {
+      const flowStore = useFlowStore.getState();
+      const stopNodeId = data.stop_component_id as string;
+      if (stopNodeId) {
+        flowStore.buildFlow({ stopNodeId });
+      } else {
+        flowStore.buildFlow({});
+      }
+      break;
+    }
+
     case "error": {
       handlers.appendToLastAssistantMessage(
         `\n\nError: ${data.error as string}`,

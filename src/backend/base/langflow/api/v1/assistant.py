@@ -168,8 +168,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "run_flow",
             "description": (
-                "Run the current workflow and return results. Auto-saves on success. "
-                "On failure, returns diagnosed error with specific fix suggestions."
+                "Run the current workflow by triggering the frontend build process. "
+                "The user will see the build progress and results directly on the canvas "
+                "(node status, edge animations, output preview). "
+                "Make sure to call prepare_flow first to validate and auto-fix the flow."
             ),
             "parameters": {
                 "type": "object",
@@ -515,7 +517,7 @@ AVAILABLE TOOLS:
 9. **delete_edge** — Remove a connection between two nodes.
    Args: {"source": "id", "target": "id"}
 
-10. **run_flow** — Execute the workflow. Auto-saves on success, includes diagnosis on failure.
+10. **run_flow** — Trigger the workflow build on the frontend canvas. The user sees real-time build progress and results.
     Args: {"input_value": "optional test input"}
 
 11. **run_component** — Run a single component for debugging.
@@ -526,8 +528,8 @@ WORKFLOW (follow strictly):
   Step 2: build_flow (set correct values from available_options)
   Step 3: prepare_flow (auto-fix issues)
           → if errors remain: use update_node / add_edge / delete_edge to fix, then retry prepare_flow
-  Step 4: run_flow (auto-saves on success)
-          → if fails: error response includes diagnosis → use update_node to fix → retry run_flow
+  Step 4: run_flow (triggers frontend build, user sees progress on canvas)
+          → the build runs on the frontend; tell the user to check the canvas for results
   Step 5: Report success to user
 
 PARAMETER GUIDELINES:
@@ -542,9 +544,9 @@ PARAMETER GUIDELINES:
 
 CRITICAL SUCCESS CRITERIA:
   - build_flow succeeding does NOT mean the task is done.
-  - You MUST run run_flow to verify the workflow actually works.
-  - If run_flow fails: read the diagnosis in the error response, fix with update_node, then retry run_flow.
-  - Max 5 total attempts. If still failing after 5 tries, report the error to the user.
+  - You MUST run run_flow to trigger the frontend build and let the user verify it works.
+  - The user will see build progress and results on the canvas (node status, edge animations, output preview).
+  - Tell the user to check the canvas for results.
 
 Respond in the same language as the user's message.
 """
@@ -582,6 +584,7 @@ class _ToolContext:
         self.catalog: list[dict] | None = None
         self.last_canvas_data: dict | None = None
         self.last_compact_edges: list[dict] | None = None
+        self._pending_trigger_build: dict | None = None
 
     async def ensure_types(self) -> dict[str, Any]:
         if self.all_types is None:
@@ -915,68 +918,23 @@ class _ToolContext:
         stop_component_id = self._find_output_component(nodes, edges)
         logger.warning("[Assistant] run_flow: stop_component_id=%s", stop_component_id)
 
-        try:
-            from langflow.api.utils.core import build_graph_from_data
+        if not stop_component_id:
+            return {"content": [{"type": "text", "text": "No output component found. The flow needs at least one component connected to an output."}]}
 
-            graph = await build_graph_from_data(
-                flow_id=self.flow_id,
-                payload=flow_data,
-                user_id=self.user_id,
-            )
+        # Store trigger info for the agentic loop to emit as SSE event
+        self._pending_trigger_build = {
+            "stop_component_id": stop_component_id,
+            "flow_id": self.flow_id,
+        }
 
-            inputs_dict = {}
-            if input_value:
-                inputs_dict["input_value"] = input_value
-                inputs_dict["client_request_time"] = str(int(time.time() * 1000))
-
-            first_layer = graph.sort_vertices(stop_component_id=stop_component_id)
-            vertices_to_run = list(graph.vertices_to_run)
-            logger.warning("[Assistant] run_flow: %d vertices to run", len(vertices_to_run))
-
-            if not vertices_to_run:
-                return {"content": [{"type": "text", "text": "No vertices to run. The flow may have connection issues. Check edges with get_current_flow."}]}
-
-            results: list[dict] = []
-            all_layers = [first_layer, *graph.vertices_layers]
-            for layer in all_layers:
-                for vertex_id in layer:
-                    vertex = graph.get_vertex(vertex_id)
-                    if vertex is None:
-                        continue
-
-                    is_first_vertex = first_layer and vertex_id == first_layer[0]
-                    if inputs_dict and is_first_vertex:
-                        vertex.update_raw_params(inputs_dict)
-
-                    build_result = await graph.build_vertex(
-                        vertex_id,
-                        inputs_dict=inputs_dict if vertex_id in first_layer else None,
-                        user_id=self.user_id,
-                        fallback_to_env_vars=True,
-                    )
-                    result_dict = build_result.result_dict
-                    if result_dict:
-                        results.append({
-                            "component": vertex_id,
-                            "result": str(result_dict.get("message", "")),
-                            "valid": build_result.valid,
-                        })
-
-            logger.warning("[Assistant] run_flow completed: %d results", len(results))
-
-            # Auto-save on success — already persisted before run, just confirm
-            return {"content": [{"type": "text", "text": json.dumps(results, ensure_ascii=False)}]}
-
-        except Exception as e:  # noqa: BLE001
-            error_msg = str(e)
-            logger.exception("[Assistant] run_flow error: %s", e)
-            # Include diagnosis in the error response
-            diagnosis = self._diagnose_error(error_msg, nodes)
-            error_response = {
-                "error": error_msg[:500],
-                "diagnosis": diagnosis,
-            }
-            return {"content": [{"type": "text", "text": json.dumps(error_response, ensure_ascii=False)}]}
+        result_info = {
+            "action": "trigger_build",
+            "stop_component_id": stop_component_id,
+            "flow_id": self.flow_id,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+        }
+        return {"content": [{"type": "text", "text": json.dumps(result_info, ensure_ascii=False)}]}
 
     def _diagnose_error(self, error_message: str, nodes: list[dict]) -> list[dict]:
         """Quick diagnosis of run_flow errors."""
@@ -1521,12 +1479,13 @@ class _ToolContext:
                         user_id=self.user_id,
                         fallback_to_env_vars=True,
                     )
-                    result_dict = build_result.result_dict
-                    if result_dict and vid == node_id:
+                    result_data = build_result.result_dict
+                    if result_data and vid == node_id:
                         results.append({
                             "component": vid,
-                            "result": str(result_dict.get("message", "")),
-                            "artifacts": str(result_dict.get("artifacts", "")),
+                            "result": str(result_data.results or ""),
+                            "artifacts": str(result_data.artifacts or ""),
+                            "outputs": str(result_data.outputs or ""),
                         })
                 except Exception as e:  # noqa: BLE001
                     if vid == node_id:
@@ -1947,6 +1906,15 @@ async def _run_agentic_loop(
                     # Do NOT clear last_canvas_data here — run_flow needs it
                     # for auto-save. It will be cleared after all tools in this
                     # turn have finished executing.
+
+                # Emit trigger_build event if run_flow requested it
+                if ctx._pending_trigger_build is not None:
+                    logger.warning(
+                        "[Assistant] trigger_build: %s",
+                        ctx._pending_trigger_build,
+                    )
+                    yield ("trigger_build", ctx._pending_trigger_build)
+                    ctx._pending_trigger_build = None
 
                 # Add to message history in appropriate format
                 if use_native and tc_id:

@@ -148,7 +148,8 @@ async def get_tags():
     except CustomError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.debug(f"Failed to get store tags: {exc}")
+        return []
 
 
 @router.get("/users/likes", response_model=list[UsersLikesResponse])

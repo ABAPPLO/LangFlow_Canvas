@@ -1,3 +1,4 @@
+import json
 import time
 
 import httpx
@@ -414,6 +415,7 @@ class VideoGenerationComponent(Component):
             resp.raise_for_status()
 
         data = resp.json()
+        self.log(f"Task creation response: {json.dumps(data, ensure_ascii=False)[:500]}")
         task_id = data.get("id", "")
         if not task_id:
             msg = f"No task ID in response: {data}"
@@ -438,14 +440,14 @@ class VideoGenerationComponent(Component):
 
                 status = data.get("status", "unknown")
                 self.status = f"Task status: {status}"
-                self.log(f"Task status: {status}")
+                self.log(f"Task status: {status}, response keys: {list(data.keys())}")
 
-                if status == "succeeded":
+                if status in ("succeeded", "complete", "completed", "done"):
                     self.log("Task completed successfully!")
                     return data
 
-                if status in ("failed", "error", "expired"):
-                    error_msg = data.get("error", {})
+                if status in ("failed", "error", "expired", "cancelled"):
+                    error_msg = data.get("error", data.get("message", "unknown"))
                     error_str = f"Task failed with status: {status}, error: {error_msg}"
                     self.log(error_str, "ERROR")
                     raise TaskError(error_str)
@@ -475,18 +477,35 @@ class VideoGenerationComponent(Component):
 
     def _extract_video_url(self, data: dict) -> str:
         """Extract video URL from the task response."""
+        # Try nested content dict
         content = data.get("content")
         if isinstance(content, dict):
             url = content.get("video_url", "")
             if url:
                 return url
 
+        # Try nested content list
         if isinstance(content, list):
             for item in content:
                 if item.get("type") == "video_url":
                     return item.get("video_url", {}).get("url", "")
                 if item.get("type") == "url":
                     return item.get("url", "")
+
+        # Try top-level output/video_url/url
+        for key in ("output", "video_url", "url"):
+            val = data.get(key, "")
+            if val and isinstance(val, str) and val.startswith("http"):
+                return val
+
+        # Try data array (OpenAI-style response)
+        data_items = data.get("data", [])
+        if isinstance(data_items, list):
+            for item in data_items:
+                if isinstance(item, dict):
+                    url = item.get("url", "")
+                    if url:
+                        return url
 
         return ""
 
