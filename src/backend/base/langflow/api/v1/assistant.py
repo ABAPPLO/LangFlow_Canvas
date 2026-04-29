@@ -168,10 +168,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "run_flow",
             "description": (
-                "Run the current workflow by triggering the frontend build process. "
-                "The user will see the build progress and results directly on the canvas "
-                "(node status, edge animations, output preview). "
-                "Make sure to call prepare_flow first to validate and auto-fix the flow."
+                "Run the current workflow. First validates by building the graph directly — "
+                "if errors occur, returns detailed error info and diagnosis for auto-fixing. "
+                "If successful, triggers the frontend build so the user sees results on canvas. "
+                "Call prepare_flow first to auto-fix common issues."
             ),
             "parameters": {
                 "type": "object",
@@ -357,16 +357,54 @@ def _build_component_catalog(all_types: dict[str, Any], excluded: set[str] | Non
                 for out in comp_data.get("outputs", [])
                 if isinstance(out, dict) and out.get("name")
             ]
+            # Extract input types (fields that accept connections)
+            template = comp_data.get("template", {})
+            inputs_info = []
+            for field_name, field_data in template.items():
+                if isinstance(field_data, dict) and field_data.get("input_types"):
+                    inputs_info.append({
+                        "name": field_name,
+                        "types": field_data["input_types"],
+                    })
+
+            # Infer role
+            if comp_name in ("ChatInput", "TextInput", "Webhook"):
+                role = "input"
+            elif comp_name in ("ChatOutput", "TextOutput", "DataOutput"):
+                role = "output"
+            elif _category == "models_and_agents" or "model" in comp_name.lower():
+                role = "model"
+            else:
+                role = "processor"
+
             catalog.append({
                 "type": comp_name,
                 "display_name": comp_data.get("display_name", comp_name),
                 "description": comp_data.get("description", ""),
                 "category": _category,
+                "role": role,
                 "outputs": outputs,
+                "inputs": inputs_info,
                 "priority": "recommended" if comp_name in PRIORITY_COMPONENTS else "normal",
             })
     catalog.sort(key=lambda c: (0 if c["priority"] == "recommended" else 1, c["type"]))
     return catalog
+
+
+_VALUE_FORMATS: dict[str, str] = {
+    "ModelInput": '[{"name": "model-name"}]',
+    "DropdownInput": '"option_value"',
+    "IntInput": "42",
+    "FloatInput": "0.5",
+    "BoolInput": "true",
+    "StrInput": '"text string"',
+    "MessageInput": '"text string"',
+    "MultilineInput": '"text string"',
+    "MessageTextInput": '"text string"',
+    "SecretStrInput": '"secret-string"',
+    "HandleInput": "(connected via edge, do not set value)",
+    "SliderInput": "0.5",
+}
 
 
 def _extract_component_details(comp_data: dict) -> dict:
@@ -382,8 +420,13 @@ def _extract_component_details(comp_data: dict) -> dict:
             "display_name": field_data.get("display_name", field_name),
             "type": field_data.get("type", "str"),
         }
-        if field_data.get("_input_type"):
-            field_info["_input_type"] = field_data["_input_type"]
+        input_type = field_data.get("_input_type", "")
+        if input_type:
+            field_info["_input_type"] = input_type
+            # Add value format hint
+            fmt = _VALUE_FORMATS.get(input_type)
+            if fmt:
+                field_info["value_format"] = fmt
         if field_data.get("required"):
             field_info["required"] = True
         if field_data.get("value") is not None:
@@ -392,9 +435,7 @@ def _extract_component_details(comp_data: dict) -> dict:
             field_info["input_types"] = field_data["input_types"]
         if field_data.get("options"):
             field_info["options"] = field_data["options"]
-            # Add readable options summary for the AI
             raw_options = field_data["options"]
-            input_type = field_data.get("_input_type", "")
             if input_type == "ModelInput" and isinstance(raw_options, list):
                 model_names = []
                 for item in raw_options[:15]:
@@ -480,20 +521,21 @@ You may call multiple tools in one response.
 
 AVAILABLE TOOLS:
 
-1. **list_components** — List available components.
+1. **list_components** — List available components with role, inputs, and outputs.
    Args: {"category": "optional filter"}
+   Each component has: type, display_name, description, role, outputs, inputs.
    Prefer components with priority="recommended" when multiple similar ones exist.
 
 2. **get_component_details** — Get fields, options, and outputs for a component.
    Args: {"type": "component_type_name"}
-   ALWAYS call this before build_flow to check available_options for each field.
+   ALWAYS call this before build_flow. Each field shows value_format — follow it exactly.
 
 3. **build_flow** — Build workflow on canvas.
    Args: {"nodes": [{id, type, values?}], "edges": [{source, source_output, target, target_input}]}
    - "type" MUST be from list_components (e.g. "ChatInput", NOT "OpenAI").
-   - "source_output" MUST match output name (e.g. "message").
-   - "target_input" MUST match field name (e.g. "input_value").
-   - "values" MUST set key parameters (especially model fields). Check get_component_details for options.
+   - "source_output" MUST match an output name from the source component.
+   - "target_input" MUST match a field name with input_types from the target component.
+   - "values" MUST set key parameters (especially model fields). Follow value_format exactly.
    - Edges are REQUIRED.
 
 4. **get_current_flow** — Get current canvas state (nodes, edges, values).
@@ -502,11 +544,9 @@ AVAILABLE TOOLS:
 5. **prepare_flow** — Validate + auto-fix before run_flow.
    Args: {}
    Validates AND auto-fixes: wrong models, empty required fields, missing defaults.
-   Call this when ready to run.
 
 6. **update_node** — Update a single node's parameters.
    Args: {"node_id": "id", "values": {"field": "value"}}
-   Use to fix specific fields without rebuilding the entire flow.
 
 7. **delete_nodes** — Remove nodes and their connected edges.
    Args: {"node_ids": ["id1", "id2"]}
@@ -517,36 +557,65 @@ AVAILABLE TOOLS:
 9. **delete_edge** — Remove a connection between two nodes.
    Args: {"source": "id", "target": "id"}
 
-10. **run_flow** — Trigger the workflow build on the frontend canvas. The user sees real-time build progress and results.
+10. **run_flow** — Run the workflow. Returns results/errors for each component. On success, triggers frontend visualization.
     Args: {"input_value": "optional test input"}
 
 11. **run_component** — Run a single component for debugging.
     Args: {"node_id": "id"}
 
-WORKFLOW (follow strictly):
-  Step 1: list_components → get_component_details (check options for EACH component)
-  Step 2: build_flow (set correct values from available_options)
-  Step 3: prepare_flow (auto-fix issues)
-          → if errors remain: use update_node / add_edge / delete_edge to fix, then retry prepare_flow
-  Step 4: run_flow (triggers frontend build, user sees progress on canvas)
-          → the build runs on the frontend; tell the user to check the canvas for results
-  Step 5: Report success to user
+COMPONENT SELECTION RULES:
+  - Every flow MUST have at least one input component (role="input") and one output component (role="output").
+  - role="input": ChatInput, TextInput — flow entry points, receive user input.
+  - role="output": ChatOutput, TextOutput — flow exit points, display results to user.
+  - role="model": LanguageModelComponent, ImageGeneration, VideoGeneration — provide AI capabilities.
+  - role="processor": everything else — transform/process data.
+  - Match the component to the USER'S TASK:
+    * Chatbot → ChatInput + LanguageModelComponent + ChatOutput
+    * Image generation → ChatInput/TextInput + ImageGeneration + ChatOutput/TextOutput
+    * Video generation → ChatInput/TextInput + VideoGeneration + ChatOutput/TextOutput
+    * Text processing → ChatInput + processor + ChatOutput
 
-PARAMETER GUIDELINES:
-  - CRITICAL: Always set "values" in build_flow, especially for model fields.
-  - Call get_component_details first. If a field has "has_options": true, pick from "available_options".
-  - Match model to task:
-    * Image generation → dall-e-3 (NOT gpt-4o or chat models)
-    * Chat / Text → gpt-4o, claude-sonnet-4-20250514, etc.
-    * Embeddings → text-embedding-3-small
-  - ModelInput value format: {"model": [{"name": "dall-e-3"}]}
-  - DropdownInput value format: {"model_name": "gpt-4o"}
+VALUE FORMAT REFERENCE (CRITICAL — follow exactly or the flow will fail):
+  - ModelInput: {"field_name": [{"name": "exact-model-name"}]}
+    CORRECT: {"model": [{"name": "gpt-4o"}]}
+    CORRECT: {"model": [{"name": "dall-e-3"}]}
+    WRONG: {"model": "gpt-4o"}       ← string, not list
+    WRONG: {"model": {"name": "gpt-4o"}}  ← dict, not list
+    WRONG: {"model": [{"model": "gpt-4o"}]}  ← wrong key, use "name"
+  - DropdownInput: {"field_name": "exact_option_from_available_options"}
+    CORRECT: {"size": "1024x1024"}
+    CORRECT: {"generation_mode": "Text to Video"}
+    WRONG: {"size": "large"}         ← must be exact option value
+  - IntInput: {"field_name": 42}     ← integer, not string
+  - FloatInput: {"field_name": 0.7}  ← float, not string
+  - BoolInput: {"field_name": true}  ← boolean, not string "true"
+
+CONNECTION RULES (check inputs/outputs from list_components):
+  - source_output MUST be an output port name of the source component.
+  - target_input MUST be a field with input_types on the target component.
+  - The output types must be compatible with the input types (e.g. Message → Message).
+  - Common patterns:
+    * ChatInput → "message" → LanguageModelComponent → "input_value"
+    * LanguageModelComponent → "text_output" → ChatOutput → "input_value"
+    * ChatInput → "message" → ImageGeneration → "input_value"
+    * TextInput → "text" → any processor → "input_value"
+
+WORKFLOW (follow strictly):
+  Step 1: list_components → identify components by role (input/model/output/processor)
+  Step 2: get_component_details for EACH component → note value_format and available_options
+  Step 3: build_flow (set values using exact formats, connect with valid edges)
+  Step 4: prepare_flow (auto-fix issues)
+          → if errors remain: use update_node / add_edge / delete_edge to fix, then retry prepare_flow
+  Step 5: run_flow (builds graph, checks for errors, triggers frontend on success)
+          → if errors: read the error details in the response, fix with update_node, then retry run_flow
+          → max 3 run_flow attempts; if still failing, report errors to user
+  Step 6: Report success to user
 
 CRITICAL SUCCESS CRITERIA:
   - build_flow succeeding does NOT mean the task is done.
-  - You MUST run run_flow to trigger the frontend build and let the user verify it works.
-  - The user will see build progress and results on the canvas (node status, edge animations, output preview).
-  - Tell the user to check the canvas for results.
+  - You MUST run run_flow to verify the workflow actually works.
+  - run_flow returns per-component results: if status is "partial_error", fix the failing components and retry.
+  - If run_flow status is "success", the frontend build is triggered automatically — tell the user to check the canvas.
 
 Respond in the same language as the user's message.
 """
@@ -921,20 +990,107 @@ class _ToolContext:
         if not stop_component_id:
             return {"content": [{"type": "text", "text": "No output component found. The flow needs at least one component connected to an output."}]}
 
-        # Store trigger info for the agentic loop to emit as SSE event
+        # Phase 1: Build the graph directly to validate and collect results/errors
+        try:
+            from langflow.api.utils.core import build_graph_from_data
+
+            graph = await build_graph_from_data(
+                flow_id=self.flow_id,
+                payload=flow_data,
+                user_id=self.user_id,
+            )
+
+            inputs_dict = {}
+            if input_value:
+                inputs_dict["input_value"] = input_value
+                inputs_dict["client_request_time"] = str(int(time.time() * 1000))
+
+            first_layer = graph.sort_vertices(stop_component_id=stop_component_id)
+            vertices_to_run = list(graph.vertices_to_run)
+            logger.warning("[Assistant] run_flow: %d vertices to run", len(vertices_to_run))
+
+            if not vertices_to_run:
+                return {"content": [{"type": "text", "text": "No vertices to run. The flow may have connection issues. Check edges with get_current_flow."}]}
+
+            results: list[dict] = []
+            errors: list[dict] = []
+            all_layers = [first_layer, *graph.vertices_layers]
+            for layer in all_layers:
+                for vertex_id in layer:
+                    vertex = graph.get_vertex(vertex_id)
+                    if vertex is None:
+                        continue
+
+                    is_first_vertex = first_layer and vertex_id == first_layer[0]
+                    if inputs_dict and is_first_vertex:
+                        vertex.update_raw_params(inputs_dict)
+
+                    try:
+                        build_result = await graph.build_vertex(
+                            vertex_id,
+                            inputs_dict=inputs_dict if vertex_id in first_layer else None,
+                            user_id=self.user_id,
+                            fallback_to_env_vars=True,
+                        )
+                        result_data = build_result.result_dict
+                        result_entry = {
+                            "component": vertex_id,
+                            "valid": build_result.valid,
+                        }
+                        if result_data:
+                            result_entry["result"] = str(result_data.results or "")[:500]
+                            result_entry["outputs"] = str(result_data.outputs or "")[:300]
+                        results.append(result_entry)
+
+                        if not build_result.valid:
+                            errors.append(result_entry)
+
+                    except Exception as e:  # noqa: BLE001
+                        error_entry = {"component": vertex_id, "error": str(e)[:500]}
+                        results.append(error_entry)
+                        errors.append(error_entry)
+                        logger.warning("[Assistant] run_component vertex %s error: %s", vertex_id, e)
+
+                    if vertex_id == stop_component_id:
+                        break
+                if any(r.get("component") == stop_component_id for r in results):
+                    break
+
+            logger.warning("[Assistant] run_flow completed: %d results, %d errors", len(results), len(errors))
+
+        except Exception as e:  # noqa: BLE001
+            error_msg = str(e)
+            logger.exception("[Assistant] run_flow error: %s", e)
+            diagnosis = self._diagnose_error(error_msg, nodes)
+            error_response = {
+                "status": "error",
+                "error": error_msg[:500],
+                "diagnosis": diagnosis,
+            }
+            return {"content": [{"type": "text", "text": json.dumps(error_response, ensure_ascii=False)}]}
+
+        # Phase 2: Build result summary
+        if errors:
+            error_summary = {
+                "status": "partial_error",
+                "message": f"Build completed with {len(errors)} error(s) out of {len(results)} component(s).",
+                "results": results,
+                "errors": errors,
+            }
+            return {"content": [{"type": "text", "text": json.dumps(error_summary, ensure_ascii=False)}]}
+
+        # Phase 3: All succeeded — trigger frontend build for visualization
         self._pending_trigger_build = {
             "stop_component_id": stop_component_id,
             "flow_id": self.flow_id,
         }
 
-        result_info = {
-            "action": "trigger_build",
-            "stop_component_id": stop_component_id,
-            "flow_id": self.flow_id,
-            "node_count": len(nodes),
-            "edge_count": len(edges),
+        success_summary = {
+            "status": "success",
+            "message": f"Build completed successfully. All {len(results)} component(s) passed.",
+            "results": results,
         }
-        return {"content": [{"type": "text", "text": json.dumps(result_info, ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": json.dumps(success_summary, ensure_ascii=False)}]}
 
     def _diagnose_error(self, error_message: str, nodes: list[dict]) -> list[dict]:
         """Quick diagnosis of run_flow errors."""

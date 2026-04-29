@@ -48,6 +48,35 @@ def _get_flat_components(all_types_dict: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fix_value_formats(template: dict) -> None:
+    """Auto-fix common value format mistakes in component template fields."""
+    for _field_name, field_data in template.items():
+        if not isinstance(field_data, dict):
+            continue
+        input_type = field_data.get("_input_type", "")
+        value = field_data.get("value")
+
+        # ModelInput value must be [{"name": "..."}]
+        if input_type == "ModelInput" and value is not None:
+            if isinstance(value, str) and value:
+                # "gpt-4o" → [{"name": "gpt-4o"}]
+                field_data["value"] = [{"name": value}]
+            elif isinstance(value, dict):
+                # {"name": "gpt-4o"} → [{"name": "gpt-4o"}]
+                field_data["value"] = [value]
+            elif isinstance(value, list) and value:
+                first = value[0]
+                if isinstance(first, str):
+                    # ["gpt-4o"] → [{"name": "gpt-4o"}]
+                    field_data["value"] = [{"name": first}]
+                elif isinstance(first, dict) and "name" not in first:
+                    # Try to extract name from alternate keys
+                    for key in ("model", "model_name", "id"):
+                        if key in first:
+                            field_data["value"] = [{"name": first[key]}]
+                            break
+
+
 def _expand_node(
     compact_node: CompactNode,
     flat_components: dict[str, Any],
@@ -109,6 +138,9 @@ def _expand_node(
         else:
             # Add as new field if not in template
             template[field_name] = {"value": field_value}
+
+    # Auto-fix common value format mistakes
+    _fix_value_formats(template)
 
     # Set 'selected' on each output so frontend cleanEdges can reconstruct
     # correct handle IDs. Frontend uses: output.selected ?? output.types[0]
