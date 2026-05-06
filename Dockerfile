@@ -4,6 +4,9 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 
+# 使用国内 npm 镜像加速
+RUN npm config set registry https://registry.npmmirror.com
+
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
 
@@ -19,6 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
+
+# 使用腾讯云 PyPI 镜像（国内服务器加速）
+ENV UV_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 
 WORKDIR /app
 
