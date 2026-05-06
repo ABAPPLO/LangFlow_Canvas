@@ -11,8 +11,6 @@ const TextOutputView = ({
     value = value.text;
   }
 
-  const isTruncated = value?.length > 20000;
-
   return (
     <div className={`flex flex-col ${left ? "" : "min-h-0 flex-1"}`}>
       <Textarea
@@ -21,11 +19,6 @@ const TextOutputView = ({
         readOnly
         value={value}
       />
-      {isTruncated && (
-        <div className="mt-2 text-xs text-muted-foreground">
-          This output has been truncated due to its size.
-        </div>
-      )}
     </div>
   );
 };
