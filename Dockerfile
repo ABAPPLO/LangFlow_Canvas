@@ -35,11 +35,16 @@ COPY src/backend/base/README.md /app/src/backend/base/README.md
 COPY src/lfx/pyproject.toml /app/src/lfx/pyproject.toml
 COPY src/lfx/README.md /app/src/lfx/README.md
 
+# uv sync needs the package directories to exist (even empty) for editable stubs
+RUN mkdir -p /app/src/backend/base/langflow && \
+    mkdir -p /app/src/backend/langflow && \
+    mkdir -p /app/src/lfx/src/lfx
+
 # Install dependencies (no source yet, maximizes cache)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package langflow
 
-# Copy source code
+# Copy real source code (overwrites stubs)
 COPY src/backend/base/langflow /app/src/backend/base/langflow
 COPY src/backend/langflow /app/src/backend/langflow
 COPY src/lfx/src /app/src/lfx/src
