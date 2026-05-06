@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import JsonOutputViewComponent from "@/components/core/jsonOutputComponent/json-output-view";
-import { MAX_TEXT_LENGTH } from "@/constants/constants";
 import type { LogsLogType, OutputLogType } from "@/types/api";
 import ForwardedIconComponent from "../../../../../../components/common/genericIconComponent";
 import DataOutputComponent from "../../../../../../components/core/dataOutputComponent";
@@ -61,30 +60,6 @@ const SwitchOutputView: React.FC<SwitchOutputViewProps> = ({
 
   const resultMessageMemoized = useMemo(() => {
     if (!resultMessage) return "";
-
-    if (
-      typeof resultMessage === "string" &&
-      resultMessage.length > MAX_TEXT_LENGTH
-    ) {
-      return `${resultMessage.substring(0, MAX_TEXT_LENGTH)}...`;
-    }
-    if (Array.isArray(resultMessage)) {
-      return resultMessage.map((item) => {
-        if (item?.data && typeof item?.data === "object") {
-          const truncatedData = Object.fromEntries(
-            Object.entries(item?.data).map(([key, value]) => {
-              if (typeof value === "string" && value.length > MAX_TEXT_LENGTH) {
-                return [key, `${value.substring(0, MAX_TEXT_LENGTH)}...`];
-              }
-              return [key, value];
-            }),
-          );
-          return { ...item, data: truncatedData };
-        }
-        return item;
-      });
-    }
-
     return resultMessage;
   }, [resultMessage]);
 
