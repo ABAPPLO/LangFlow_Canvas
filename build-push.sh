@@ -8,7 +8,7 @@ echo "=== 登录 TCR ==="
 docker login ai-capability.tencentcloudcr.com
 
 echo "=== 构建镜像（tag: ${TAG}） ==="
-docker build \
+DOCKER_BUILDKIT=1 docker build \
   -t ${REGISTRY}:latest \
   -t ${REGISTRY}:${TAG} \
   .
