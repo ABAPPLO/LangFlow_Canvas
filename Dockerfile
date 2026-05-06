@@ -29,18 +29,23 @@ ENV UV_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 
 WORKDIR /app
 
-# --- 一次性复制所有文件（避免 workspace 成员解析失败）---
+# 先只复制依赖声明文件 + 空的源码占位（让 uv sync 层可缓存）
 COPY pyproject.toml uv.lock ./
 COPY src/backend/base/pyproject.toml /app/src/backend/base/pyproject.toml
+RUN mkdir -p /app/src/backend/base/langflow && touch /app/src/backend/base/langflow/__init__.py
 COPY src/backend/base/README.md /app/src/backend/base/README.md
-COPY src/backend/base/langflow /app/src/backend/base/langflow
 COPY src/lfx/pyproject.toml /app/src/lfx/pyproject.toml
+RUN mkdir -p /app/src/lfx/src/lfx && touch /app/src/lfx/src/lfx/__init__.py
 COPY src/lfx/README.md /app/src/lfx/README.md
+RUN mkdir -p /app/src/backend/langflow && touch /app/src/backend/langflow/__init__.py
+
+# 安装依赖（只要 pyproject.toml/uv.lock 不变，此层被缓存）
+RUN uv sync --frozen --no-dev --no-editable --package langflow
+
+# 再复制真实源码（此层在依赖安装之后，源码变更只重建此层）
+COPY src/backend/base/langflow /app/src/backend/base/langflow
 COPY src/lfx/src /app/src/lfx/src
 COPY src/backend/langflow /app/src/backend/langflow
-
-# 一次性安装所有依赖 + 构建 workspace 包
-RUN uv sync --frozen --no-dev --no-editable --package langflow
 
 # 注入前端构建产物
 COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/frontend
