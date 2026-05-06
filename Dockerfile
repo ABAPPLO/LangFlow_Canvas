@@ -40,8 +40,7 @@ COPY src/lfx/src /app/src/lfx/src
 COPY src/backend/langflow /app/src/backend/langflow
 
 # 一次性安装所有依赖 + 构建 workspace 包
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable --package langflow
+RUN uv sync --frozen --no-dev --no-editable --package langflow
 
 # 注入前端构建产物
 COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/frontend
