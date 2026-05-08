@@ -95,14 +95,14 @@ class LanguageModelComponent(LCModelComponent):
             name="user_wallet_id",
             display_name="User Wallet ID",
             info="Passed as User-Wallet-Id header to NewAPI",
-            show=False,
+            show=True,
             advanced=True,
         ),
         StrInput(
             name="task_id",
             display_name="Task ID",
             info="Passed as Task-Id header to NewAPI",
-            show=False,
+            show=True,
             advanced=True,
         ),
         MessageInput(
@@ -141,6 +141,7 @@ class LanguageModelComponent(LCModelComponent):
     ]
 
     def build_model(self) -> LanguageModel:
+        self.log(f"user_wallet_id={getattr(self, 'user_wallet_id', None)}, task_id={getattr(self, 'task_id', None)}")
         return get_llm(
             model=self.model,
             user_id=self.user_id,
