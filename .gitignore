@@ -14,7 +14,14 @@ qdrant_storage
 .DS_Store
 
 # VSCode
+.vscode/
 .vscode/settings.json
+
+# Editor / platform config not used by this fork
+.cursor/
+.devcontainer/
+.github/
+
 .chroma
 .ruff_cache
 
