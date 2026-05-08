@@ -1683,6 +1683,8 @@ def get_llm(
     anthropic_base_url=None,
     google_base_url=None,
     newapi_base_url=None,
+    user_wallet_id=None,
+    task_id=None,
 ) -> Any:
     # Coerce provider-specific string params (Message/Data may leak through StrInput)
     ollama_base_url = _to_str(ollama_base_url)
@@ -1819,6 +1821,16 @@ def get_llm(
                 f"Please configure the missing value in the component or set the environment variable."
             )
             raise ValueError(msg)
+
+    # NewAPI custom headers
+    if provider == "NewAPI":
+        headers = {}
+        if user_wallet_id:
+            headers["User-Wallet-Id"] = str(user_wallet_id)
+        if task_id:
+            headers["Task-Id"] = str(task_id)
+        if headers:
+            kwargs["default_headers"] = headers
 
     try:
         return model_class(**kwargs)
