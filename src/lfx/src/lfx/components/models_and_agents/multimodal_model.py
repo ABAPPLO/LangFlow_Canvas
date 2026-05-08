@@ -129,6 +129,20 @@ class MultimodalModelComponent(LCModelComponent):
             show=False,
             real_time_refresh=True,
         ),
+        StrInput(
+            name="user_wallet_id",
+            display_name="User Wallet ID",
+            info="Passed as User-Wallet-Id header to NewAPI",
+            show=False,
+            advanced=True,
+        ),
+        StrInput(
+            name="task_id",
+            display_name="Task ID",
+            info="Passed as Task-Id header to NewAPI",
+            show=False,
+            advanced=True,
+        ),
         MessageInput(
             name="input_value",
             display_name="Text Input",
@@ -216,6 +230,8 @@ class MultimodalModelComponent(LCModelComponent):
             anthropic_base_url=getattr(self, "anthropic_base_url", None),
             google_base_url=getattr(self, "google_base_url", None),
             newapi_base_url=getattr(self, "newapi_base_url", None),
+            user_wallet_id=getattr(self, "user_wallet_id", None),
+            task_id=getattr(self, "task_id", None),
         )
 
     def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):
