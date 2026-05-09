@@ -141,7 +141,20 @@ class LanguageModelComponent(LCModelComponent):
     ]
 
     def build_model(self) -> LanguageModel:
-        self.log(f"user_wallet_id={getattr(self, 'user_wallet_id', None)}, task_id={getattr(self, 'task_id', None)}")
+        # Priority: component field > request_variables from HTTP header
+        wallet_id = getattr(self, "user_wallet_id", None)
+        tid = getattr(self, "task_id", None)
+        if not wallet_id or not tid:
+            request_vars = None
+            if hasattr(self, "graph") and self.graph and hasattr(self.graph, "context"):
+                request_vars = self.graph.context.get("request_variables")
+            if request_vars:
+                if not wallet_id:
+                    wallet_id = request_vars.get("USER_WALLET_ID")
+                if not tid:
+                    tid = request_vars.get("TASK_ID")
+
+        self.log(f"user_wallet_id={wallet_id}, task_id={tid}")
         return get_llm(
             model=self.model,
             user_id=self.user_id,
@@ -156,8 +169,8 @@ class LanguageModelComponent(LCModelComponent):
             anthropic_base_url=getattr(self, "anthropic_base_url", None),
             google_base_url=getattr(self, "google_base_url", None),
             newapi_base_url=getattr(self, "newapi_base_url", None),
-            user_wallet_id=getattr(self, "user_wallet_id", None),
-            task_id=getattr(self, "task_id", None),
+            user_wallet_id=wallet_id,
+            task_id=tid,
         )
 
     def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):
