@@ -1,4 +1,28 @@
+import hashlib
+import os
+
 import sqlalchemy as sa
+
+
+DEFAULT_MIGRATION_LOCK_KEY = 11223344
+
+
+def get_migration_lock_key() -> int:
+    """Return the advisory lock key used to serialize migrations."""
+    namespace = os.getenv("LANGFLOW_MIGRATION_LOCK_NAMESPACE")
+    if not namespace:
+        return DEFAULT_MIGRATION_LOCK_KEY
+    return int(hashlib.sha256(namespace.encode()).hexdigest()[:16], 16) % (2**63 - 1)
+
+
+def to_sync_database_url(database_url: str) -> str:
+    """Convert an async-friendly database URL into a sync SQLAlchemy URL."""
+    url = database_url
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url.split("://", 1)[1]
+    for async_driver in ("+asyncpg", "+aiosqlite"):
+        url = url.replace(async_driver, "")
+    return url
 
 
 def table_exists(name, conn):

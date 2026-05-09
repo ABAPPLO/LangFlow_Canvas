@@ -2,7 +2,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 import sqlalchemy as sa
-from langflow.utils.migration import column_exists, constraint_exists, foreign_key_exists, table_exists
+from langflow.utils.migration import (
+    DEFAULT_MIGRATION_LOCK_KEY,
+    column_exists,
+    constraint_exists,
+    foreign_key_exists,
+    get_migration_lock_key,
+    table_exists,
+    to_sync_database_url,
+)
 
 
 class TestTableExists:
@@ -62,11 +70,9 @@ class TestTableExists:
 
         mock_conn = Mock()
 
-        # Exact case match should work
         result = table_exists("Users", mock_conn)
         assert result is True
 
-        # Different case should not match (depends on database implementation)
         result = table_exists("users", mock_conn)
         assert result is False
 
@@ -153,11 +159,9 @@ class TestColumnExists:
 
         mock_conn = Mock()
 
-        # Exact case match should work
         result = column_exists("users", "UserName", mock_conn)
         assert result is True
 
-        # Different case should not match
         result = column_exists("users", "username", mock_conn)
         assert result is False
 
@@ -174,13 +178,11 @@ class TestColumnExists:
 
         mock_conn = Mock()
 
-        # Multiple checks should all work
         assert column_exists("posts", "id", mock_conn) is True
         assert column_exists("posts", "name", mock_conn) is True
         assert column_exists("posts", "created_at", mock_conn) is True
         assert column_exists("posts", "updated_at", mock_conn) is False
 
-        # Inspector should be called for each check
         assert mock_inspect.call_count == 4
         assert mock_inspector.get_columns.call_count == 4
 
@@ -255,9 +257,8 @@ class TestForeignKeyExists:
         result = foreign_key_exists("posts", "fk_valid", mock_conn)
         assert result is True
 
-        # Should handle None names gracefully
         result = foreign_key_exists("posts", None, mock_conn)
-        assert result is True  # None should match None
+        assert result is True
 
     @patch("sqlalchemy.inspect")
     def test_foreign_key_exists_case_sensitive(self, mock_inspect):
@@ -268,11 +269,9 @@ class TestForeignKeyExists:
 
         mock_conn = Mock()
 
-        # Exact case match should work
         result = foreign_key_exists("posts", "FK_User_ID", mock_conn)
         assert result is True
 
-        # Different case should not match
         result = foreign_key_exists("posts", "fk_user_id", mock_conn)
         assert result is False
 
@@ -347,9 +346,8 @@ class TestConstraintExists:
         result = constraint_exists("users", "uq_valid", mock_conn)
         assert result is True
 
-        # Should handle None names gracefully
         result = constraint_exists("users", None, mock_conn)
-        assert result is True  # None should match None
+        assert result is True
 
     @patch("sqlalchemy.inspect")
     def test_constraint_exists_case_sensitive(self, mock_inspect):
@@ -360,11 +358,9 @@ class TestConstraintExists:
 
         mock_conn = Mock()
 
-        # Exact case match should work
         result = constraint_exists("users", "UQ_Username", mock_conn)
         assert result is True
 
-        # Different case should not match
         result = constraint_exists("users", "uq_username", mock_conn)
         assert result is False
 
@@ -381,12 +377,9 @@ class TestConstraintExists:
 
         mock_conn = Mock()
 
-        # All existing constraints should be found
         assert constraint_exists("users", "uq_single_column", mock_conn) is True
         assert constraint_exists("users", "uq_composite", mock_conn) is True
         assert constraint_exists("users", "uq_another", mock_conn) is True
-
-        # Non-existing constraint should return False
         assert constraint_exists("users", "uq_missing", mock_conn) is False
 
 
@@ -398,7 +391,6 @@ class TestIntegrationScenarios:
         """Test a complete migration check workflow."""
         mock_inspector = Mock()
 
-        # Setup mock responses for different calls
         def get_table_names_side_effect():
             return ["users", "posts", "comments", "categories"]
 
@@ -440,23 +432,18 @@ class TestIntegrationScenarios:
 
         mock_conn = Mock()
 
-        # Test complete migration check scenario
-        # Check if tables exist
         assert table_exists("users", mock_conn) is True
         assert table_exists("posts", mock_conn) is True
         assert table_exists("nonexistent_table", mock_conn) is False
 
-        # Check if required columns exist
         assert column_exists("users", "username", mock_conn) is True
         assert column_exists("users", "email", mock_conn) is True
         assert column_exists("posts", "user_id", mock_conn) is True
         assert column_exists("posts", "nonexistent_column", mock_conn) is False
 
-        # Check if foreign keys exist
         assert foreign_key_exists("posts", "fk_posts_user_id", mock_conn) is True
         assert foreign_key_exists("posts", "nonexistent_fk", mock_conn) is False
 
-        # Check if constraints exist
         assert constraint_exists("users", "uq_users_username", mock_conn) is True
         assert constraint_exists("users", "uq_users_email", mock_conn) is True
         assert constraint_exists("users", "nonexistent_constraint", mock_conn) is False
@@ -470,7 +457,6 @@ class TestIntegrationScenarios:
 
         mock_conn = Mock()
 
-        # Should propagate the exception
         with pytest.raises(Exception, match="Database connection error"):
             table_exists("any_table", mock_conn)
 
@@ -481,17 +467,37 @@ class TestIntegrationScenarios:
         mock_inspector.get_table_names.return_value = ["test_table"]
         mock_inspect.return_value = mock_inspector
 
-        # Test with mock engine
         mock_engine = Mock(spec=sa.engine.Engine)
         result = table_exists("test_table", mock_engine)
         assert result is True
 
-        # Test with mock connection
         mock_connection = Mock(spec=sa.engine.Connection)
         result = table_exists("test_table", mock_connection)
         assert result is True
 
-        # Verify inspect was called with the connection objects
         assert mock_inspect.call_count == 2
         mock_inspect.assert_any_call(mock_engine)
         mock_inspect.assert_any_call(mock_connection)
+
+
+def test_to_sync_database_url_normalizes_async_drivers():
+    assert to_sync_database_url("sqlite+aiosqlite:///tmp/test.db") == "sqlite:///tmp/test.db"
+    assert (
+        to_sync_database_url("postgresql+asyncpg://user:pass@localhost/db")
+        == "postgresql://user:pass@localhost/db"
+    )
+    assert to_sync_database_url("postgresql+psycopg://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
+
+
+def test_get_migration_lock_key_uses_default_without_namespace(monkeypatch):
+    monkeypatch.delenv("LANGFLOW_MIGRATION_LOCK_NAMESPACE", raising=False)
+    assert get_migration_lock_key() == DEFAULT_MIGRATION_LOCK_KEY
+
+
+def test_get_migration_lock_key_hashes_namespace(monkeypatch):
+    monkeypatch.setenv("LANGFLOW_MIGRATION_LOCK_NAMESPACE", "langflow-test")
+    lock_key = get_migration_lock_key()
+
+    assert isinstance(lock_key, int)
+    assert lock_key != DEFAULT_MIGRATION_LOCK_KEY
+    assert 0 <= lock_key < (2**63 - 1)
