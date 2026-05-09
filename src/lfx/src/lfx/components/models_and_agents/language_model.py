@@ -150,9 +150,9 @@ class LanguageModelComponent(LCModelComponent):
                 request_vars = self.graph.context.get("request_variables")
             if request_vars:
                 if not wallet_id:
-                    wallet_id = request_vars.get("USER_WALLET_ID")
+                    wallet_id = request_vars.get("USER-WALLET-ID")
                 if not tid:
-                    tid = request_vars.get("TASK_ID")
+                    tid = request_vars.get("TASK-ID")
 
         self.log(f"user_wallet_id={wallet_id}, task_id={tid}")
         return get_llm(
