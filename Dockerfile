@@ -8,6 +8,11 @@ WORKDIR /app/frontend
 # 国内 npm 镜像加速
 RUN npm config set registry https://registry.npmmirror.com
 
+# Frontend auth mode is decided at build time by Vite.
+# Default to manual-login mode for this deployment unless explicitly overridden.
+ARG LANGFLOW_AUTO_LOGIN=false
+ENV LANGFLOW_AUTO_LOGIN=${LANGFLOW_AUTO_LOGIN}
+
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
 
@@ -30,7 +35,7 @@ ENV UV_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 WORKDIR /app
 
 # 先只复制依赖声明文件 + 空的源码占位（让 uv sync 层可缓存）
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src/backend/base/pyproject.toml /app/src/backend/base/pyproject.toml
 RUN mkdir -p /app/src/backend/base/langflow && touch /app/src/backend/base/langflow/__init__.py
 COPY src/backend/base/README.md /app/src/backend/base/README.md
@@ -40,7 +45,7 @@ COPY src/lfx/README.md /app/src/lfx/README.md
 RUN mkdir -p /app/src/backend/langflow && touch /app/src/backend/langflow/__init__.py
 
 # 安装依赖（只要 pyproject.toml/uv.lock 不变，此层被缓存）
-RUN uv sync --frozen --no-dev --no-editable --package langflow
+RUN uv sync --frozen --no-dev --no-editable --extra postgresql --package langflow
 
 # 再复制真实源码（此层在依赖安装之后，源码变更只重建此层）
 COPY src/backend/base/langflow /app/src/backend/base/langflow
@@ -51,10 +56,10 @@ COPY src/backend/langflow /app/src/backend/langflow
 COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/frontend
 
 # Stage 3: Runtime
-FROM python:3.12-bookworm-slim AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+    curl libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 langflow
 
@@ -65,6 +70,7 @@ COPY --from=python-builder --chown=1000 /app/src/backend/langflow /app/src/backe
 COPY --from=python-builder --chown=1000 /app/src/lfx/src /app/src/lfx/src
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src/backend/base:/app/src/backend:/app/src/lfx/src"
 ENV LANGFLOW_HOST=0.0.0.0
 ENV LANGFLOW_PORT=7860
 
@@ -73,4 +79,4 @@ WORKDIR /app/data
 
 EXPOSE 7860
 
-CMD ["python", "-m", "langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
