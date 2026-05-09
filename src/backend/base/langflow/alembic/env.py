@@ -1,6 +1,5 @@
 # noqa: INP001
 import asyncio
-import hashlib
 import os
 from logging.config import fileConfig
 from typing import Any
@@ -14,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from lfx.log.logger import logger
 
 from langflow.services.database.service import SQLModel
+from langflow.utils.migration import get_migration_lock_key
 
 
 # this is the Alembic Config object, which provides
@@ -91,6 +91,7 @@ def _sqlite_do_begin(conn):
 
 
 def _do_run_migrations(connection):
+    migration_lock_held = config.attributes.get("migration_lock_held", False)
     configure_kwargs = {
         "connection": connection,
         "target_metadata": target_metadata,
@@ -103,16 +104,13 @@ def _do_run_migrations(connection):
 
     context.configure(**configure_kwargs)
     with context.begin_transaction():
-        if connection.dialect.name == "postgresql":
-            # Use namespace from environment variable if provided, otherwise use default static key
+        if connection.dialect.name == "postgresql" and not migration_lock_held:
+            lock_key = get_migration_lock_key()
             namespace = os.getenv("LANGFLOW_MIGRATION_LOCK_NAMESPACE")
             if namespace:
-                lock_key = int(hashlib.sha256(namespace.encode()).hexdigest()[:16], 16) % (2**63 - 1)
                 logger.info(f"Using migration lock namespace: {namespace}, lock_key: {lock_key}")
             else:
-                lock_key = 11223344
                 logger.info(f"Using default migration lock_key: {lock_key}")
-
             connection.execute(text("SET LOCAL lock_timeout = '180s';"))
             connection.execute(text(f"SELECT pg_advisory_xact_lock({lock_key});"))
         context.run_migrations()
@@ -152,6 +150,10 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        _do_run_migrations(connection)
+        return
     asyncio.run(_run_async_migrations())
 
 

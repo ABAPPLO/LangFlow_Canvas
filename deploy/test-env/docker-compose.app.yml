@@ -1,0 +1,69 @@
+services:
+  langflow-master:
+    image: ${APP_IMAGE}
+    command: ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
+    restart: unless-stopped
+    environment: &langflow-env
+      TZ: ${TZ}
+      LANGFLOW_HOST: 0.0.0.0
+      LANGFLOW_PORT: 7860
+      LANGFLOW_AUTO_LOGIN: ${LANGFLOW_AUTO_LOGIN}
+      LANGFLOW_SUPERUSER: ${LANGFLOW_SUPERUSER}
+      LANGFLOW_SUPERUSER_PASSWORD: ${LANGFLOW_SUPERUSER_PASSWORD}
+      LANGFLOW_SECRET_KEY: ${LANGFLOW_SECRET_KEY}
+      LANGFLOW_LOG_LEVEL: ${LANGFLOW_LOG_LEVEL}
+      LANGFLOW_OPEN_BROWSER: ${LANGFLOW_OPEN_BROWSER}
+      LANGFLOW_CELERY_ENABLED: ${LANGFLOW_CELERY_ENABLED}
+      LANGFLOW_CONFIG_DIR: /app/langflow
+      LANGFLOW_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      BROKER_URL: redis://${REDIS_HOST}:${REDIS_PORT}/0
+      RESULT_BACKEND: redis://${REDIS_HOST}:${REDIS_PORT}/0
+    ports:
+      - "${MASTER_PORT}:7860"
+    volumes:
+      - ${APP_DATA_DIR}:/app/langflow
+    networks:
+      - app
+
+  langflow-slave1:
+    image: ${APP_IMAGE}
+    command: ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
+    restart: unless-stopped
+    environment: *langflow-env
+    ports:
+      - "${SLAVE1_PORT}:7860"
+    volumes:
+      - ${APP_DATA_DIR}:/app/langflow
+    networks:
+      - app
+
+  langflow-worker:
+    profiles:
+      - worker
+    image: ${WORKER_IMAGE}
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "celery",
+        "-A",
+        "langflow.worker.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=1",
+        "-n",
+        "lf-worker@%h",
+        "-P",
+        "eventlet"
+      ]
+    environment: *langflow-env
+    volumes:
+      - ${APP_DATA_DIR}:/app/langflow
+    networks:
+      - app
+
+networks:
+  app:
+    name: ${DOCKER_NETWORK_NAME}
+    external: true
