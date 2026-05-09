@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    container_name: ${POSTGRES_CONTAINER_NAME}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_BIND_HOST}:${POSTGRES_PORT}:5432"
+    volumes:
+      - ${POSTGRES_DATA_DIR}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infra
+
+  redis:
+    image: ${REDIS_IMAGE}
+    container_name: ${REDIS_CONTAINER_NAME}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "${REDIS_BIND_HOST}:${REDIS_PORT}:6379"
+    volumes:
+      - ${REDIS_DATA_DIR}:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infra
+
+networks:
+  infra:
+    name: ${DOCKER_NETWORK_NAME}
