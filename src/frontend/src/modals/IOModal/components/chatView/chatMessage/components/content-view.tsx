@@ -104,7 +104,8 @@ export const ErrorView = ({
                                         {...props}
                                         target="_blank"
                                         className="underline"
-                                        rel="noopener noreferrer"
+                                        rel="noreferrer"
+                                        referrerPolicy="no-referrer"
                                       >
                                         {props.children}
                                       </a>
