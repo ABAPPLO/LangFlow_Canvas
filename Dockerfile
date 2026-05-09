@@ -48,9 +48,14 @@ RUN mkdir -p /app/src/backend/langflow && touch /app/src/backend/langflow/__init
 RUN uv sync --frozen --no-dev --no-editable --extra postgresql --package langflow
 
 # 再复制真实源码（此层在依赖安装之后，源码变更只重建此层）
+COPY scripts/build_component_index.py /app/scripts/build_component_index.py
 COPY src/backend/base/langflow /app/src/backend/base/langflow
 COPY src/lfx/src /app/src/lfx/src
 COPY src/backend/langflow /app/src/backend/langflow
+
+# 基于最新源码在镜像构建阶段生成组件索引，避免依赖本地开发环境
+RUN PYTHONPATH="/app/src/backend/base:/app/src/backend:/app/src/lfx/src" \
+    .venv/bin/python /app/scripts/build_component_index.py
 
 # 注入前端构建产物
 COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/frontend
