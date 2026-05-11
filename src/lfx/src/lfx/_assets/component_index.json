@@ -92972,7 +92972,7 @@
           "icon": "brain-circuit",
           "legacy": false,
           "metadata": {
-            "code_hash": "1580dc94d5af",
+            "code_hash": "9af0e963e9a2",
             "dependencies": {
               "dependencies": [
                 {
@@ -93115,7 +93115,7 @@
               "show": true,
               "title_case": false,
               "type": "code",
-              "value": "from lfx.base.models.model import LCModelComponent\nfrom lfx.base.models.unified_models import (\n    apply_provider_variable_config_to_build_config,\n    get_language_model_options,\n    get_llm,\n    get_provider_for_model_name,\n    update_model_options_in_build_config,\n)\nfrom lfx.base.models.watsonx_constants import IBM_WATSONX_URLS\nfrom lfx.field_typing import LanguageModel\nfrom lfx.field_typing.range_spec import RangeSpec\nfrom lfx.inputs.inputs import BoolInput, DropdownInput, StrInput\nfrom lfx.io import IntInput, MessageInput, ModelInput, MultilineInput, SecretStrInput, SliderInput\n\nDEFAULT_OLLAMA_URL = \"http://localhost:11434\"\n\n\nclass LanguageModelComponent(LCModelComponent):\n    display_name = \"Language Model\"\n    description = \"Runs a language model given a specified provider.\"\n    documentation: str = \"https://docs.langflow.org/components-models\"\n    icon = \"brain-circuit\"\n    category = \"models\"\n\n    inputs = [\n        ModelInput(\n            name=\"model\",\n            display_name=\"Language Model\",\n            info=\"Select your model provider\",\n            real_time_refresh=True,\n            required=True,\n        ),\n        SecretStrInput(\n            name=\"api_key\",\n            display_name=\"API Key\",\n            info=\"Model Provider API key\",\n            required=False,\n            show=True,\n            real_time_refresh=True,\n            advanced=True,\n        ),\n        DropdownInput(\n            name=\"base_url_ibm_watsonx\",\n            display_name=\"watsonx API Endpoint\",\n            info=\"The base URL of the API (IBM watsonx.ai only)\",\n            options=IBM_WATSONX_URLS,\n            value=IBM_WATSONX_URLS[0],\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"project_id\",\n            display_name=\"watsonx Project ID\",\n            info=\"The project ID associated with the foundation model (IBM watsonx.ai only)\",\n            show=False,\n            required=False,\n        ),\n        StrInput(\n            name=\"ollama_base_url\",\n            display_name=\"Ollama API URL\",\n            info=f\"Endpoint of the Ollama API (Ollama only). Defaults to {DEFAULT_OLLAMA_URL}\",\n            value=DEFAULT_OLLAMA_URL,\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"openai_base_url\",\n            display_name=\"OpenAI Base URL\",\n            info=\"Custom base URL for OpenAI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"anthropic_base_url\",\n            display_name=\"Anthropic Base URL\",\n            info=\"Custom base URL for Anthropic API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"google_base_url\",\n            display_name=\"Google Base URL\",\n            info=\"Custom base URL for Google Generative AI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"newapi_base_url\",\n            display_name=\"NewAPI Base URL\",\n            info=\"Base URL of your NewAPI gateway (NewAPI only)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"user_wallet_id\",\n            display_name=\"User Wallet ID\",\n            info=\"Passed as User-Wallet-Id header to NewAPI\",\n            show=False,\n            advanced=True,\n        ),\n        StrInput(\n            name=\"task_id\",\n            display_name=\"Task ID\",\n            info=\"Passed as Task-Id header to NewAPI\",\n            show=False,\n            advanced=True,\n        ),\n        MessageInput(\n            name=\"input_value\",\n            display_name=\"Input\",\n            info=\"The input text to send to the model\",\n        ),\n        MultilineInput(\n            name=\"system_message\",\n            display_name=\"System Message\",\n            info=\"A system message that helps set the behavior of the assistant\",\n            advanced=False,\n        ),\n        BoolInput(\n            name=\"stream\",\n            display_name=\"Stream\",\n            info=\"Whether to stream the response\",\n            value=False,\n            advanced=True,\n        ),\n        SliderInput(\n            name=\"temperature\",\n            display_name=\"Temperature\",\n            value=0.1,\n            info=\"Controls randomness in responses\",\n            range_spec=RangeSpec(min=0, max=1, step=0.01),\n            advanced=True,\n        ),\n        IntInput(\n            name=\"max_tokens\",\n            display_name=\"Max Tokens\",\n            info=\"Maximum number of tokens to generate. Field name varies by provider.\",\n            advanced=True,\n            range_spec=RangeSpec(min=1, max=128000, step=1, step_type=\"int\"),\n        ),\n    ]\n\n    def build_model(self) -> LanguageModel:\n        return get_llm(\n            model=self.model,\n            user_id=self.user_id,\n            api_key=self.api_key,\n            temperature=self.temperature,\n            stream=self.stream,\n            max_tokens=getattr(self, \"max_tokens\", None),\n            watsonx_url=getattr(self, \"base_url_ibm_watsonx\", None),\n            watsonx_project_id=getattr(self, \"project_id\", None),\n            ollama_base_url=getattr(self, \"ollama_base_url\", None),\n            openai_base_url=getattr(self, \"openai_base_url\", None),\n            anthropic_base_url=getattr(self, \"anthropic_base_url\", None),\n            google_base_url=getattr(self, \"google_base_url\", None),\n            newapi_base_url=getattr(self, \"newapi_base_url\", None),\n            user_wallet_id=getattr(self, \"user_wallet_id\", None),\n            task_id=getattr(self, \"task_id\", None),\n        )\n\n    def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):\n        \"\"\"Dynamically update build config with user-filtered model options.\"\"\"\n        # Update model options\n        build_config = update_model_options_in_build_config(\n            component=self,\n            build_config=build_config,\n            cache_key_prefix=\"language_model_options\",\n            get_options_func=get_language_model_options,\n            field_name=field_name,\n            field_value=field_value,\n        )\n\n        current_model_value = field_value if field_name == \"model\" else build_config.get(\"model\", {}).get(\"value\")\n        provider = \"\"\n        if isinstance(current_model_value, list) and current_model_value:\n            selected_model = current_model_value[0]\n            provider = (selected_model.get(\"provider\") or \"\").strip()\n            if not provider and selected_model.get(\"name\"):\n                provider = get_provider_for_model_name(str(selected_model[\"name\"]))\n\n        if provider:\n            build_config = apply_provider_variable_config_to_build_config(build_config, provider)\n\n        return build_config\n"
+              "value": "from lfx.base.models.model import LCModelComponent\nfrom lfx.base.models.unified_models import (\n    apply_provider_variable_config_to_build_config,\n    get_language_model_options,\n    get_llm,\n    get_provider_for_model_name,\n    update_model_options_in_build_config,\n)\nfrom lfx.base.models.watsonx_constants import IBM_WATSONX_URLS\nfrom lfx.field_typing import LanguageModel\nfrom lfx.field_typing.range_spec import RangeSpec\nfrom lfx.inputs.inputs import BoolInput, DropdownInput, StrInput\nfrom lfx.io import IntInput, MessageInput, ModelInput, MultilineInput, SecretStrInput, SliderInput\n\nDEFAULT_OLLAMA_URL = \"http://localhost:11434\"\n\n\nclass LanguageModelComponent(LCModelComponent):\n    display_name = \"Language Model\"\n    description = \"Runs a language model given a specified provider.\"\n    documentation: str = \"https://docs.langflow.org/components-models\"\n    icon = \"brain-circuit\"\n    category = \"models\"\n\n    inputs = [\n        ModelInput(\n            name=\"model\",\n            display_name=\"Language Model\",\n            info=\"Select your model provider\",\n            real_time_refresh=True,\n            required=True,\n        ),\n        SecretStrInput(\n            name=\"api_key\",\n            display_name=\"API Key\",\n            info=\"Model Provider API key\",\n            required=False,\n            show=True,\n            real_time_refresh=True,\n            advanced=True,\n        ),\n        DropdownInput(\n            name=\"base_url_ibm_watsonx\",\n            display_name=\"watsonx API Endpoint\",\n            info=\"The base URL of the API (IBM watsonx.ai only)\",\n            options=IBM_WATSONX_URLS,\n            value=IBM_WATSONX_URLS[0],\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"project_id\",\n            display_name=\"watsonx Project ID\",\n            info=\"The project ID associated with the foundation model (IBM watsonx.ai only)\",\n            show=False,\n            required=False,\n        ),\n        StrInput(\n            name=\"ollama_base_url\",\n            display_name=\"Ollama API URL\",\n            info=f\"Endpoint of the Ollama API (Ollama only). Defaults to {DEFAULT_OLLAMA_URL}\",\n            value=DEFAULT_OLLAMA_URL,\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"openai_base_url\",\n            display_name=\"OpenAI Base URL\",\n            info=\"Custom base URL for OpenAI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"anthropic_base_url\",\n            display_name=\"Anthropic Base URL\",\n            info=\"Custom base URL for Anthropic API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"google_base_url\",\n            display_name=\"Google Base URL\",\n            info=\"Custom base URL for Google Generative AI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"newapi_base_url\",\n            display_name=\"NewAPI Base URL\",\n            info=\"Base URL of your NewAPI gateway (NewAPI only)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"user_wallet_id\",\n            display_name=\"User Wallet ID\",\n            info=\"Passed as User-Wallet-Id header to NewAPI\",\n            show=True,\n            advanced=True,\n        ),\n        StrInput(\n            name=\"task_id\",\n            display_name=\"Task ID\",\n            info=\"Passed as Task-Id header to NewAPI\",\n            show=True,\n            advanced=True,\n        ),\n        MessageInput(\n            name=\"input_value\",\n            display_name=\"Input\",\n            info=\"The input text to send to the model\",\n        ),\n        MultilineInput(\n            name=\"system_message\",\n            display_name=\"System Message\",\n            info=\"A system message that helps set the behavior of the assistant\",\n            advanced=False,\n        ),\n        BoolInput(\n            name=\"stream\",\n            display_name=\"Stream\",\n            info=\"Whether to stream the response\",\n            value=False,\n            advanced=True,\n        ),\n        SliderInput(\n            name=\"temperature\",\n            display_name=\"Temperature\",\n            value=0.1,\n            info=\"Controls randomness in responses\",\n            range_spec=RangeSpec(min=0, max=1, step=0.01),\n            advanced=True,\n        ),\n        IntInput(\n            name=\"max_tokens\",\n            display_name=\"Max Tokens\",\n            info=\"Maximum number of tokens to generate. Field name varies by provider.\",\n            advanced=True,\n            range_spec=RangeSpec(min=1, max=128000, step=1, step_type=\"int\"),\n        ),\n    ]\n\n    def build_model(self) -> LanguageModel:\n        # Priority: component field > request_variables from HTTP header\n        wallet_id = getattr(self, \"user_wallet_id\", None)\n        tid = getattr(self, \"task_id\", None)\n        if not wallet_id or not tid:\n            request_vars = None\n            if hasattr(self, \"graph\") and self.graph and hasattr(self.graph, \"context\"):\n                request_vars = self.graph.context.get(\"request_variables\")\n            if request_vars:\n                if not wallet_id:\n                    wallet_id = request_vars.get(\"USER-WALLET-ID\")\n                if not tid:\n                    tid = request_vars.get(\"TASK-ID\")\n\n        self.log(f\"user_wallet_id={wallet_id}, task_id={tid}\")\n        return get_llm(\n            model=self.model,\n            user_id=self.user_id,\n            api_key=self.api_key,\n            temperature=self.temperature,\n            stream=self.stream,\n            max_tokens=getattr(self, \"max_tokens\", None),\n            watsonx_url=getattr(self, \"base_url_ibm_watsonx\", None),\n            watsonx_project_id=getattr(self, \"project_id\", None),\n            ollama_base_url=getattr(self, \"ollama_base_url\", None),\n            openai_base_url=getattr(self, \"openai_base_url\", None),\n            anthropic_base_url=getattr(self, \"anthropic_base_url\", None),\n            google_base_url=getattr(self, \"google_base_url\", None),\n            newapi_base_url=getattr(self, \"newapi_base_url\", None),\n            user_wallet_id=wallet_id,\n            task_id=tid,\n        )\n\n    def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):\n        \"\"\"Dynamically update build config with user-filtered model options.\"\"\"\n        # Update model options\n        build_config = update_model_options_in_build_config(\n            component=self,\n            build_config=build_config,\n            cache_key_prefix=\"language_model_options\",\n            get_options_func=get_language_model_options,\n            field_name=field_name,\n            field_value=field_value,\n        )\n\n        current_model_value = field_value if field_name == \"model\" else build_config.get(\"model\", {}).get(\"value\")\n        provider = \"\"\n        if isinstance(current_model_value, list) and current_model_value:\n            selected_model = current_model_value[0]\n            provider = (selected_model.get(\"provider\") or \"\").strip()\n            if not provider and selected_model.get(\"name\"):\n                provider = get_provider_for_model_name(str(selected_model[\"name\"]))\n\n        if provider:\n            build_config = apply_provider_variable_config_to_build_config(build_config, provider)\n\n        return build_config\n"
             },
             "google_base_url": {
               "_input_type": "StrInput",
@@ -93376,7 +93376,7 @@
               "override_skip": false,
               "placeholder": "",
               "required": false,
-              "show": false,
+              "show": true,
               "title_case": false,
               "tool_mode": false,
               "trace_as_metadata": true,
@@ -93427,7 +93427,7 @@
               "override_skip": false,
               "placeholder": "",
               "required": false,
-              "show": false,
+              "show": true,
               "title_case": false,
               "tool_mode": false,
               "trace_as_metadata": true,
@@ -94060,7 +94060,7 @@
           "icon": "brain-circuit",
           "legacy": false,
           "metadata": {
-            "code_hash": "712b191cbe2c",
+            "code_hash": "b9795a1cd938",
             "dependencies": {
               "dependencies": [
                 {
@@ -94232,7 +94232,7 @@
               "show": true,
               "title_case": false,
               "type": "code",
-              "value": "\"\"\"Multimodal Language Model component - accepts text + images/videos/audios, outputs text.\"\"\"\n\nimport base64\nimport logging\nimport urllib.parse\n\nimport httpx\nfrom langchain_core.messages import HumanMessage, SystemMessage\n\nlogger = logging.getLogger(__name__)\n\nfrom lfx.base.models.model import LCModelComponent\nfrom lfx.base.models.unified_models import (\n    apply_provider_variable_config_to_build_config,\n    get_language_model_options,\n    get_llm,\n    get_provider_for_model_name,\n    update_model_options_in_build_config,\n)\nfrom lfx.base.models.watsonx_constants import IBM_WATSONX_URLS\nfrom lfx.field_typing import LanguageModel\nfrom lfx.field_typing.range_spec import RangeSpec\nfrom lfx.inputs.inputs import BoolInput, DropdownInput, StrInput\nfrom lfx.io import (\n    IntInput,\n    MessageInput,\n    ModelInput,\n    MultilineInput,\n    SecretStrInput,\n    SliderInput,\n)\n\nfrom lfx.schema.message import Message\n\nMEDIA_FORMAT_AUTO = \"Auto\"\nMEDIA_FORMAT_OPENAI = \"OpenAI\"\nMEDIA_FORMAT_ANTHROPIC = \"Anthropic\"\nMEDIA_FORMAT_GOOGLE = \"Google\"\nMEDIA_FORMAT_OPTIONS = [\n    MEDIA_FORMAT_AUTO,\n    MEDIA_FORMAT_OPENAI,\n    MEDIA_FORMAT_ANTHROPIC,\n    MEDIA_FORMAT_GOOGLE,\n]\n\nDEFAULT_OLLAMA_URL = \"http://localhost:11434\"\n\nGEMINI_MODEL_TIMEOUT = 600\n\nIMAGE_PREFIX = \"image_\"\nVIDEO_PREFIX = \"video_\"\nAUDIO_PREFIX = \"audio_\"\n\n\nclass MultimodalModelComponent(LCModelComponent):\n    display_name = \"Multimodal Model\"\n    description = \"Generate text from text + images/videos/audios using a multimodal language model.\"\n    documentation: str = \"https://docs.langflow.org/components-models\"\n    icon = \"brain-circuit\"\n    category = \"models\"\n    name = \"MultimodalModel\"\n\n    inputs = [\n        ModelInput(\n            name=\"model\",\n            display_name=\"Multimodal Model\",\n            info=\"Select your model provider (supports vision models like GPT-4o, Claude, Gemini)\",\n            real_time_refresh=True,\n            required=True,\n        ),\n        SecretStrInput(\n            name=\"api_key\",\n            display_name=\"API Key\",\n            info=\"Model Provider API key\",\n            required=False,\n            show=True,\n            real_time_refresh=True,\n            advanced=True,\n        ),\n        DropdownInput(\n            name=\"base_url_ibm_watsonx\",\n            display_name=\"watsonx API Endpoint\",\n            info=\"The base URL of the API (IBM watsonx.ai only)\",\n            options=IBM_WATSONX_URLS,\n            value=IBM_WATSONX_URLS[0],\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"project_id\",\n            display_name=\"watsonx Project ID\",\n            info=\"The project ID associated with the foundation model (IBM watsonx.ai only)\",\n            show=False,\n            required=False,\n        ),\n        StrInput(\n            name=\"ollama_base_url\",\n            display_name=\"Ollama API URL\",\n            info=f\"Endpoint of the Ollama API (Ollama only). Defaults to {DEFAULT_OLLAMA_URL}\",\n            value=DEFAULT_OLLAMA_URL,\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"openai_base_url\",\n            display_name=\"OpenAI Base URL\",\n            info=\"Custom base URL for OpenAI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"anthropic_base_url\",\n            display_name=\"Anthropic Base URL\",\n            info=\"Custom base URL for Anthropic API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"google_base_url\",\n            display_name=\"Google Base URL\",\n            info=\"Custom base URL for Google Generative AI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"newapi_base_url\",\n            display_name=\"NewAPI Base URL\",\n            info=\"Base URL of your NewAPI gateway (NewAPI only)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"user_wallet_id\",\n            display_name=\"User Wallet ID\",\n            info=\"Passed as User-Wallet-Id header to NewAPI\",\n            show=False,\n            advanced=True,\n        ),\n        StrInput(\n            name=\"task_id\",\n            display_name=\"Task ID\",\n            info=\"Passed as Task-Id header to NewAPI\",\n            show=False,\n            advanced=True,\n        ),\n        MessageInput(\n            name=\"input_value\",\n            display_name=\"Text Input\",\n            info=\"The text prompt to send to the model\",\n        ),\n        MultilineInput(\n            name=\"system_message\",\n            display_name=\"System Message\",\n            info=\"A system message that helps set the behavior of the assistant\",\n            advanced=False,\n        ),\n        # --- Dynamic media inputs ---\n        IntInput(\n            name=\"image_count\",\n            display_name=\"Image Count\",\n            info=\"Number of image inputs. Change to add or remove image entries.\",\n            value=0,\n            real_time_refresh=True,\n        ),\n        IntInput(\n            name=\"video_count\",\n            display_name=\"Video Count\",\n            info=\"Number of video inputs. Change to add or remove video entries.\",\n            value=0,\n            real_time_refresh=True,\n        ),\n        IntInput(\n            name=\"audio_count\",\n            display_name=\"Audio Count\",\n            info=\"Number of audio inputs. Change to add or remove audio entries.\",\n            value=0,\n            real_time_refresh=True,\n        ),\n        DropdownInput(\n            name=\"media_format\",\n            display_name=\"Media Format\",\n            info=(\n                \"Choose the content format for multimodal media. \"\n                \"Auto: native image_url/video_url/audio_url types. \"\n                \"OpenAI / Anthropic / Google: build content in the \"\n                \"corresponding provider's format — useful when routing \"\n                \"through NewAPI or similar gateways.\"\n            ),\n            options=MEDIA_FORMAT_OPTIONS,\n            value=MEDIA_FORMAT_AUTO,\n            advanced=True,\n        ),\n        # --- Generation parameters ---\n        BoolInput(\n            name=\"stream\",\n            display_name=\"Stream\",\n            info=\"Whether to stream the response\",\n            value=False,\n            advanced=True,\n        ),\n        SliderInput(\n            name=\"temperature\",\n            display_name=\"Temperature\",\n            value=0.1,\n            info=\"Controls randomness in responses\",\n            range_spec=RangeSpec(min=0, max=1, step=0.01),\n            advanced=True,\n        ),\n        IntInput(\n            name=\"max_tokens\",\n            display_name=\"Max Tokens\",\n            info=\"Maximum number of tokens to generate.\",\n            advanced=True,\n            range_spec=RangeSpec(min=1, max=128000, step=1, step_type=\"int\"),\n        ),\n    ]\n\n    def build_model(self) -> LanguageModel:\n        return get_llm(\n            model=self.model,\n            user_id=self.user_id,\n            api_key=self.api_key,\n            temperature=self.temperature,\n            stream=self.stream,\n            max_tokens=getattr(self, \"max_tokens\", None),\n            watsonx_url=getattr(self, \"base_url_ibm_watsonx\", None),\n            watsonx_project_id=getattr(self, \"project_id\", None),\n            ollama_base_url=getattr(self, \"ollama_base_url\", None),\n            openai_base_url=getattr(self, \"openai_base_url\", None),\n            anthropic_base_url=getattr(self, \"anthropic_base_url\", None),\n            google_base_url=getattr(self, \"google_base_url\", None),\n            newapi_base_url=getattr(self, \"newapi_base_url\", None),\n            user_wallet_id=getattr(self, \"user_wallet_id\", None),\n            task_id=getattr(self, \"task_id\", None),\n        )\n\n    def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):\n        \"\"\"Dynamically update build config with model options and media input fields.\"\"\"\n        # Update model options\n        build_config = update_model_options_in_build_config(\n            component=self,\n            build_config=build_config,\n            cache_key_prefix=\"multimodal_model_options\",\n            get_options_func=get_language_model_options,\n            field_name=field_name,\n            field_value=field_value,\n        )\n\n        current_model_value = field_value if field_name == \"model\" else build_config.get(\"model\", {}).get(\"value\")\n        provider = \"\"\n        if isinstance(current_model_value, list) and current_model_value:\n            selected_model = current_model_value[0]\n            provider = (selected_model.get(\"provider\") or \"\").strip()\n            if not provider and selected_model.get(\"name\"):\n                provider = get_provider_for_model_name(str(selected_model[\"name\"]))\n\n        if provider:\n            build_config = apply_provider_variable_config_to_build_config(build_config, provider)\n\n        # Handle dynamic media input fields\n        if field_name in (\"image_count\", \"video_count\", \"audio_count\"):\n            if field_name == \"image_count\":\n                prefix, label, cap = IMAGE_PREFIX, \"Image\", 20\n            elif field_name == \"video_count\":\n                prefix, label, cap = VIDEO_PREFIX, \"Video\", 10\n            else:\n                prefix, label, cap = AUDIO_PREFIX, \"Audio\", 10\n\n            count = min(cap, max(0, int(field_value))) if field_value else 0\n\n            # Remove old dynamic fields for this prefix\n            to_remove = [k for k in build_config if k.startswith(prefix) and k[len(prefix):].isdigit()]\n            for k in to_remove:\n                del build_config[k]\n\n            for i in range(1, count + 1):\n                f_name = f\"{prefix}{i}\"\n                build_config[f_name] = {\n                    \"type\": \"str\",\n                    \"input_types\": [\"Message\", \"Text\"],\n                    \"name\": f_name,\n                    \"display_name\": f\"{label} {i}\",\n                    \"value\": \"\",\n                    \"show\": True,\n                    \"advanced\": False,\n                    \"multiline\": False,\n                    \"placeholder\": f\"Enter {label.lower()} URL or connect component...\",\n                }\n\n        return build_config\n\n    def _collect_urls(self, prefix: str) -> list[str]:\n        \"\"\"Collect URLs from dynamic input fields with the given prefix.\"\"\"\n        urls: list[str] = []\n        i = 1\n        while True:\n            val = getattr(self, f\"{prefix}{i}\", None)\n            if val is None:\n                break\n            if isinstance(val, Message):\n                text = val.get_text().strip()\n            elif isinstance(val, str):\n                text = val.strip()\n            elif val:\n                text = str(val).strip()\n            else:\n                text = \"\"\n            if text:\n                urls.extend(line.strip() for line in text.splitlines() if line.strip())\n            i += 1\n        return urls\n\n    def _is_gemini_model(self) -> bool:\n        \"\"\"Check if the selected model is a Gemini model (any provider).\"\"\"\n        model_data = self.model\n        if not model_data or not isinstance(model_data, list) or not model_data:\n            return False\n        model_name = (model_data[0].get(\"name\") or \"\").strip()\n        return model_name.startswith(\"gemini\")\n\n    def _resolve_newapi_credentials(self) -> tuple[str, str, str]:\n        \"\"\"Resolve NewAPI credentials: (api_key, raw_base_url, model_name).\"\"\"\n        from lfx.base.models.unified_models import (\n            get_all_variables_for_provider,\n            get_api_key_for_provider,\n            get_default_base_url,\n        )\n\n        model_data = self.model\n        model_info = model_data[0]\n        model_name = model_info.get(\"name\", \"\")\n        provider = model_info.get(\"provider\", \"\")\n\n        api_key = get_api_key_for_provider(self.user_id, provider)\n        if not api_key:\n            msg = f\"{provider} API key is required. Please configure it in Model Providers.\"\n            raise ValueError(msg)\n\n        # Resolve base URL from provider variables\n        base_url = None\n        provider_vars = get_all_variables_for_provider(self.user_id, provider)\n        for var_key, value in provider_vars.items():\n            if \"BASE_URL\" in var_key and value:\n                base_url = value\n                break\n\n        # Fall back to the provider's well-known default base URL\n        if not base_url:\n            base_url = get_default_base_url(provider)\n\n        if not base_url:\n            msg = f\"{provider} Base URL is required. Please configure it in Model Providers.\"\n            raise ValueError(msg)\n\n        # Strip trailing slashes and /v1 suffix — generateContent needs the raw host\n        raw_base = base_url.rstrip(\"/\")\n        if raw_base.endswith(\"/v1\"):\n            raw_base = raw_base[:-3]\n        return api_key, raw_base, model_name\n\n    @staticmethod\n    def _guess_mime_type(url: str, kind: str) -> str:\n        \"\"\"Guess MIME type from URL or fall back to a sensible default.\"\"\"\n        url_lower = url.lower().split(\"?\")[0]\n        ext_map = {\n            \"image\": {\".jpg\": \"image/jpeg\", \".jpeg\": \"image/jpeg\", \".png\": \"image/png\", \".gif\": \"image/gif\", \".webp\": \"image/webp\"},\n            \"video\": {\".mp4\": \"video/mp4\", \".avi\": \"video/avi\", \".mov\": \"video/quicktime\", \".webm\": \"video/webm\"},\n            \"audio\": {\".mp3\": \"audio/mpeg\", \".wav\": \"audio/wav\", \".ogg\": \"audio/ogg\", \".m4a\": \"audio/mp4\"},\n        }\n        for ext, mime in ext_map.get(kind, {}).items():\n            if url_lower.endswith(ext):\n                return mime\n        defaults = {\"image\": \"image/jpeg\", \"video\": \"video/mp4\", \"audio\": \"audio/mpeg\"}\n        return defaults.get(kind, \"application/octet-stream\")\n\n    def _build_gemini_parts(\n        self,\n        image_urls: list[str],\n        video_urls: list[str],\n        audio_urls: list[str],\n        *,\n        use_file_data: bool = True,\n    ) -> list[dict]:\n        \"\"\"Build media parts for Gemini generateContent.\n\n        Hybrid strategy for maximum compatibility:\n        - Images: always use ``inlineData`` (downloading + base64) — stable on all models\n        - Video/Audio with use_file_data=True: ``fileData.fileUri`` (URL passthrough)\n        - Video/Audio with use_file_data=False: ``inlineData`` base64 (Gemini 2.5)\n        \"\"\"\n        parts: list[dict] = []\n\n        # Images → always inlineData (stable on all Gemini models)\n        if image_urls:\n            with httpx.Client(timeout=120, trust_env=False) as dl_client:\n                for url in image_urls:\n                    try:\n                        resp = dl_client.get(url, follow_redirects=True)\n                        resp.raise_for_status()\n                        mime = resp.headers.get(\"content-type\", \"image/jpeg\")\n                        b64 = base64.b64encode(resp.content).decode()\n                        parts.append({\"inlineData\": {\"mimeType\": mime, \"data\": b64}})\n                    except httpx.HTTPError as e:\n                        msg = f\"Failed to download image {url}: {e}\"\n                        raise ValueError(msg) from e\n\n        # Video & Audio → fileData or inlineData depending on flag\n        for urls, kind in [(video_urls, \"video\"), (audio_urls, \"audio\")]:\n            if use_file_data:\n                for url in urls:\n                    mime = self._guess_mime_type(url, kind)\n                    encoded_url = urllib.parse.quote(url, safe=\":/?&=%#\")\n                    parts.append({\"fileData\": {\"mimeType\": mime, \"fileUri\": encoded_url}})\n            else:\n                if urls:\n                    with httpx.Client(timeout=120, trust_env=False) as dl_client:\n                        for url in urls:\n                            try:\n                                resp = dl_client.get(url, follow_redirects=True)\n                                resp.raise_for_status()\n                                mime = resp.headers.get(\"content-type\", \"application/octet-stream\")\n                                b64 = base64.b64encode(resp.content).decode()\n                                parts.append({\"inlineData\": {\"mimeType\": mime, \"data\": b64}})\n                            except httpx.HTTPError as e:\n                                msg = f\"Failed to download {kind} {url}: {e}\"\n                                raise ValueError(msg) from e\n\n        return parts\n\n    def _build_gemini_payload(\n        self,\n        prompt: str,\n        system_message: str | None,\n        image_urls: list[str],\n        video_urls: list[str],\n        audio_urls: list[str],\n        *,\n        use_file_data: bool = True,\n    ) -> dict:\n        \"\"\"Build the full Gemini generateContent payload.\n\n        When using fileData, systemInstruction causes upstream errors\n        (NewAPI returns \"Cannot fetch content\" when both are present).\n        Workaround: embed system message as a user/model turn pair instead.\n        \"\"\"\n        media_parts = self._build_gemini_parts(image_urls, video_urls, audio_urls, use_file_data=use_file_data)\n\n        user_parts: list[dict] = []\n        if prompt:\n            user_parts.append({\"text\": prompt})\n        user_parts.extend(media_parts)\n\n        if system_message and use_file_data:\n            # fileData + systemInstruction = 400 upstream bug\n            # Inject system prompt as user/model turn pair\n            contents = [\n                {\"role\": \"user\", \"parts\": [{\"text\": system_message}]},\n                {\"role\": \"model\", \"parts\": [{\"text\": \"Understood.\"}]},\n                {\"role\": \"user\", \"parts\": user_parts},\n            ]\n        else:\n            contents = [{\"role\": \"user\", \"parts\": user_parts}]\n\n        payload: dict = {\n            \"contents\": contents,\n            \"generationConfig\": {\"responseModalities\": [\"TEXT\"]},\n        }\n        # systemInstruction is safe with inlineData (use_file_data=False)\n        if system_message and not use_file_data:\n            payload[\"systemInstruction\"] = {\"parts\": [{\"text\": system_message}]}\n        return payload\n\n    async def _upload_file_to_gemini(self, file_url: str, mime_type: str, raw_base: str, api_key: str) -> str | None:\n        \"\"\"Download a file and upload to Gemini Files API, returning the uploaded file URI.\"\"\"\n        try:\n            async with httpx.AsyncClient(timeout=300, trust_env=False) as dl:\n                resp = await dl.get(file_url, follow_redirects=True)\n                resp.raise_for_status()\n                file_bytes = resp.content\n\n            upload_url = f\"{raw_base}/upload/v1beta/files\"\n            headers = {\n                \"Authorization\": f\"Bearer {api_key}\",\n                \"X-Goog-Upload-Command\": \"start, upload, finalize\",\n                \"X-Goog-Upload-Protocol\": \"raw\",\n                \"X-Goog-Upload-Header-Content-Type\": mime_type,\n                \"Content-Type\": \"application/octet-stream\",\n            }\n            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:\n                resp = await client.post(upload_url, headers=headers, content=file_bytes)\n                if not resp.is_success:\n                    logger.warning(\"[MultimodalGemini] Files API upload failed: %s %s\", resp.status_code, resp.text[:200])\n                    return None\n                data = resp.json()\n                file_info = data.get(\"file\", data)\n                uri = file_info.get(\"uri\")\n                if uri:\n                    logger.warning(\"[MultimodalGemini] Files API upload success: %s → %s\", file_url[:60], uri[:80])\n                return uri\n        except Exception as e:\n            logger.warning(\"[MultimodalGemini] Files API upload exception: %s\", e)\n            return None\n\n    def _has_non_ascii(self, url: str) -> bool:\n        return any(ord(c) > 127 for c in url)\n\n    async def _resolve_non_ascii_urls(self, urls: list[str], kind: str, raw_base: str, api_key: str) -> list[str]:\n        \"\"\"For URLs with non-ASCII characters, upload via Files API and replace with the uploaded URI.\"\"\"\n        resolved = []\n        for url in urls:\n            if self._has_non_ascii(url):\n                mime = self._guess_mime_type(url, kind)\n                uploaded = await self._upload_file_to_gemini(url, mime, raw_base, api_key)\n                resolved.append(uploaded or url)\n            else:\n                resolved.append(url)\n        return resolved\n\n    async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:\n        \"\"\"Generate text using Gemini models via the native generateContent endpoint.\"\"\"\n        api_key, raw_base, model_name = self._resolve_newapi_credentials()\n\n        url = f\"{raw_base}/v1beta/models/{model_name}:generateContent\"\n        headers = {\"Authorization\": f\"Bearer {api_key}\", \"Content-Type\": \"application/json\"}\n        has_video_or_audio = bool(video_urls or audio_urls)\n\n        self.status = \"Generating via Gemini...\"\n\n        # Resolve non-ASCII URLs via Files API before building payload\n        video_urls = await self._resolve_non_ascii_urls(video_urls, \"video\", raw_base, api_key)\n        audio_urls = await self._resolve_non_ascii_urls(audio_urls, \"audio\", raw_base, api_key)\n\n        async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:\n            # Strategy (hybrid): images always inlineData, video/audio via fileData\n            # with multiple retries for transient upstream URL-fetch failures.\n            payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)\n            logger.warning(\"[MultimodalGemini] url=%s model=%s hybrid (images=inline, video/audio=fileData)\", url, model_name)\n            logger.warning(\"[MultimodalGemini] payload=%s\", payload)\n            resp = await client.post(url, json=payload)\n            logger.warning(\"[MultimodalGemini] response status=%s body=%s\", resp.status_code, resp.text[:500])\n\n            if resp.status_code == 400 and has_video_or_audio:\n                # Retry fileData up to 2 more times (upstream URL fetch is flaky)\n                for attempt in range(2, 4):\n                    logger.warning(\"[MultimodalGemini] attempt %d failed (%s), retrying\", attempt - 1, resp.text[:80])\n                    resp = await client.post(url, json=payload)\n                    if resp.is_success:\n                        break\n\n            if resp.status_code == 400:\n                # Final fallback: inlineData for everything (works on Gemini 2.5,\n                # but video will fail on Gemini 3.x)\n                logger.warning(\"[MultimodalGemini] fileData exhausted, trying full inlineData fallback\")\n                payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)\n                resp = await client.post(url, json=payload)\n\n            if not resp.is_success:\n                error_text = resp.text\n                msg = f\"Gemini request failed (HTTP {resp.status_code}): {error_text}\"\n                raise ValueError(msg)\n            data = resp.json()\n\n        candidates = data.get(\"candidates\", [])\n        if not candidates:\n            msg = f\"No candidates in Gemini response: {data}\"\n            raise ValueError(msg)\n\n        response_parts = candidates[0].get(\"content\", {}).get(\"parts\", [])\n        text_result = \"\"\n        for p in response_parts:\n            if \"text\" in p:\n                text_result += p[\"text\"]\n\n        if not text_result:\n            msg = f\"No text in Gemini response: {data}\"\n            raise ValueError(msg)\n\n        self.status = text_result\n        return Message(text=text_result)\n\n    @staticmethod\n    def _build_media_content(\n        media_format: str,\n        image_urls: list[str],\n        video_urls: list[str],\n        audio_urls: list[str],\n    ) -> list[dict]:\n        \"\"\"Build multimodal content blocks in the chosen provider format.\"\"\"\n        blocks: list[dict] = []\n\n        if media_format == MEDIA_FORMAT_OPENAI:\n            # OpenAI: image_url for images, video/audio as image_url passthrough\n            # (NewAPI will detect actual content type and convert)\n            for url in image_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in video_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in audio_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n\n        elif media_format == MEDIA_FORMAT_ANTHROPIC:\n            # Anthropic: {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": ...}}\n            for url in image_urls:\n                blocks.append(\n                    {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": url}}\n                )\n            # Video/Audio: use same image block as passthrough for NewAPI conversion\n            for url in video_urls:\n                blocks.append(\n                    {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": url}}\n                )\n            for url in audio_urls:\n                blocks.append(\n                    {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": url}}\n                )\n\n        elif media_format == MEDIA_FORMAT_GOOGLE:\n            # Google Gemini: native video_url / audio_url types supported\n            for url in image_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in video_urls:\n                blocks.append({\"type\": \"video_url\", \"video_url\": {\"url\": url}})\n            for url in audio_urls:\n                blocks.append({\"type\": \"audio_url\", \"audio_url\": {\"url\": url}})\n\n        else:\n            # Auto (default): native types per media kind\n            for url in image_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in video_urls:\n                blocks.append({\"type\": \"video_url\", \"video_url\": {\"url\": url}})\n            for url in audio_urls:\n                blocks.append({\"type\": \"audio_url\", \"audio_url\": {\"url\": url}})\n\n        return blocks\n\n    async def text_response(self) -> Message:\n        \"\"\"Generate text from multimodal input.\"\"\"\n        # Resolve text prompt\n        prompt = self.input_value\n        if isinstance(prompt, Message):\n            prompt = prompt.get_text()\n        prompt = (prompt or \"\").strip()\n\n        # Collect media URLs\n        image_urls = self._collect_urls(IMAGE_PREFIX)\n        video_urls = self._collect_urls(VIDEO_PREFIX)\n        audio_urls = self._collect_urls(AUDIO_PREFIX)\n\n        if not prompt and not image_urls and not video_urls and not audio_urls:\n            msg = \"Please provide a text prompt or at least one media input.\"\n            raise ValueError(msg)\n\n        system_message = getattr(self, \"system_message\", None) or None\n\n        # Route Gemini models (via NewAPI) to native generateContent endpoint\n        is_gemini = self._is_gemini_model()\n        if is_gemini:\n            return await self._generate_via_gemini(prompt, system_message, image_urls, video_urls, audio_urls)\n\n        # --- Standard LangChain flow for other providers ---\n        runnable = self.build_model()\n\n        # Build multimodal content list\n        content: list[dict] = []\n        if prompt:\n            content.append({\"type\": \"text\", \"text\": prompt})\n\n        media_format = getattr(self, \"media_format\", MEDIA_FORMAT_AUTO)\n        content.extend(self._build_media_content(media_format, image_urls, video_urls, audio_urls))\n\n        result = await self._get_chat_result(\n            runnable=runnable,\n            stream=self.stream,\n            input_value=content if len(content) > 1 else (content[0] if content else \"\"),\n            system_message=getattr(self, \"system_message\", None) or None,\n        )\n        self.status = result\n        return result\n\n    async def _get_chat_result(\n        self,\n        *,\n        runnable: LanguageModel,\n        stream: bool,\n        input_value,\n        system_message: str | None = None,\n    ) -> Message:\n        \"\"\"Invoke the model with multimodal content.\"\"\"\n        messages = []\n        if system_message:\n            messages.append(SystemMessage(content=system_message))\n\n        # input_value can be a list of content dicts or a string\n        if isinstance(input_value, list | str):\n            messages.append(HumanMessage(content=input_value))\n        elif isinstance(input_value, Message):\n            messages.append(input_value.to_lc_message(self.name))\n\n        runnable = runnable.with_config(\n            {\n                \"run_name\": self.display_name,\n                \"project_name\": self.get_project_name(),\n                \"callbacks\": self.get_langchain_callbacks(),\n            }\n        )\n\n        if stream:\n            lf_message, result = await self._handle_stream(runnable, messages)\n        else:\n            ai_message = await runnable.ainvoke(messages)\n            result = ai_message.content if hasattr(ai_message, \"content\") else ai_message\n\n        if stream and lf_message:\n            return lf_message\n\n        return Message(text=result)\n"
+              "value": "\"\"\"Multimodal Language Model component - accepts text + images/videos/audios, outputs text.\"\"\"\n\nimport base64\nimport logging\nimport urllib.parse\n\nimport httpx\nfrom langchain_core.messages import HumanMessage, SystemMessage\n\nlogger = logging.getLogger(__name__)\n\nfrom lfx.base.models.model import LCModelComponent\nfrom lfx.base.models.unified_models import (\n    apply_provider_variable_config_to_build_config,\n    get_language_model_options,\n    get_llm,\n    get_provider_for_model_name,\n    update_model_options_in_build_config,\n)\nfrom lfx.base.models.watsonx_constants import IBM_WATSONX_URLS\nfrom lfx.field_typing import LanguageModel\nfrom lfx.field_typing.range_spec import RangeSpec\nfrom lfx.inputs.inputs import BoolInput, DropdownInput, StrInput\nfrom lfx.io import (\n    IntInput,\n    MessageInput,\n    ModelInput,\n    MultilineInput,\n    SecretStrInput,\n    SliderInput,\n)\n\nfrom lfx.schema.message import Message\n\nMEDIA_FORMAT_AUTO = \"Auto\"\nMEDIA_FORMAT_OPENAI = \"OpenAI\"\nMEDIA_FORMAT_ANTHROPIC = \"Anthropic\"\nMEDIA_FORMAT_GOOGLE = \"Google\"\nMEDIA_FORMAT_OPTIONS = [\n    MEDIA_FORMAT_AUTO,\n    MEDIA_FORMAT_OPENAI,\n    MEDIA_FORMAT_ANTHROPIC,\n    MEDIA_FORMAT_GOOGLE,\n]\n\nDEFAULT_OLLAMA_URL = \"http://localhost:11434\"\n\nGEMINI_MODEL_TIMEOUT = 600\n\nIMAGE_PREFIX = \"image_\"\nVIDEO_PREFIX = \"video_\"\nAUDIO_PREFIX = \"audio_\"\n\n\nclass MultimodalModelComponent(LCModelComponent):\n    display_name = \"Multimodal Model\"\n    description = \"Generate text from text + images/videos/audios using a multimodal language model.\"\n    documentation: str = \"https://docs.langflow.org/components-models\"\n    icon = \"brain-circuit\"\n    category = \"models\"\n    name = \"MultimodalModel\"\n\n    inputs = [\n        ModelInput(\n            name=\"model\",\n            display_name=\"Multimodal Model\",\n            info=\"Select your model provider (supports vision models like GPT-4o, Claude, Gemini)\",\n            real_time_refresh=True,\n            required=True,\n        ),\n        SecretStrInput(\n            name=\"api_key\",\n            display_name=\"API Key\",\n            info=\"Model Provider API key\",\n            required=False,\n            show=True,\n            real_time_refresh=True,\n            advanced=True,\n        ),\n        DropdownInput(\n            name=\"base_url_ibm_watsonx\",\n            display_name=\"watsonx API Endpoint\",\n            info=\"The base URL of the API (IBM watsonx.ai only)\",\n            options=IBM_WATSONX_URLS,\n            value=IBM_WATSONX_URLS[0],\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"project_id\",\n            display_name=\"watsonx Project ID\",\n            info=\"The project ID associated with the foundation model (IBM watsonx.ai only)\",\n            show=False,\n            required=False,\n        ),\n        StrInput(\n            name=\"ollama_base_url\",\n            display_name=\"Ollama API URL\",\n            info=f\"Endpoint of the Ollama API (Ollama only). Defaults to {DEFAULT_OLLAMA_URL}\",\n            value=DEFAULT_OLLAMA_URL,\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"openai_base_url\",\n            display_name=\"OpenAI Base URL\",\n            info=\"Custom base URL for OpenAI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"anthropic_base_url\",\n            display_name=\"Anthropic Base URL\",\n            info=\"Custom base URL for Anthropic API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"google_base_url\",\n            display_name=\"Google Base URL\",\n            info=\"Custom base URL for Google Generative AI API (optional, for proxies or compatible endpoints)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"newapi_base_url\",\n            display_name=\"NewAPI Base URL\",\n            info=\"Base URL of your NewAPI gateway (NewAPI only)\",\n            show=False,\n            real_time_refresh=True,\n        ),\n        StrInput(\n            name=\"user_wallet_id\",\n            display_name=\"User Wallet ID\",\n            info=\"Passed as User-Wallet-Id header to NewAPI\",\n            show=True,\n            advanced=True,\n        ),\n        StrInput(\n            name=\"task_id\",\n            display_name=\"Task ID\",\n            info=\"Passed as Task-Id header to NewAPI\",\n            show=True,\n            advanced=True,\n        ),\n        MessageInput(\n            name=\"input_value\",\n            display_name=\"Text Input\",\n            info=\"The text prompt to send to the model\",\n        ),\n        MultilineInput(\n            name=\"system_message\",\n            display_name=\"System Message\",\n            info=\"A system message that helps set the behavior of the assistant\",\n            advanced=False,\n        ),\n        # --- Dynamic media inputs ---\n        IntInput(\n            name=\"image_count\",\n            display_name=\"Image Count\",\n            info=\"Number of image inputs. Change to add or remove image entries.\",\n            value=0,\n            real_time_refresh=True,\n        ),\n        IntInput(\n            name=\"video_count\",\n            display_name=\"Video Count\",\n            info=\"Number of video inputs. Change to add or remove video entries.\",\n            value=0,\n            real_time_refresh=True,\n        ),\n        IntInput(\n            name=\"audio_count\",\n            display_name=\"Audio Count\",\n            info=\"Number of audio inputs. Change to add or remove audio entries.\",\n            value=0,\n            real_time_refresh=True,\n        ),\n        DropdownInput(\n            name=\"media_format\",\n            display_name=\"Media Format\",\n            info=(\n                \"Choose the content format for multimodal media. \"\n                \"Auto: native image_url/video_url/audio_url types. \"\n                \"OpenAI / Anthropic / Google: build content in the \"\n                \"corresponding provider's format — useful when routing \"\n                \"through NewAPI or similar gateways.\"\n            ),\n            options=MEDIA_FORMAT_OPTIONS,\n            value=MEDIA_FORMAT_AUTO,\n            advanced=True,\n        ),\n        # --- Generation parameters ---\n        BoolInput(\n            name=\"stream\",\n            display_name=\"Stream\",\n            info=\"Whether to stream the response\",\n            value=False,\n            advanced=True,\n        ),\n        SliderInput(\n            name=\"temperature\",\n            display_name=\"Temperature\",\n            value=0.1,\n            info=\"Controls randomness in responses\",\n            range_spec=RangeSpec(min=0, max=1, step=0.01),\n            advanced=True,\n        ),\n        IntInput(\n            name=\"max_tokens\",\n            display_name=\"Max Tokens\",\n            info=\"Maximum number of tokens to generate.\",\n            advanced=True,\n            range_spec=RangeSpec(min=1, max=128000, step=1, step_type=\"int\"),\n        ),\n    ]\n\n    def build_model(self) -> LanguageModel:\n        # Priority: component field > request_variables from HTTP header\n        wallet_id = getattr(self, \"user_wallet_id\", None)\n        tid = getattr(self, \"task_id\", None)\n        if not wallet_id or not tid:\n            request_vars = None\n            if hasattr(self, \"graph\") and self.graph and hasattr(self.graph, \"context\"):\n                request_vars = self.graph.context.get(\"request_variables\")\n            if request_vars:\n                if not wallet_id:\n                    wallet_id = request_vars.get(\"USER-WALLET-ID\")\n                if not tid:\n                    tid = request_vars.get(\"TASK-ID\")\n\n        self.log(f\"user_wallet_id={wallet_id}, task_id={tid}\")\n        return get_llm(\n            model=self.model,\n            user_id=self.user_id,\n            api_key=self.api_key,\n            temperature=self.temperature,\n            stream=self.stream,\n            max_tokens=getattr(self, \"max_tokens\", None),\n            watsonx_url=getattr(self, \"base_url_ibm_watsonx\", None),\n            watsonx_project_id=getattr(self, \"project_id\", None),\n            ollama_base_url=getattr(self, \"ollama_base_url\", None),\n            openai_base_url=getattr(self, \"openai_base_url\", None),\n            anthropic_base_url=getattr(self, \"anthropic_base_url\", None),\n            google_base_url=getattr(self, \"google_base_url\", None),\n            newapi_base_url=getattr(self, \"newapi_base_url\", None),\n            user_wallet_id=wallet_id,\n            task_id=tid,\n        )\n\n    def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):\n        \"\"\"Dynamically update build config with model options and media input fields.\"\"\"\n        # Update model options\n        build_config = update_model_options_in_build_config(\n            component=self,\n            build_config=build_config,\n            cache_key_prefix=\"multimodal_model_options\",\n            get_options_func=get_language_model_options,\n            field_name=field_name,\n            field_value=field_value,\n        )\n\n        current_model_value = field_value if field_name == \"model\" else build_config.get(\"model\", {}).get(\"value\")\n        provider = \"\"\n        if isinstance(current_model_value, list) and current_model_value:\n            selected_model = current_model_value[0]\n            provider = (selected_model.get(\"provider\") or \"\").strip()\n            if not provider and selected_model.get(\"name\"):\n                provider = get_provider_for_model_name(str(selected_model[\"name\"]))\n\n        if provider:\n            build_config = apply_provider_variable_config_to_build_config(build_config, provider)\n\n        # Handle dynamic media input fields\n        if field_name in (\"image_count\", \"video_count\", \"audio_count\"):\n            if field_name == \"image_count\":\n                prefix, label, cap = IMAGE_PREFIX, \"Image\", 20\n            elif field_name == \"video_count\":\n                prefix, label, cap = VIDEO_PREFIX, \"Video\", 10\n            else:\n                prefix, label, cap = AUDIO_PREFIX, \"Audio\", 10\n\n            count = min(cap, max(0, int(field_value))) if field_value else 0\n\n            # Remove old dynamic fields for this prefix\n            to_remove = [k for k in build_config if k.startswith(prefix) and k[len(prefix):].isdigit()]\n            for k in to_remove:\n                del build_config[k]\n\n            for i in range(1, count + 1):\n                f_name = f\"{prefix}{i}\"\n                build_config[f_name] = {\n                    \"type\": \"str\",\n                    \"input_types\": [\"Message\", \"Text\"],\n                    \"name\": f_name,\n                    \"display_name\": f\"{label} {i}\",\n                    \"value\": \"\",\n                    \"show\": True,\n                    \"advanced\": False,\n                    \"multiline\": False,\n                    \"placeholder\": f\"Enter {label.lower()} URL or connect component...\",\n                }\n\n        return build_config\n\n    def _collect_urls(self, prefix: str) -> list[str]:\n        \"\"\"Collect URLs from dynamic input fields with the given prefix.\"\"\"\n        urls: list[str] = []\n        i = 1\n        while True:\n            val = getattr(self, f\"{prefix}{i}\", None)\n            if val is None:\n                break\n            if isinstance(val, Message):\n                text = val.get_text().strip()\n            elif isinstance(val, str):\n                text = val.strip()\n            elif val:\n                text = str(val).strip()\n            else:\n                text = \"\"\n            if text:\n                urls.extend(line.strip() for line in text.splitlines() if line.strip())\n            i += 1\n        return urls\n\n    def _is_gemini_model(self) -> bool:\n        \"\"\"Check if the selected model is a Gemini model (any provider).\"\"\"\n        model_data = self.model\n        if not model_data or not isinstance(model_data, list) or not model_data:\n            return False\n        model_name = (model_data[0].get(\"name\") or \"\").strip()\n        return model_name.startswith(\"gemini\")\n\n    def _resolve_newapi_credentials(self) -> tuple[str, str, str]:\n        \"\"\"Resolve NewAPI credentials: (api_key, raw_base_url, model_name).\"\"\"\n        from lfx.base.models.unified_models import (\n            get_all_variables_for_provider,\n            get_api_key_for_provider,\n            get_default_base_url,\n        )\n\n        model_data = self.model\n        model_info = model_data[0]\n        model_name = model_info.get(\"name\", \"\")\n        provider = model_info.get(\"provider\", \"\")\n\n        api_key = get_api_key_for_provider(self.user_id, provider)\n        if not api_key:\n            msg = f\"{provider} API key is required. Please configure it in Model Providers.\"\n            raise ValueError(msg)\n\n        # Resolve base URL from provider variables\n        base_url = None\n        provider_vars = get_all_variables_for_provider(self.user_id, provider)\n        for var_key, value in provider_vars.items():\n            if \"BASE_URL\" in var_key and value:\n                base_url = value\n                break\n\n        # Fall back to the provider's well-known default base URL\n        if not base_url:\n            base_url = get_default_base_url(provider)\n\n        if not base_url:\n            msg = f\"{provider} Base URL is required. Please configure it in Model Providers.\"\n            raise ValueError(msg)\n\n        # Strip trailing slashes and /v1 suffix — generateContent needs the raw host\n        raw_base = base_url.rstrip(\"/\")\n        if raw_base.endswith(\"/v1\"):\n            raw_base = raw_base[:-3]\n        return api_key, raw_base, model_name\n\n    @staticmethod\n    def _guess_mime_type(url: str, kind: str) -> str:\n        \"\"\"Guess MIME type from URL or fall back to a sensible default.\"\"\"\n        url_lower = url.lower().split(\"?\")[0]\n        ext_map = {\n            \"image\": {\".jpg\": \"image/jpeg\", \".jpeg\": \"image/jpeg\", \".png\": \"image/png\", \".gif\": \"image/gif\", \".webp\": \"image/webp\"},\n            \"video\": {\".mp4\": \"video/mp4\", \".avi\": \"video/avi\", \".mov\": \"video/quicktime\", \".webm\": \"video/webm\"},\n            \"audio\": {\".mp3\": \"audio/mpeg\", \".wav\": \"audio/wav\", \".ogg\": \"audio/ogg\", \".m4a\": \"audio/mp4\"},\n        }\n        for ext, mime in ext_map.get(kind, {}).items():\n            if url_lower.endswith(ext):\n                return mime\n        defaults = {\"image\": \"image/jpeg\", \"video\": \"video/mp4\", \"audio\": \"audio/mpeg\"}\n        return defaults.get(kind, \"application/octet-stream\")\n\n    def _build_gemini_parts(\n        self,\n        image_urls: list[str],\n        video_urls: list[str],\n        audio_urls: list[str],\n        *,\n        use_file_data: bool = True,\n    ) -> list[dict]:\n        \"\"\"Build media parts for Gemini generateContent.\n\n        Hybrid strategy for maximum compatibility:\n        - Images: always use ``inlineData`` (downloading + base64) — stable on all models\n        - Video/Audio with use_file_data=True: ``fileData.fileUri`` (URL passthrough)\n        - Video/Audio with use_file_data=False: ``inlineData`` base64 (Gemini 2.5)\n        \"\"\"\n        parts: list[dict] = []\n\n        # Images → always inlineData (stable on all Gemini models)\n        if image_urls:\n            with httpx.Client(timeout=120, trust_env=False) as dl_client:\n                for url in image_urls:\n                    try:\n                        resp = dl_client.get(url, follow_redirects=True)\n                        resp.raise_for_status()\n                        mime = resp.headers.get(\"content-type\", \"image/jpeg\")\n                        b64 = base64.b64encode(resp.content).decode()\n                        parts.append({\"inlineData\": {\"mimeType\": mime, \"data\": b64}})\n                    except httpx.HTTPError as e:\n                        msg = f\"Failed to download image {url}: {e}\"\n                        raise ValueError(msg) from e\n\n        # Video & Audio → fileData or inlineData depending on flag\n        for urls, kind in [(video_urls, \"video\"), (audio_urls, \"audio\")]:\n            if use_file_data:\n                for url in urls:\n                    mime = self._guess_mime_type(url, kind)\n                    encoded_url = urllib.parse.quote(url, safe=\":/?&=%#\")\n                    parts.append({\"fileData\": {\"mimeType\": mime, \"fileUri\": encoded_url}})\n            else:\n                if urls:\n                    with httpx.Client(timeout=120, trust_env=False) as dl_client:\n                        for url in urls:\n                            try:\n                                resp = dl_client.get(url, follow_redirects=True)\n                                resp.raise_for_status()\n                                mime = resp.headers.get(\"content-type\", \"application/octet-stream\")\n                                b64 = base64.b64encode(resp.content).decode()\n                                parts.append({\"inlineData\": {\"mimeType\": mime, \"data\": b64}})\n                            except httpx.HTTPError as e:\n                                msg = f\"Failed to download {kind} {url}: {e}\"\n                                raise ValueError(msg) from e\n\n        return parts\n\n    def _build_gemini_payload(\n        self,\n        prompt: str,\n        system_message: str | None,\n        image_urls: list[str],\n        video_urls: list[str],\n        audio_urls: list[str],\n        *,\n        use_file_data: bool = True,\n    ) -> dict:\n        \"\"\"Build the full Gemini generateContent payload.\n\n        When using fileData, systemInstruction causes upstream errors\n        (NewAPI returns \"Cannot fetch content\" when both are present).\n        Workaround: embed system message as a user/model turn pair instead.\n        \"\"\"\n        media_parts = self._build_gemini_parts(image_urls, video_urls, audio_urls, use_file_data=use_file_data)\n\n        user_parts: list[dict] = []\n        if prompt:\n            user_parts.append({\"text\": prompt})\n        user_parts.extend(media_parts)\n\n        if system_message and use_file_data:\n            # fileData + systemInstruction = 400 upstream bug\n            # Inject system prompt as user/model turn pair\n            contents = [\n                {\"role\": \"user\", \"parts\": [{\"text\": system_message}]},\n                {\"role\": \"model\", \"parts\": [{\"text\": \"Understood.\"}]},\n                {\"role\": \"user\", \"parts\": user_parts},\n            ]\n        else:\n            contents = [{\"role\": \"user\", \"parts\": user_parts}]\n\n        payload: dict = {\n            \"contents\": contents,\n            \"generationConfig\": {\"responseModalities\": [\"TEXT\"]},\n        }\n        # systemInstruction is safe with inlineData (use_file_data=False)\n        if system_message and not use_file_data:\n            payload[\"systemInstruction\"] = {\"parts\": [{\"text\": system_message}]}\n        return payload\n\n    async def _upload_file_to_gemini(self, file_url: str, mime_type: str, raw_base: str, api_key: str) -> str | None:\n        \"\"\"Download a file and upload to Gemini Files API, returning the uploaded file URI.\"\"\"\n        try:\n            async with httpx.AsyncClient(timeout=300, trust_env=False) as dl:\n                resp = await dl.get(file_url, follow_redirects=True)\n                resp.raise_for_status()\n                file_bytes = resp.content\n\n            upload_url = f\"{raw_base}/upload/v1beta/files\"\n            headers = {\n                \"Authorization\": f\"Bearer {api_key}\",\n                \"X-Goog-Upload-Command\": \"start, upload, finalize\",\n                \"X-Goog-Upload-Protocol\": \"raw\",\n                \"X-Goog-Upload-Header-Content-Type\": mime_type,\n                \"Content-Type\": \"application/octet-stream\",\n            }\n            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:\n                resp = await client.post(upload_url, headers=headers, content=file_bytes)\n                if not resp.is_success:\n                    logger.warning(\"[MultimodalGemini] Files API upload failed: %s %s\", resp.status_code, resp.text[:200])\n                    return None\n                data = resp.json()\n                file_info = data.get(\"file\", data)\n                uri = file_info.get(\"uri\")\n                if uri:\n                    logger.warning(\"[MultimodalGemini] Files API upload success: %s → %s\", file_url[:60], uri[:80])\n                return uri\n        except Exception as e:\n            logger.warning(\"[MultimodalGemini] Files API upload exception: %s\", e)\n            return None\n\n    def _has_non_ascii(self, url: str) -> bool:\n        return any(ord(c) > 127 for c in url)\n\n    async def _resolve_non_ascii_urls(self, urls: list[str], kind: str, raw_base: str, api_key: str) -> list[str]:\n        \"\"\"For URLs with non-ASCII characters, upload via Files API and replace with the uploaded URI.\"\"\"\n        resolved = []\n        for url in urls:\n            if self._has_non_ascii(url):\n                mime = self._guess_mime_type(url, kind)\n                uploaded = await self._upload_file_to_gemini(url, mime, raw_base, api_key)\n                resolved.append(uploaded or url)\n            else:\n                resolved.append(url)\n        return resolved\n\n    async def _generate_via_gemini(self, prompt: str, system_message: str | None, image_urls: list[str], video_urls: list[str], audio_urls: list[str]) -> Message:\n        \"\"\"Generate text using Gemini models via the native generateContent endpoint.\"\"\"\n        api_key, raw_base, model_name = self._resolve_newapi_credentials()\n\n        url = f\"{raw_base}/v1beta/models/{model_name}:generateContent\"\n        headers = {\"Authorization\": f\"Bearer {api_key}\", \"Content-Type\": \"application/json\"}\n        has_video_or_audio = bool(video_urls or audio_urls)\n\n        self.status = \"Generating via Gemini...\"\n\n        # Resolve non-ASCII URLs via Files API before building payload\n        video_urls = await self._resolve_non_ascii_urls(video_urls, \"video\", raw_base, api_key)\n        audio_urls = await self._resolve_non_ascii_urls(audio_urls, \"audio\", raw_base, api_key)\n\n        async with httpx.AsyncClient(headers=headers, timeout=GEMINI_MODEL_TIMEOUT, trust_env=False) as client:\n            # Strategy (hybrid): images always inlineData, video/audio via fileData\n            # with multiple retries for transient upstream URL-fetch failures.\n            payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=True)\n            logger.warning(\"[MultimodalGemini] url=%s model=%s hybrid (images=inline, video/audio=fileData)\", url, model_name)\n            logger.warning(\"[MultimodalGemini] payload=%s\", payload)\n            resp = await client.post(url, json=payload)\n            logger.warning(\"[MultimodalGemini] response status=%s body=%s\", resp.status_code, resp.text[:500])\n\n            if resp.status_code == 400 and has_video_or_audio:\n                # Retry fileData up to 2 more times (upstream URL fetch is flaky)\n                for attempt in range(2, 4):\n                    logger.warning(\"[MultimodalGemini] attempt %d failed (%s), retrying\", attempt - 1, resp.text[:80])\n                    resp = await client.post(url, json=payload)\n                    if resp.is_success:\n                        break\n\n            if resp.status_code == 400:\n                # Final fallback: inlineData for everything (works on Gemini 2.5,\n                # but video will fail on Gemini 3.x)\n                logger.warning(\"[MultimodalGemini] fileData exhausted, trying full inlineData fallback\")\n                payload = self._build_gemini_payload(prompt, system_message, image_urls, video_urls, audio_urls, use_file_data=False)\n                resp = await client.post(url, json=payload)\n\n            if not resp.is_success:\n                error_text = resp.text\n                msg = f\"Gemini request failed (HTTP {resp.status_code}): {error_text}\"\n                raise ValueError(msg)\n            data = resp.json()\n\n        candidates = data.get(\"candidates\", [])\n        if not candidates:\n            msg = f\"No candidates in Gemini response: {data}\"\n            raise ValueError(msg)\n\n        response_parts = candidates[0].get(\"content\", {}).get(\"parts\", [])\n        text_result = \"\"\n        for p in response_parts:\n            if \"text\" in p:\n                text_result += p[\"text\"]\n\n        if not text_result:\n            msg = f\"No text in Gemini response: {data}\"\n            raise ValueError(msg)\n\n        self.status = text_result\n        return Message(text=text_result)\n\n    @staticmethod\n    def _build_media_content(\n        media_format: str,\n        image_urls: list[str],\n        video_urls: list[str],\n        audio_urls: list[str],\n    ) -> list[dict]:\n        \"\"\"Build multimodal content blocks in the chosen provider format.\"\"\"\n        blocks: list[dict] = []\n\n        if media_format == MEDIA_FORMAT_OPENAI:\n            # OpenAI: image_url for images, video/audio as image_url passthrough\n            # (NewAPI will detect actual content type and convert)\n            for url in image_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in video_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in audio_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n\n        elif media_format == MEDIA_FORMAT_ANTHROPIC:\n            # Anthropic: {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": ...}}\n            for url in image_urls:\n                blocks.append(\n                    {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": url}}\n                )\n            # Video/Audio: use same image block as passthrough for NewAPI conversion\n            for url in video_urls:\n                blocks.append(\n                    {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": url}}\n                )\n            for url in audio_urls:\n                blocks.append(\n                    {\"type\": \"image\", \"source\": {\"type\": \"url\", \"url\": url}}\n                )\n\n        elif media_format == MEDIA_FORMAT_GOOGLE:\n            # Google Gemini: native video_url / audio_url types supported\n            for url in image_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in video_urls:\n                blocks.append({\"type\": \"video_url\", \"video_url\": {\"url\": url}})\n            for url in audio_urls:\n                blocks.append({\"type\": \"audio_url\", \"audio_url\": {\"url\": url}})\n\n        else:\n            # Auto (default): native types per media kind\n            for url in image_urls:\n                blocks.append({\"type\": \"image_url\", \"image_url\": {\"url\": url}})\n            for url in video_urls:\n                blocks.append({\"type\": \"video_url\", \"video_url\": {\"url\": url}})\n            for url in audio_urls:\n                blocks.append({\"type\": \"audio_url\", \"audio_url\": {\"url\": url}})\n\n        return blocks\n\n    async def text_response(self) -> Message:\n        \"\"\"Generate text from multimodal input.\"\"\"\n        self.log(f\"user_wallet_id={getattr(self, 'user_wallet_id', None)}, task_id={getattr(self, 'task_id', None)}\")\n        prompt = self.input_value\n        prompt = self.input_value\n        if isinstance(prompt, Message):\n            prompt = prompt.get_text()\n        prompt = (prompt or \"\").strip()\n\n        # Collect media URLs\n        image_urls = self._collect_urls(IMAGE_PREFIX)\n        video_urls = self._collect_urls(VIDEO_PREFIX)\n        audio_urls = self._collect_urls(AUDIO_PREFIX)\n\n        if not prompt and not image_urls and not video_urls and not audio_urls:\n            msg = \"Please provide a text prompt or at least one media input.\"\n            raise ValueError(msg)\n\n        system_message = getattr(self, \"system_message\", None) or None\n\n        # Route Gemini models (via NewAPI) to native generateContent endpoint\n        is_gemini = self._is_gemini_model()\n        if is_gemini:\n            return await self._generate_via_gemini(prompt, system_message, image_urls, video_urls, audio_urls)\n\n        # --- Standard LangChain flow for other providers ---\n        runnable = self.build_model()\n\n        # Build multimodal content list\n        content: list[dict] = []\n        if prompt:\n            content.append({\"type\": \"text\", \"text\": prompt})\n\n        media_format = getattr(self, \"media_format\", MEDIA_FORMAT_AUTO)\n        content.extend(self._build_media_content(media_format, image_urls, video_urls, audio_urls))\n\n        result = await self._get_chat_result(\n            runnable=runnable,\n            stream=self.stream,\n            input_value=content if len(content) > 1 else (content[0] if content else \"\"),\n            system_message=getattr(self, \"system_message\", None) or None,\n        )\n        self.status = result\n        return result\n\n    async def _get_chat_result(\n        self,\n        *,\n        runnable: LanguageModel,\n        stream: bool,\n        input_value,\n        system_message: str | None = None,\n    ) -> Message:\n        \"\"\"Invoke the model with multimodal content.\"\"\"\n        messages = []\n        if system_message:\n            messages.append(SystemMessage(content=system_message))\n\n        # input_value can be a list of content dicts or a string\n        if isinstance(input_value, list | str):\n            messages.append(HumanMessage(content=input_value))\n        elif isinstance(input_value, Message):\n            messages.append(input_value.to_lc_message(self.name))\n\n        runnable = runnable.with_config(\n            {\n                \"run_name\": self.display_name,\n                \"project_name\": self.get_project_name(),\n                \"callbacks\": self.get_langchain_callbacks(),\n            }\n        )\n\n        if stream:\n            lf_message, result = await self._handle_stream(runnable, messages)\n        else:\n            ai_message = await runnable.ainvoke(messages)\n            result = ai_message.content if hasattr(ai_message, \"content\") else ai_message\n\n        if stream and lf_message:\n            return lf_message\n\n        return Message(text=result)\n"
             },
             "google_base_url": {
               "_input_type": "StrInput",
@@ -94543,7 +94543,7 @@
               "override_skip": false,
               "placeholder": "",
               "required": false,
-              "show": false,
+              "show": true,
               "title_case": false,
               "tool_mode": false,
               "trace_as_metadata": true,
@@ -94594,7 +94594,7 @@
               "override_skip": false,
               "placeholder": "",
               "required": false,
-              "show": false,
+              "show": true,
               "title_case": false,
               "tool_mode": false,
               "trace_as_metadata": true,
@@ -116820,158 +116820,6 @@
     [
       "video",
       {
-        "OriginalVideoURL": {
-          "base_classes": [
-            "Message"
-          ],
-          "beta": false,
-          "conditional_paths": [],
-          "custom_fields": {},
-          "description": "Parse a shared video link and return the original video URL.",
-          "display_name": "Original Video URL",
-          "documentation": "",
-          "edited": false,
-          "field_order": [
-            "link",
-            "api_url",
-            "timeout"
-          ],
-          "frozen": false,
-          "icon": "Video",
-          "legacy": false,
-          "metadata": {
-            "code_hash": "c03c87391da2",
-            "dependencies": {
-              "dependencies": [
-                {
-                  "name": "httpx",
-                  "version": "0.28.1"
-                },
-                {
-                  "name": "lfx",
-                  "version": null
-                }
-              ],
-              "total_dependencies": 2
-            },
-            "module": "lfx.components.video.original_video_url.OriginalVideoURLComponent"
-          },
-          "minimized": false,
-          "output_types": [],
-          "outputs": [
-            {
-              "allows_loop": false,
-              "cache": true,
-              "display_name": "Video URL",
-              "group_outputs": false,
-              "method": "parse_video_url",
-              "name": "video_url",
-              "selected": "Message",
-              "tool_mode": true,
-              "types": [
-                "Message"
-              ],
-              "value": "__UNDEFINED__"
-            }
-          ],
-          "pinned": false,
-          "template": {
-            "_type": "Component",
-            "api_url": {
-              "_input_type": "MessageTextInput",
-              "advanced": true,
-              "display_name": "Parse API URL",
-              "dynamic": false,
-              "info": "",
-              "input_types": [
-                "Message"
-              ],
-              "list": false,
-              "list_add_label": "Add More",
-              "load_from_db": false,
-              "name": "api_url",
-              "override_skip": false,
-              "placeholder": "",
-              "required": false,
-              "show": true,
-              "title_case": false,
-              "tool_mode": false,
-              "trace_as_input": true,
-              "trace_as_metadata": true,
-              "track_in_telemetry": false,
-              "type": "str",
-              "value": "http://119.45.237.10:12006/parse_content"
-            },
-            "code": {
-              "advanced": true,
-              "dynamic": true,
-              "fileTypes": [],
-              "file_path": "",
-              "info": "",
-              "list": false,
-              "load_from_db": false,
-              "multiline": true,
-              "name": "code",
-              "password": false,
-              "placeholder": "",
-              "required": true,
-              "show": true,
-              "title_case": false,
-              "type": "code",
-              "value": "from __future__ import annotations\n\nfrom typing import Any\n\nimport httpx\n\nfrom lfx.custom import Component\nfrom lfx.inputs import IntInput, MultilineInput\nfrom lfx.io import MessageTextInput, Output\nfrom lfx.schema.message import Message\n\n\nclass OriginalVideoURLComponent(Component):\n    display_name = \"Original Video URL\"\n    description = \"Parse a shared video link and return the original video URL.\"\n    icon = \"Video\"\n    name = \"OriginalVideoURL\"\n\n    inputs = [\n        MultilineInput(\n            name=\"link\",\n            display_name=\"Video Link\",\n            info=\"Paste the shared video text or URL to parse.\",\n            required=True,\n            tool_mode=True,\n        ),\n        MessageTextInput(\n            name=\"api_url\",\n            display_name=\"Parse API URL\",\n            value=\"http://119.45.237.10:12006/parse_content\",\n            advanced=True,\n        ),\n        IntInput(\n            name=\"timeout\",\n            display_name=\"Timeout\",\n            value=30,\n            advanced=True,\n        ),\n    ]\n\n    outputs = [\n        Output(display_name=\"Video URL\", name=\"video_url\", method=\"parse_video_url\"),\n    ]\n\n    def _extract_video_url(self, payload: dict[str, Any]) -> str:\n        top_level_url = payload.get(\"url\")\n        if isinstance(top_level_url, str) and top_level_url.strip():\n            return top_level_url.strip()\n\n        videos = payload.get(\"videos\")\n        if isinstance(videos, list):\n            for video in videos:\n                if not isinstance(video, dict):\n                    continue\n\n                video_url = video.get(\"url\")\n                if isinstance(video_url, str) and video_url.strip():\n                    return video_url.strip()\n\n                fullinfo = video.get(\"video_fullinfo\")\n                if isinstance(fullinfo, list):\n                    for item in fullinfo:\n                        if isinstance(item, dict):\n                            fullinfo_url = item.get(\"url\")\n                            if isinstance(fullinfo_url, str) and fullinfo_url.strip():\n                                return fullinfo_url.strip()\n\n        return \"\"\n\n    def parse_video_url(self) -> Message:\n        link = (self.link or \"\").strip()\n        if not link:\n            self.status = \"No video link provided.\"\n            return Message(text=\"\")\n\n        api_url = (self.api_url or \"\").strip()\n        if not api_url:\n            msg = \"Parse API URL is required.\"\n            raise ValueError(msg)\n\n        try:\n            with httpx.Client(timeout=self.timeout, trust_env=False) as client:\n                response = client.post(api_url, json={\"link\": link})\n                response.raise_for_status()\n                payload = response.json()\n        except httpx.HTTPError as exc:\n            msg = f\"Failed to parse video link: {exc}\"\n            raise ValueError(msg) from exc\n        except ValueError as exc:\n            msg = \"Parse API returned an invalid JSON response.\"\n            raise ValueError(msg) from exc\n\n        if not isinstance(payload, dict):\n            msg = \"Parse API response must be a JSON object.\"\n            raise TypeError(msg)\n\n        video_url = self._extract_video_url(payload)\n        if not video_url:\n            msg = \"No video URL found in parse API response.\"\n            raise ValueError(msg)\n\n        self.status = video_url\n        return Message(text=video_url)\n"
-            },
-            "link": {
-              "_input_type": "MultilineInput",
-              "advanced": false,
-              "ai_enabled": false,
-              "copy_field": false,
-              "display_name": "Video Link",
-              "dynamic": false,
-              "info": "Paste the shared video text or URL to parse.",
-              "input_types": [
-                "Message"
-              ],
-              "list": false,
-              "list_add_label": "Add More",
-              "load_from_db": false,
-              "multiline": true,
-              "name": "link",
-              "override_skip": false,
-              "password": false,
-              "placeholder": "",
-              "required": true,
-              "show": true,
-              "title_case": false,
-              "tool_mode": true,
-              "trace_as_input": true,
-              "trace_as_metadata": true,
-              "track_in_telemetry": false,
-              "type": "str",
-              "value": ""
-            },
-            "timeout": {
-              "_input_type": "IntInput",
-              "advanced": true,
-              "display_name": "Timeout",
-              "dynamic": false,
-              "info": "",
-              "list": false,
-              "list_add_label": "Add More",
-              "name": "timeout",
-              "override_skip": false,
-              "placeholder": "",
-              "required": false,
-              "show": true,
-              "title_case": false,
-              "tool_mode": false,
-              "trace_as_metadata": true,
-              "track_in_telemetry": true,
-              "type": "int",
-              "value": 30
-            }
-          },
-          "tool_mode": false
-        },
         "VideoConcatenator": {
           "base_classes": [
             "Data",
@@ -118571,6 +118419,460 @@
     [
       "volcengine",
       {
+        "SeedanceChainVideo": {
+          "base_classes": [
+            "JSON",
+            "Message"
+          ],
+          "beta": false,
+          "conditional_paths": [],
+          "custom_fields": {},
+          "description": "使用火山引擎 Seedance 2.0 API 生成多个连续视频，通过多张主体参考图和参考视频保持主体一致性。",
+          "display_name": "Seedance 连续视频",
+          "documentation": "",
+          "edited": false,
+          "field_order": [
+            "api_key",
+            "user_wallet_id",
+            "task_id",
+            "base_url",
+            "model",
+            "prompts",
+            "subject_reference_urls",
+            "resolution",
+            "ratio",
+            "generate_audio",
+            "watermark",
+            "trust_env",
+            "poll_interval",
+            "max_wait_time",
+            "request_timeout"
+          ],
+          "frozen": false,
+          "icon": "Video",
+          "legacy": false,
+          "metadata": {
+            "code_hash": "1631c7551add",
+            "dependencies": {
+              "dependencies": [
+                {
+                  "name": "httpx",
+                  "version": "0.28.1"
+                },
+                {
+                  "name": "lfx",
+                  "version": null
+                }
+              ],
+              "total_dependencies": 2
+            },
+            "module": "lfx.components.volcengine.seedance_chain_video.SeedanceChainVideoComponent"
+          },
+          "minimized": false,
+          "output_types": [],
+          "outputs": [
+            {
+              "allows_loop": false,
+              "cache": true,
+              "display_name": "所有视频URL",
+              "group_outputs": true,
+              "method": "get_video_urls",
+              "name": "video_urls",
+              "selected": "Message",
+              "tool_mode": true,
+              "types": [
+                "Message"
+              ],
+              "value": "__UNDEFINED__"
+            },
+            {
+              "allows_loop": false,
+              "cache": true,
+              "display_name": "任务信息",
+              "group_outputs": true,
+              "method": "get_task_info",
+              "name": "task_info",
+              "selected": "JSON",
+              "tool_mode": true,
+              "types": [
+                "JSON"
+              ],
+              "value": "__UNDEFINED__"
+            }
+          ],
+          "pinned": false,
+          "template": {
+            "_type": "Component",
+            "api_key": {
+              "_input_type": "SecretStrInput",
+              "advanced": false,
+              "display_name": "API Key",
+              "dynamic": false,
+              "info": "火山引擎 API Key。",
+              "input_types": [],
+              "load_from_db": true,
+              "name": "api_key",
+              "override_skip": false,
+              "password": true,
+              "placeholder": "",
+              "required": true,
+              "show": true,
+              "title_case": false,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": ""
+            },
+            "base_url": {
+              "_input_type": "MessageTextInput",
+              "advanced": true,
+              "display_name": "Base URL",
+              "dynamic": false,
+              "info": "API 基础地址，留空使用默认地址。",
+              "input_types": [
+                "Message"
+              ],
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "name": "base_url",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_input": true,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": "http://localhost:3000/v1/videos"
+            },
+            "code": {
+              "advanced": true,
+              "dynamic": true,
+              "fileTypes": [],
+              "file_path": "",
+              "info": "",
+              "list": false,
+              "load_from_db": false,
+              "multiline": true,
+              "name": "code",
+              "password": false,
+              "placeholder": "",
+              "required": true,
+              "show": true,
+              "title_case": false,
+              "type": "code",
+              "value": "# ruff: noqa: BLE001, EM101, EM102, PERF401, PLR2004, RUF001, RUF003, S110, SIM105, TRY003, TRY004\n\nimport json\nimport time\nfrom urllib.parse import urlparse\n\nimport httpx\n\nfrom lfx.custom import Component\nfrom lfx.inputs import (\n    BoolInput,\n    DropdownInput,\n    IntInput,\n    MessageTextInput,\n    MultilineInput,\n    SecretStrInput,\n)\nfrom lfx.inputs.inputs import StrInput\nfrom lfx.io import Output\nfrom lfx.schema.data import Data\nfrom lfx.schema.message import Message\n\nBASE_URL = \"http://localhost:3000/v1/videos\"\nDEFAULT_API_KEY = \"\"\n\nMAX_REF_IMAGES = 9\nMAX_SEGMENTS = 20\nDEFAULT_REQUEST_TIMEOUT = 180\n\n# 任务终态：含 cancelled，避免主动取消的任务被轮询到超时\nTERMINAL_FAIL_STATUSES = (\"failed\", \"error\", \"expired\", \"cancelled\")\n\n\nclass TaskError(Exception):\n    pass\n\n\nclass TaskTimeoutError(Exception):\n    pass\n\n\nclass SeedanceChainVideoComponent(Component):\n    display_name = \"Seedance 连续视频\"\n    description = \"使用火山引擎 Seedance 2.0 API 生成多个连续视频，通过多张主体参考图和参考视频保持主体一致性。\"\n    icon = \"Video\"\n    name = \"SeedanceChainVideo\"\n\n    inputs = [\n        SecretStrInput(\n            name=\"api_key\",\n            display_name=\"API Key\",\n            info=\"火山引擎 API Key。\",\n            required=True,\n            value=DEFAULT_API_KEY,\n        ),\n        StrInput(\n            name=\"user_wallet_id\",\n            display_name=\"User Wallet ID\",\n            info=\"Passed as User-Wallet-Id header to NewAPI\",\n            show=True,\n            advanced=True,\n        ),\n        StrInput(\n            name=\"task_id\",\n            display_name=\"Task ID\",\n            info=\"Passed as Task-Id header to NewAPI\",\n            show=True,\n            advanced=True,\n        ),\n        MessageTextInput(\n            name=\"base_url\",\n            display_name=\"Base URL\",\n            info=\"API 基础地址，留空使用默认地址。\",\n            value=BASE_URL,\n            advanced=True,\n        ),\n        MessageTextInput(\n            name=\"model\",\n            display_name=\"模型\",\n            info=\"模型ID，如 doubao-seedance-2-0-260128。\",\n            value=\"doubao-seedance-2-0-260128\",\n        ),\n        MultilineInput(\n            name=\"prompts\",\n            display_name=\"提示词列表\",\n            info='JSON 数组格式，每个提示词生成一个视频段落。如 [\"提示词1\", \"提示词2\"]。',\n            required=True,\n        ),\n        MultilineInput(\n            name=\"subject_reference_urls\",\n            display_name=\"主体参考图\",\n            info='可选。主体参考图片URL，JSON 数组格式，支持同一主体多角度参考，最多9张。如 [\"https://xxx/front.jpg\", \"https://xxx/side.jpg\"]。不提供则使用纯文生视频。',\n            value=\"\",\n        ),\n        DropdownInput(\n            name=\"resolution\",\n            display_name=\"分辨率\",\n            info=\"输出视频分辨率。\",\n            options=[\"720p\", \"480p\", \"1080p\"],\n            value=\"720p\",\n            advanced=True,\n        ),\n        DropdownInput(\n            name=\"ratio\",\n            display_name=\"宽高比\",\n            info=\"输出视频宽高比。\",\n            options=[\"adaptive\", \"16:9\", \"9:16\", \"1:1\", \"4:3\", \"3:4\", \"21:9\"],\n            value=\"adaptive\",\n            advanced=True,\n        ),\n        BoolInput(\n            name=\"generate_audio\",\n            display_name=\"生成音频\",\n            info=\"为视频生成同步音频。\",\n            value=False,\n            advanced=True,\n        ),\n        BoolInput(\n            name=\"watermark\",\n            display_name=\"水印\",\n            info=\"是否添加水印。\",\n            value=False,\n            advanced=True,\n        ),\n        BoolInput(\n            name=\"trust_env\",\n            display_name=\"使用系统代理\",\n            info=\"开启后使用环境变量中的 HTTP/HTTPS 代理设置。需要走公司代理出网时打开。\",\n            value=False,\n            advanced=True,\n        ),\n        IntInput(\n            name=\"poll_interval\",\n            display_name=\"轮询间隔 (秒)\",\n            info=\"状态查询间隔秒数。\",\n            value=5,\n            advanced=True,\n        ),\n        IntInput(\n            name=\"max_wait_time\",\n            display_name=\"最大等待时间 (秒)\",\n            info=\"单个任务最大等待秒数。\",\n            value=1800,\n            advanced=True,\n        ),\n        IntInput(\n            name=\"request_timeout\",\n            display_name=\"请求读取超时 (秒)\",\n            info=\"单次 HTTP 请求等待响应的最大秒数。创建任务和查询任务都会使用它。\",\n            value=DEFAULT_REQUEST_TIMEOUT,\n            advanced=True,\n        ),\n    ]\n\n    outputs = [\n        Output(\n            display_name=\"所有视频URL\",\n            name=\"video_urls\",\n            method=\"get_video_urls\",\n            type_=Message,\n            group_outputs=True,\n        ),\n        Output(\n            display_name=\"任务信息\",\n            name=\"task_info\",\n            method=\"get_task_info\",\n            type_=Data,\n            group_outputs=True,\n        ),\n    ]\n\n    def __init__(self, **kwargs):\n        super().__init__(**kwargs)\n        self._results: list[dict] = []\n        self._generation_done: bool = False\n        self._generation_error: Exception | None = None\n\n    def _debug_log(self, message: str, name: str = \"Seedance\") -> None:\n        timestamp = time.strftime(\"%H:%M:%S\")\n        self.log(f\"[{timestamp}] {message}\", name=name)\n\n    # ---------- 输入解析 ----------\n\n    def _parse_prompts(self) -> list[str]:\n        raw = self.prompts or \"\"\n        if isinstance(raw, Message):\n            raw = raw.get_text()\n        parsed = json.loads(str(raw).strip())\n        if not isinstance(parsed, list):\n            raise ValueError('提示词输入必须是 JSON 数组格式，如 [\"提示词1\", \"提示词2\"]')\n        result = [str(item).strip() for item in parsed if str(item).strip()]\n        if len(result) > MAX_SEGMENTS:\n            raise ValueError(f\"提示词数量不能超过 {MAX_SEGMENTS} 个，当前: {len(result)}\")\n        return result\n\n    def _parse_ref_urls(self) -> list[str]:\n        raw = self.subject_reference_urls or \"\"\n        if isinstance(raw, Message):\n            raw = raw.get_text()\n        raw = str(raw).strip()\n        if not raw:\n            return []\n        parsed = json.loads(raw)\n        if not isinstance(parsed, list):\n            raise ValueError('参考图输入必须是 JSON 数组格式，如 [\"url1\", \"url2\"]')\n        result = [str(u).strip() for u in parsed if str(u).strip()]\n        if len(result) > MAX_REF_IMAGES:\n            raise ValueError(f\"参考图数量不能超过 {MAX_REF_IMAGES} 张，当前: {len(result)}\")\n        return result\n\n    def _get_request_variable(self, request_vars, *keys: str) -> str:\n        if not request_vars or not hasattr(request_vars, \"get\"):\n            return \"\"\n        for key in keys:\n            value = request_vars.get(key)\n            if value:\n                return str(value).strip()\n        return \"\"\n\n    def _resolve_tracking_headers(self) -> tuple[str, str]:\n        wallet_id = str(getattr(self, \"user_wallet_id\", \"\") or \"\").strip()\n        tracking_task_id = str(getattr(self, \"task_id\", \"\") or \"\").strip()\n\n        request_vars = None\n        if hasattr(self, \"graph\") and self.graph and hasattr(self.graph, \"context\"):\n            request_vars = self.graph.context.get(\"request_variables\")\n\n        if not wallet_id:\n            wallet_id = self._get_request_variable(\n                request_vars,\n                \"USER-WALLET-ID\",\n                \"USER_WALLET_ID\",\n                \"User-Wallet-Id\",\n                \"user_wallet_id\",\n            )\n        if not tracking_task_id:\n            tracking_task_id = self._get_request_variable(\n                request_vars,\n                \"TASK-ID\",\n                \"TASK_ID\",\n                \"Task-Id\",\n                \"task_id\",\n            )\n\n        self.log(f\"user_wallet_id={wallet_id}, task_id={tracking_task_id}\")\n        return wallet_id, tracking_task_id\n\n    # ---------- 提示词构造 ----------\n\n    def _build_ref_prefix(self, segment_num: int) -> str:\n        # 第 1 段无参考视频，无需前缀\n        if segment_num == 1:\n            return \"\"\n        # 第 N 段的 reference_video 实际是上一段视频，因此用\"上一个视频\"而非写死的\"视频1\"\n        return \"向后延长上一个视频。\"\n\n    def _build_content(\n        self,\n        prompt: str,\n        ref_image_urls: list[str],\n        ref_video_url: str = \"\",\n    ) -> list[dict]:\n        content: list[dict] = [{\"type\": \"text\", \"text\": prompt}]\n\n        for url in ref_image_urls:\n            content.append(\n                {\n                    \"type\": \"image_url\",\n                    \"image_url\": {\"url\": url},\n                    \"role\": \"reference_image\",\n                }\n            )\n\n        if ref_video_url:\n            content.append(\n                {\n                    \"type\": \"video_url\",\n                    \"video_url\": {\"url\": ref_video_url},\n                    \"role\": \"reference_video\",\n                }\n            )\n\n        return content\n\n    def _build_request_body(\n        self,\n        prompt: str,\n        ref_image_urls: list[str],\n        ref_video_url: str = \"\",\n    ) -> dict:\n        return {\n            \"model\": self.model,\n            \"prompt\": prompt,\n            \"metadata\": {\n                \"content\": self._build_content(prompt, ref_image_urls, ref_video_url),\n                \"resolution\": self.resolution,\n                \"ratio\": self.ratio,\n                \"duration\": -1,\n                \"generate_audio\": self.generate_audio,\n                \"watermark\": self.watermark,\n            },\n        }\n\n    # ---------- HTTP 调用 ----------\n\n    def _http_timeout(self) -> httpx.Timeout:\n        read_timeout = int(getattr(self, \"request_timeout\", DEFAULT_REQUEST_TIMEOUT) or DEFAULT_REQUEST_TIMEOUT)\n        read_timeout = max(read_timeout, 30)\n        return httpx.Timeout(connect=10, read=read_timeout, write=60, pool=10)\n\n    def _create_task(\n        self,\n        client: httpx.Client,\n        prompt: str,\n        ref_image_urls: list[str],\n        ref_video_url: str = \"\",\n    ) -> str:\n        payload = self._build_request_body(prompt, ref_image_urls, ref_video_url)\n        start = time.perf_counter()\n        self._debug_log(\n            f\"Create task request: model={self.model}, prompt_chars={len(prompt)}, \"\n            f\"ref_images={len(ref_image_urls)}, has_ref_video={bool(ref_video_url)}\"\n        )\n        try:\n            resp = client.post(self.base_url, json=payload)\n            elapsed = time.perf_counter() - start\n            self._debug_log(f\"Create task response: status_code={resp.status_code}, elapsed={elapsed:.1f}s\")\n            resp.raise_for_status()\n        except httpx.ReadTimeout as e:\n            elapsed = time.perf_counter() - start\n            error_msg = (\n                \"Create task timed out while waiting for response. \"\n                \"The server may still be processing it; increase Request Timeout or use Task-Id idempotency \"\n                \"before retrying.\"\n            )\n            self._debug_log(\n                f\"Create task read timeout: elapsed={elapsed:.1f}s, \"\n                f\"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s\",\n                name=\"WARNING\",\n            )\n            self.log(error_msg, \"WARNING\")\n            raise TaskError(error_msg) from e\n        except httpx.HTTPStatusError as e:\n            elapsed = time.perf_counter() - start\n            detail = \"\"\n            try:\n                detail = e.response.text\n            except Exception:\n                pass\n            error_msg = f\"API error {e.response.status_code}: {detail}\"\n            self._debug_log(f\"Create task HTTP error: status_code={e.response.status_code}, elapsed={elapsed:.1f}s\")\n            self.log(error_msg, \"ERROR\")\n            raise TaskError(error_msg) from e\n        data = resp.json()\n        task_id = data.get(\"id\", \"\")\n        if not task_id:\n            raise TaskError(f\"No task ID in response: {data}\")\n        self._debug_log(f\"Create task success: task_id={task_id}\")\n        return task_id\n\n    def _poll_task(self, client: httpx.Client, task_id: str) -> dict:\n        url = f\"{self.base_url}/{task_id}\"\n        deadline = time.time() + self.max_wait_time\n        consecutive_errors = 0\n        max_consecutive_errors = 5\n        attempt = 0\n\n        while time.time() < deadline:\n            attempt += 1\n            try:\n                poll_start = time.perf_counter()\n                self.log(f\"Polling task {task_id[:12]}... (attempt {attempt})\")\n                self._debug_log(f\"Poll task request: task_id={task_id[:12]}, attempt={attempt}\")\n                resp = client.get(url)\n                elapsed = time.perf_counter() - poll_start\n                self._debug_log(f\"Poll task response: status_code={resp.status_code}, elapsed={elapsed:.1f}s\")\n                resp.raise_for_status()\n                data = resp.json()\n                consecutive_errors = 0\n\n                status = data.get(\"status\", \"unknown\")\n                self.status = f\"段落任务 {task_id[:12]}... 状态: {status}\"\n                self.log(f\"Task {task_id[:12]}... status: {status}\")\n                self._debug_log(f\"Poll task status: task_id={task_id[:12]}, status={status}\")\n\n                if status in (\"succeeded\", \"completed\"):\n                    return data\n                if status in TERMINAL_FAIL_STATUSES:\n                    error_msg = data.get(\"error\", {})\n                    raise TaskError(f\"Task {task_id[:12]}... ended with status={status}, error={error_msg}\")\n\n                time.sleep(self.poll_interval)\n\n            except TaskError:\n                raise\n            except httpx.ReadTimeout as e:\n                elapsed = time.perf_counter() - poll_start\n                consecutive_errors += 1\n                self._debug_log(\n                    f\"Poll read timeout: task_id={task_id[:12]}, attempt={attempt}, elapsed={elapsed:.1f}s, \"\n                    f\"consecutive_errors={consecutive_errors}/{max_consecutive_errors}, \"\n                    f\"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s\",\n                    name=\"WARNING\",\n                )\n                self.log(\n                    f\"Polling read timeout, retrying... ({consecutive_errors}/{max_consecutive_errors})\",\n                    \"WARNING\",\n                )\n                if consecutive_errors >= max_consecutive_errors:\n                    raise TaskError(f\"Too many read timeouts polling task {task_id[:12]}...\") from e\n                time.sleep(self.poll_interval * 2)\n            except httpx.HTTPStatusError as e:\n                elapsed = time.perf_counter() - poll_start\n                # 4xx 立即失败（鉴权错、任务不存在等不会自愈）；5xx 才重试\n                code = e.response.status_code\n                if 400 <= code < 500:\n                    detail = \"\"\n                    try:\n                        detail = e.response.text\n                    except Exception:\n                        pass\n                    self._debug_log(\n                        f\"Poll task fatal HTTP error: task_id={task_id[:12]}, status_code={code}, \"\n                        f\"elapsed={elapsed:.1f}s\",\n                        name=\"ERROR\",\n                    )\n                    raise TaskError(f\"Polling task {task_id[:12]}... HTTP {code}: {detail}\") from e\n                consecutive_errors += 1\n                self._debug_log(\n                    f\"Poll task transient HTTP error: task_id={task_id[:12]}, status_code={code}, \"\n                    f\"elapsed={elapsed:.1f}s, consecutive_errors={consecutive_errors}/{max_consecutive_errors}\",\n                    name=\"WARNING\",\n                )\n                self.log(f\"HTTP {code} (transient), retry...\", \"WARNING\")\n                if consecutive_errors >= max_consecutive_errors:\n                    raise TaskError(f\"Too many 5xx errors polling task {task_id[:12]}...\") from e\n                time.sleep(self.poll_interval * 2)\n            except (httpx.HTTPError, ValueError, KeyError) as e:\n                elapsed = time.perf_counter() - poll_start\n                consecutive_errors += 1\n                self._debug_log(\n                    f\"Poll task error: task_id={task_id[:12]}, error={type(e).__name__}: {e}, \"\n                    f\"elapsed={elapsed:.1f}s, consecutive_errors={consecutive_errors}/{max_consecutive_errors}\",\n                    name=\"WARNING\",\n                )\n                self.log(f\"Polling error: {e}\", \"WARNING\")\n                if consecutive_errors >= max_consecutive_errors:\n                    raise TaskError(f\"Too many errors polling task {task_id[:12]}...\") from e\n                time.sleep(self.poll_interval * 2)\n\n        raise TaskTimeoutError(f\"Task {task_id[:12]}... timed out after {self.max_wait_time}s\")\n\n    def _extract_video_url(self, data: dict) -> str:\n        metadata = data.get(\"metadata\")\n        if isinstance(metadata, dict):\n            url = metadata.get(\"url\") or metadata.get(\"video_url\")\n            if url:\n                return url\n        url = data.get(\"url\") or data.get(\"video_url\")\n        if url:\n            return url\n        wrapped = data.get(\"data\")\n        if isinstance(wrapped, dict):\n            url = self._extract_video_url(wrapped)\n            if url:\n                return url\n        content = data.get(\"content\")\n        if isinstance(content, dict):\n            return content.get(\"video_url\", \"\")\n        # 文档若返回 list，取第一个 video_url 字段\n        if isinstance(content, list):\n            for item in content:\n                if isinstance(item, dict) and item.get(\"video_url\"):\n                    return item[\"video_url\"]\n        return \"\"\n\n    # ---------- 主流程 ----------\n\n    def _ensure_generated(self):\n        # 已成功完成过 -> 直接复用\n        if self._generation_done and self._generation_error is None:\n            return\n        # 上次失败 -> 抛出原错误，由调用方决定是否重试（重建实例或显式重置）\n        if self._generation_error is not None:\n            raise self._generation_error\n\n        try:\n            prompts = self._parse_prompts()\n        except (json.JSONDecodeError, ValueError) as e:\n            self._generation_error = e\n            raise\n\n        if not prompts:\n            self._results = []\n            self._generation_done = True\n            return\n\n        try:\n            ref_image_urls = self._parse_ref_urls()\n        except (json.JSONDecodeError, ValueError) as e:\n            self._generation_error = e\n            raise\n\n        self._debug_log(\n            f\"Start chain generation: segments={len(prompts)}, ref_images={len(ref_image_urls)}, \"\n            f\"request_timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}, \"\n            f\"max_wait_time={self.max_wait_time}, poll_interval={self.poll_interval}\"\n        )\n\n        headers = {\n            \"Authorization\": f\"Bearer {self.api_key}\",\n            \"Content-Type\": \"application/json\",\n        }\n        wallet_id, tracking_task_id = self._resolve_tracking_headers()\n        if wallet_id:\n            headers[\"User-Wallet-Id\"] = wallet_id\n        if tracking_task_id:\n            headers[\"Task-Id\"] = tracking_task_id\n\n        # 重置结果，避免重入时残留\n        self._results = []\n\n        try:\n            with httpx.Client(\n                headers=headers,\n                timeout=self._http_timeout(),\n                trust_env=bool(self.trust_env),\n            ) as client:\n                prev_video_url = \"\"\n\n                for i, prompt in enumerate(prompts):\n                    segment_num = i + 1\n                    self.status = f\"正在生成第 {segment_num}/{len(prompts)} 个视频...\"\n                    self._debug_log(f\"Segment start: segment={segment_num}/{len(prompts)}\")\n\n                    prefix = self._build_ref_prefix(segment_num)\n                    final_prompt = prefix + prompt\n\n                    self.log(f\"=== 段落 {segment_num}/{len(prompts)} ===\")\n                    self.log(f\"原始提示词: {prompt[:100]}{'...' if len(prompt) > 100 else ''}\")\n                    self.log(f\"最终提示词: {final_prompt[:150]}{'...' if len(final_prompt) > 150 else ''}\")\n                    if ref_image_urls:\n                        self.log(f\"参考图({len(ref_image_urls)}张)\")\n                    if prev_video_url:\n                        self.log(f\"参考视频(上一段): {prev_video_url[:80]}...\")\n                        self._debug_log(\n                            f\"Segment uses previous video: segment={segment_num}, \"\n                            f\"prev_video_domain={urlparse(prev_video_url).netloc}, url_chars={len(prev_video_url)}\"\n                        )\n\n                    task_id = \"\"\n                    try:\n                        self.status = f\"第 {segment_num}/{len(prompts)} 段：正在提交任务\"\n                        task_id = self._create_task(client, final_prompt, ref_image_urls, prev_video_url)\n                        self.log(f\"任务已提交: {task_id}\")\n\n                        self.status = f\"第 {segment_num}/{len(prompts)} 段：正在轮询任务\"\n                        result = self._poll_task(client, task_id)\n                        video_url = self._extract_video_url(result)\n\n                        if not video_url:\n                            raise TaskError(f\"Task {task_id[:12]}... succeeded but no video_url in response\")\n\n                        self._results.append(\n                            {\n                                \"segment\": segment_num,\n                                \"task_id\": task_id,\n                                \"prompt\": prompt,\n                                \"video_url\": video_url,\n                                \"status\": result.get(\"status\", \"\"),\n                                \"usage\": result.get(\"usage\"),\n                            }\n                        )\n\n                        prev_video_url = video_url\n                        self.log(f\"视频: {video_url[:80]}...\")\n                        parsed_video_url = urlparse(video_url)\n                        self._debug_log(\n                            f\"Segment success: segment={segment_num}, task_id={task_id}, \"\n                            f\"video_domain={parsed_video_url.netloc}, url_chars={len(video_url)}\"\n                        )\n\n                    except (TaskError, TaskTimeoutError) as e:\n                        self.log(f\"段落 {segment_num} 失败: {e}\", \"ERROR\")\n                        self._debug_log(\n                            f\"Segment failed: segment={segment_num}, task_id={task_id or 'none'}, \"\n                            f\"error={type(e).__name__}: {e}\",\n                            name=\"ERROR\",\n                        )\n                        self._results.append(\n                            {\n                                \"segment\": segment_num,\n                                \"task_id\": task_id,\n                                \"prompt\": prompt,\n                                \"video_url\": \"\",\n                                \"status\": \"failed\",\n                                \"error\": str(e),\n                            }\n                        )\n                        # 链断了：后续段没法依赖前段，停下并把错误记下\n                        self._generation_error = e\n                        break\n\n            self.status = f\"完成 {len(self._results)}/{len(prompts)} 个视频\"\n\n        except (httpx.HTTPError, ValueError, KeyError) as e:\n            # 客户端层面的失败（如代理、DNS、解析错误）：直接抛给 langflow 显示节点失败\n            self.log(f\"客户端错误: {e}\", \"ERROR\")\n            self._generation_error = e\n            self._generation_done = True\n            raise\n\n        self._generation_done = True\n\n        # 如果链中途失败，把错误抛给下游而不是静默返回半截结果\n        if self._generation_error is not None:\n            raise self._generation_error\n\n    # ---------- 输出 ----------\n\n    def get_video_urls(self) -> Message:\n        self._ensure_generated()\n        urls = [r.get(\"video_url\", \"\") for r in self._results]\n        return Message(text=json.dumps(urls, ensure_ascii=False))\n\n    def get_task_info(self) -> Data:\n        self._ensure_generated()\n        return Data(data={\"segments\": self._results})\n"
+            },
+            "generate_audio": {
+              "_input_type": "BoolInput",
+              "advanced": true,
+              "display_name": "生成音频",
+              "dynamic": false,
+              "info": "为视频生成同步音频。",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "generate_audio",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "bool",
+              "value": false
+            },
+            "max_wait_time": {
+              "_input_type": "IntInput",
+              "advanced": true,
+              "display_name": "最大等待时间 (秒)",
+              "dynamic": false,
+              "info": "单个任务最大等待秒数。",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "max_wait_time",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "int",
+              "value": 1800
+            },
+            "model": {
+              "_input_type": "MessageTextInput",
+              "advanced": false,
+              "display_name": "模型",
+              "dynamic": false,
+              "info": "模型ID，如 doubao-seedance-2-0-260128。",
+              "input_types": [
+                "Message"
+              ],
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "name": "model",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_input": true,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": "doubao-seedance-2-0-260128"
+            },
+            "poll_interval": {
+              "_input_type": "IntInput",
+              "advanced": true,
+              "display_name": "轮询间隔 (秒)",
+              "dynamic": false,
+              "info": "状态查询间隔秒数。",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "poll_interval",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "int",
+              "value": 5
+            },
+            "prompts": {
+              "_input_type": "MultilineInput",
+              "advanced": false,
+              "ai_enabled": false,
+              "copy_field": false,
+              "display_name": "提示词列表",
+              "dynamic": false,
+              "info": "JSON 数组格式，每个提示词生成一个视频段落。如 [\"提示词1\", \"提示词2\"]。",
+              "input_types": [
+                "Message"
+              ],
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "multiline": true,
+              "name": "prompts",
+              "override_skip": false,
+              "password": false,
+              "placeholder": "",
+              "required": true,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_input": true,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": ""
+            },
+            "ratio": {
+              "_input_type": "DropdownInput",
+              "advanced": true,
+              "combobox": false,
+              "dialog_inputs": {},
+              "display_name": "宽高比",
+              "dynamic": false,
+              "external_options": {},
+              "info": "输出视频宽高比。",
+              "name": "ratio",
+              "options": [
+                "adaptive",
+                "16:9",
+                "9:16",
+                "1:1",
+                "4:3",
+                "3:4",
+                "21:9"
+              ],
+              "options_metadata": [],
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "toggle": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "str",
+              "value": "adaptive"
+            },
+            "request_timeout": {
+              "_input_type": "IntInput",
+              "advanced": true,
+              "display_name": "请求读取超时 (秒)",
+              "dynamic": false,
+              "info": "单次 HTTP 请求等待响应的最大秒数。创建任务和查询任务都会使用它。",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "request_timeout",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "int",
+              "value": 180
+            },
+            "resolution": {
+              "_input_type": "DropdownInput",
+              "advanced": true,
+              "combobox": false,
+              "dialog_inputs": {},
+              "display_name": "分辨率",
+              "dynamic": false,
+              "external_options": {},
+              "info": "输出视频分辨率。",
+              "name": "resolution",
+              "options": [
+                "720p",
+                "480p",
+                "1080p"
+              ],
+              "options_metadata": [],
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "toggle": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "str",
+              "value": "720p"
+            },
+            "subject_reference_urls": {
+              "_input_type": "MultilineInput",
+              "advanced": false,
+              "ai_enabled": false,
+              "copy_field": false,
+              "display_name": "主体参考图",
+              "dynamic": false,
+              "info": "可选。主体参考图片URL，JSON 数组格式，支持同一主体多角度参考，最多9张。如 [\"https://xxx/front.jpg\", \"https://xxx/side.jpg\"]。不提供则使用纯文生视频。",
+              "input_types": [
+                "Message"
+              ],
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "multiline": true,
+              "name": "subject_reference_urls",
+              "override_skip": false,
+              "password": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_input": true,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": ""
+            },
+            "task_id": {
+              "_input_type": "StrInput",
+              "advanced": true,
+              "display_name": "Task ID",
+              "dynamic": false,
+              "info": "Passed as Task-Id header to NewAPI",
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "name": "task_id",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": ""
+            },
+            "trust_env": {
+              "_input_type": "BoolInput",
+              "advanced": true,
+              "display_name": "使用系统代理",
+              "dynamic": false,
+              "info": "开启后使用环境变量中的 HTTP/HTTPS 代理设置。需要走公司代理出网时打开。",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "trust_env",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "bool",
+              "value": false
+            },
+            "user_wallet_id": {
+              "_input_type": "StrInput",
+              "advanced": true,
+              "display_name": "User Wallet ID",
+              "dynamic": false,
+              "info": "Passed as User-Wallet-Id header to NewAPI",
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "name": "user_wallet_id",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": ""
+            },
+            "watermark": {
+              "_input_type": "BoolInput",
+              "advanced": true,
+              "display_name": "水印",
+              "dynamic": false,
+              "info": "是否添加水印。",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "watermark",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "bool",
+              "value": false
+            }
+          },
+          "tool_mode": false
+        },
         "SeedanceVideo": {
           "base_classes": [
             "JSON",
@@ -122482,6 +122784,6 @@
     "num_components": 373,
     "num_modules": 101
   },
-  "sha256": "772e60638c6432ffa568bd79f030bfd4bd14106fbaaa1a5a210136e9ba900188",
+  "sha256": "b3977ab4e1f96e6124b0731f7319b50aaeddbfa0e3789e4690b0d31c06222af1",
   "version": "0.3.4"
 }
