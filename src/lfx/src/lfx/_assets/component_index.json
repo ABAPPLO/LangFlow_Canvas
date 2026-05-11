@@ -105259,11 +105259,11 @@
               "group_outputs": false,
               "method": "aggregate",
               "name": "combined",
-              "selected": "JSON",
+              "selected": "Message",
               "tool_mode": true,
               "types": [
-                "JSON",
-                "Message"
+                "Message",
+                "JSON"
               ],
               "value": "__UNDEFINED__"
             }
@@ -116820,6 +116820,158 @@
     [
       "video",
       {
+        "OriginalVideoURL": {
+          "base_classes": [
+            "Message"
+          ],
+          "beta": false,
+          "conditional_paths": [],
+          "custom_fields": {},
+          "description": "Parse a shared video link and return the original video URL.",
+          "display_name": "Original Video URL",
+          "documentation": "",
+          "edited": false,
+          "field_order": [
+            "link",
+            "api_url",
+            "timeout"
+          ],
+          "frozen": false,
+          "icon": "Video",
+          "legacy": false,
+          "metadata": {
+            "code_hash": "c03c87391da2",
+            "dependencies": {
+              "dependencies": [
+                {
+                  "name": "httpx",
+                  "version": "0.28.1"
+                },
+                {
+                  "name": "lfx",
+                  "version": null
+                }
+              ],
+              "total_dependencies": 2
+            },
+            "module": "lfx.components.video.original_video_url.OriginalVideoURLComponent"
+          },
+          "minimized": false,
+          "output_types": [],
+          "outputs": [
+            {
+              "allows_loop": false,
+              "cache": true,
+              "display_name": "Video URL",
+              "group_outputs": false,
+              "method": "parse_video_url",
+              "name": "video_url",
+              "selected": "Message",
+              "tool_mode": true,
+              "types": [
+                "Message"
+              ],
+              "value": "__UNDEFINED__"
+            }
+          ],
+          "pinned": false,
+          "template": {
+            "_type": "Component",
+            "api_url": {
+              "_input_type": "MessageTextInput",
+              "advanced": true,
+              "display_name": "Parse API URL",
+              "dynamic": false,
+              "info": "",
+              "input_types": [
+                "Message"
+              ],
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "name": "api_url",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_input": true,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": "http://119.45.237.10:12006/parse_content"
+            },
+            "code": {
+              "advanced": true,
+              "dynamic": true,
+              "fileTypes": [],
+              "file_path": "",
+              "info": "",
+              "list": false,
+              "load_from_db": false,
+              "multiline": true,
+              "name": "code",
+              "password": false,
+              "placeholder": "",
+              "required": true,
+              "show": true,
+              "title_case": false,
+              "type": "code",
+              "value": "from __future__ import annotations\n\nfrom typing import Any\n\nimport httpx\n\nfrom lfx.custom import Component\nfrom lfx.inputs import IntInput, MultilineInput\nfrom lfx.io import MessageTextInput, Output\nfrom lfx.schema.message import Message\n\n\nclass OriginalVideoURLComponent(Component):\n    display_name = \"Original Video URL\"\n    description = \"Parse a shared video link and return the original video URL.\"\n    icon = \"Video\"\n    name = \"OriginalVideoURL\"\n\n    inputs = [\n        MultilineInput(\n            name=\"link\",\n            display_name=\"Video Link\",\n            info=\"Paste the shared video text or URL to parse.\",\n            required=True,\n            tool_mode=True,\n        ),\n        MessageTextInput(\n            name=\"api_url\",\n            display_name=\"Parse API URL\",\n            value=\"http://119.45.237.10:12006/parse_content\",\n            advanced=True,\n        ),\n        IntInput(\n            name=\"timeout\",\n            display_name=\"Timeout\",\n            value=30,\n            advanced=True,\n        ),\n    ]\n\n    outputs = [\n        Output(display_name=\"Video URL\", name=\"video_url\", method=\"parse_video_url\"),\n    ]\n\n    def _extract_video_url(self, payload: dict[str, Any]) -> str:\n        top_level_url = payload.get(\"url\")\n        if isinstance(top_level_url, str) and top_level_url.strip():\n            return top_level_url.strip()\n\n        videos = payload.get(\"videos\")\n        if isinstance(videos, list):\n            for video in videos:\n                if not isinstance(video, dict):\n                    continue\n\n                video_url = video.get(\"url\")\n                if isinstance(video_url, str) and video_url.strip():\n                    return video_url.strip()\n\n                fullinfo = video.get(\"video_fullinfo\")\n                if isinstance(fullinfo, list):\n                    for item in fullinfo:\n                        if isinstance(item, dict):\n                            fullinfo_url = item.get(\"url\")\n                            if isinstance(fullinfo_url, str) and fullinfo_url.strip():\n                                return fullinfo_url.strip()\n\n        return \"\"\n\n    def parse_video_url(self) -> Message:\n        link = (self.link or \"\").strip()\n        if not link:\n            self.status = \"No video link provided.\"\n            return Message(text=\"\")\n\n        api_url = (self.api_url or \"\").strip()\n        if not api_url:\n            msg = \"Parse API URL is required.\"\n            raise ValueError(msg)\n\n        try:\n            with httpx.Client(timeout=self.timeout, trust_env=False) as client:\n                response = client.post(api_url, json={\"link\": link})\n                response.raise_for_status()\n                payload = response.json()\n        except httpx.HTTPError as exc:\n            msg = f\"Failed to parse video link: {exc}\"\n            raise ValueError(msg) from exc\n        except ValueError as exc:\n            msg = \"Parse API returned an invalid JSON response.\"\n            raise ValueError(msg) from exc\n\n        if not isinstance(payload, dict):\n            msg = \"Parse API response must be a JSON object.\"\n            raise TypeError(msg)\n\n        video_url = self._extract_video_url(payload)\n        if not video_url:\n            msg = \"No video URL found in parse API response.\"\n            raise ValueError(msg)\n\n        self.status = video_url\n        return Message(text=video_url)\n"
+            },
+            "link": {
+              "_input_type": "MultilineInput",
+              "advanced": false,
+              "ai_enabled": false,
+              "copy_field": false,
+              "display_name": "Video Link",
+              "dynamic": false,
+              "info": "Paste the shared video text or URL to parse.",
+              "input_types": [
+                "Message"
+              ],
+              "list": false,
+              "list_add_label": "Add More",
+              "load_from_db": false,
+              "multiline": true,
+              "name": "link",
+              "override_skip": false,
+              "password": false,
+              "placeholder": "",
+              "required": true,
+              "show": true,
+              "title_case": false,
+              "tool_mode": true,
+              "trace_as_input": true,
+              "trace_as_metadata": true,
+              "track_in_telemetry": false,
+              "type": "str",
+              "value": ""
+            },
+            "timeout": {
+              "_input_type": "IntInput",
+              "advanced": true,
+              "display_name": "Timeout",
+              "dynamic": false,
+              "info": "",
+              "list": false,
+              "list_add_label": "Add More",
+              "name": "timeout",
+              "override_skip": false,
+              "placeholder": "",
+              "required": false,
+              "show": true,
+              "title_case": false,
+              "tool_mode": false,
+              "trace_as_metadata": true,
+              "track_in_telemetry": true,
+              "type": "int",
+              "value": 30
+            }
+          },
+          "tool_mode": false
+        },
         "VideoConcatenator": {
           "base_classes": [
             "Data",
@@ -122781,9 +122933,9 @@
     ]
   ],
   "metadata": {
-    "num_components": 373,
+    "num_components": 374,
     "num_modules": 101
   },
-  "sha256": "b3977ab4e1f96e6124b0731f7319b50aaeddbfa0e3789e4690b0d31c06222af1",
+  "sha256": "ef385f1e2058474c7741166d4694ff8a19429ec8bad122c08b39ce6834346c41",
   "version": "0.3.4"
 }
