@@ -3,7 +3,7 @@
 ## 1. 适用范围
 
 - 测试环境域名：`https://lft.gbotai.cn`
-- 发布分支：`release/ldb_build`
+- 发布分支：`test`
 - 镜像仓库：`ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test`
 - 当前标签策略：`test-latest`
 - 当前发布模式：本地/构建机构建镜像并推送 TCR，Spug 只负责拉镜像并滚动发布
@@ -24,14 +24,14 @@
 
 ### 3.1 确认代码分支正确
 
-发布前确认当前代码已经在 `release/ldb_build`，并包含本次要发布的提交。
+发布前确认当前代码已经在 `test`，并包含本次要发布的提交。
 
 ### 3.2 确认 TCR 登录正常
 
 本地执行：
 
 ```bash
-docker login ai-capability.tencentcloudcr.com
+echo "ibAePU4C2oSdDuZac9J7jL0DWHZ9InoW" | docker login ai-capability.tencentcloudcr.com --username 'tcr$langflow_local' --password-stdin
 ```
 
 如需使用临时登录指令，可在 TCR 控制台复制执行。
@@ -51,65 +51,72 @@ APP_IMAGE=ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test:tes
 
 ### 3.4 确认构建参数
 
-构建镜像时需传入：
+发布前在本地 shell 中显式设置：
 
 ```bash
-LANGFLOW_AUTO_LOGIN=false
+export LANGFLOW_AUTO_LOGIN=false
 ```
 
 说明：
 
+- `build-push.sh` 会读取当前环境变量 `LANGFLOW_AUTO_LOGIN`
 - 该参数同时影响后端运行时和前端构建产物
-- 构建参数与 Spug 配置中心中的 `LANGFLOW_AUTO_LOGIN` 必须保持一致
+- 该值与 Spug 配置中心中的 `LANGFLOW_AUTO_LOGIN` 必须保持一致
 
 ## 4. 标准发布流程
 
-### 4.1 切到发布分支并拉最新代码
-
-```bash
-git checkout release/ldb_build
-git pull
-```
-
-### 4.2 构建并推送测试镜像
+### 4.1 本地构建并推送测试镜像
 
 在项目根目录执行：
 
 ```bash
-cd /目录/langflow-canvas
+cd /Users/muzi/code/company/go/langflow-canvas
+git checkout test
+git pull --rebase origin test
+
+export IMAGE_REPO=ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test
+export IMAGE_TAG=test-latest
+export EXTRA_TAG=test-$(date +%Y%m%d-%H%M%S)
 export LANGFLOW_AUTO_LOGIN=false
 bash build-push.sh
 ```
 
-脚本当前流程：
+`build-push.sh` 的作用：
 
-1. 登录 TCR
-2. 在 Docker build 阶段自动生成 `component_index.json`
-3. 构建并推送镜像
+- 登录 TCR
+- 在 Docker build 阶段自动生成 `component_index.json`
+- 构建测试环境镜像
+- 按 `IMAGE_REPO` / `IMAGE_TAG` / `EXTRA_TAG` 推送镜像
 
 脚本会推送：
 
 - `ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test:test-latest`
 - `ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test:test-时间戳`
 
-### 4.3 触发 Spug 发布
+推送成功后，再到 Spug 点击发布。
 
+### 4.2 触发 Spug 发布
+
+在Spug-Web中触发发布，Spug会在目标服务器执行（自动）：
 ```bash
 cd /www/wwwroot/langflow-canvas
+ENV_FILE=.env.app \
+COMPOSE_FILE=deploy/test-env/docker-compose.app.yml \
 bash spug-release.sh
 ```
 
 ## 5. 发布后验证
 
 ### 5.1 容器状态
+如果需要在服务器发布后验证容器状态，需要在服务器执行：
 
 ```bash
 cd /www/wwwroot/langflow-canvas
-docker compose --env-file .env.deploy -f docker-compose.app.yml ps
+docker compose --env-file .env.app -f deploy/test-env/docker-compose.app.yml ps
 ```
 
 ### 5.2 健康检查
-
+如果需要在服务器发布后验证容器健康检查，需要在服务器执行：
 ```bash
 curl http://127.0.0.1:7862/health
 curl http://127.0.0.1:7861/health

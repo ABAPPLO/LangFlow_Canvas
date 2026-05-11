@@ -162,6 +162,8 @@ chown -R 1000:1000 /www/dk_project/dk_compose/langflow-canvas/app-logs
 
 `langflow-worker` 已放入 `worker` profile，但默认不要启动。当前 `LANGFLOW_CELERY_ENABLED=False` 时 Web 实例不会向 Celery 投递任务。
 
+如果测试环境必须保持双实例，并且需要稳定承接带 `job_id` 的异步执行，参考 [TEST_ENV_CELERY_WORKER.md](./TEST_ENV_CELERY_WORKER.md) 切换到 `双实例 + Redis + Celery worker` 架构。
+
 ## 三、反向代理和负载均衡
 
 如果你使用宝塔 Nginx，可以按下面方式转发：
