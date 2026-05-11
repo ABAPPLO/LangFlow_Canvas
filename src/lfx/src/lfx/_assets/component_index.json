@@ -105259,11 +105259,11 @@
               "group_outputs": false,
               "method": "aggregate",
               "name": "combined",
-              "selected": "Message",
+              "selected": "JSON",
               "tool_mode": true,
               "types": [
-                "Message",
-                "JSON"
+                "JSON",
+                "Message"
               ],
               "value": "__UNDEFINED__"
             }
@@ -122936,6 +122936,6 @@
     "num_components": 374,
     "num_modules": 101
   },
-  "sha256": "ef385f1e2058474c7741166d4694ff8a19429ec8bad122c08b39ce6834346c41",
+  "sha256": "d3a3b5cb15ba99a369831653fec3a45f4ce627375c661fde978911ae0697d509",
   "version": "0.3.4"
 }
