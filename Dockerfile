@@ -23,7 +23,7 @@ RUN npm run build
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS python-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libaio-dev curl \
+    build-essential libaio-dev curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1
@@ -64,7 +64,7 @@ COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/
 FROM python:3.12-slim-bookworm AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl libpq5 \
+    curl libpq5 ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 langflow
 
