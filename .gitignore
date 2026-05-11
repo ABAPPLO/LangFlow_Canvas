@@ -297,3 +297,7 @@ data/user
 
 sso-config.yaml
 AGENTS.md
+CLAUDE.md
+
+# Starter projects JSON (auto-generated on first launch)
+src/backend/base/langflow/initial_setup/starter_projects/*.json

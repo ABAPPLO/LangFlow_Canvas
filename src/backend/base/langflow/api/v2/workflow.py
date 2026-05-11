@@ -592,6 +592,7 @@ async def get_workflow_status(
                     "code": "JOB_FAILED",
                     "message": f"Job {job_id_str} has failed execution.",
                     "job_id": job_id_str,
+                    "detail": job.error,
                 },
             )
 
