@@ -25,7 +25,10 @@ DEFAULT_API_KEY = ""
 
 MAX_REF_IMAGES = 9
 MAX_SEGMENTS = 20
-DEFAULT_REQUEST_TIMEOUT = 180
+DEFAULT_REQUEST_TIMEOUT = 300
+MAX_CREATE_TASK_RETRIES = 3
+MAX_POLL_TRANSIENT_ERRORS = 5
+MAX_RETRY_DELAY = 30
 
 # 任务终态：含 cancelled，避免主动取消的任务被轮询到超时
 TERMINAL_FAIL_STATUSES = ("failed", "error", "expired", "cancelled")
@@ -174,10 +177,75 @@ class SeedanceChainVideoComponent(Component):
         self._results: list[dict] = []
         self._generation_done: bool = False
         self._generation_error: Exception | None = None
+        self._failure_info: dict | None = None
 
     def _debug_log(self, message: str, name: str = "Seedance") -> None:
         timestamp = time.strftime("%H:%M:%S")
         self.log(f"[{timestamp}] {message}", name=name)
+
+    def _short_text(self, value: str, limit: int = 240) -> str:
+        text = str(value or "")
+        return text[:limit] + ("..." if len(text) > limit else "")
+
+    def _stage_name(self, stage: str) -> str:
+        names = {
+            "parse_prompts": "解析提示词",
+            "parse_reference_images": "解析主体参考图",
+            "create_task": "提交生成任务",
+            "poll_task": "查询任务状态",
+            "extract_video_url": "解析视频 URL",
+            "client": "客户端请求",
+        }
+        return names.get(stage, stage)
+
+    def _set_failure(
+        self,
+        *,
+        stage: str,
+        error: Exception,
+        segment: int | None = None,
+        total_segments: int | None = None,
+        task_id: str = "",
+        prompt: str = "",
+        ref_video_url: str = "",
+        extra: dict | None = None,
+    ) -> dict:
+        details = {
+            "stage": stage,
+            "stage_name": self._stage_name(stage),
+            "error_type": type(error).__name__,
+            "error": str(error),
+        }
+        if segment is not None:
+            details["segment"] = segment
+        if total_segments is not None:
+            details["total_segments"] = total_segments
+        if task_id:
+            details["task_id"] = task_id
+        if prompt:
+            details["prompt_preview"] = self._short_text(prompt)
+            details["prompt_chars"] = len(prompt)
+        if ref_video_url:
+            parsed_ref_video = urlparse(ref_video_url)
+            details["ref_video_domain"] = parsed_ref_video.netloc
+            details["ref_video_url_chars"] = len(ref_video_url)
+        if extra:
+            details.update(extra)
+
+        self._failure_info = details
+        segment_label = f"第 {segment}/{total_segments} 段" if segment and total_segments else "全局"
+        task_label = f", task_id={task_id[:12]}..." if task_id else ""
+        self.log(
+            f"失败位置: {segment_label} / {self._stage_name(stage)}{task_label}; "
+            f"错误类型: {type(error).__name__}; 原因: {error}",
+            "ERROR",
+        )
+        self._debug_log(
+            f"Failure details: stage={stage}, segment={segment or 'none'}, total={total_segments or 'none'}, "
+            f"task_id={task_id or 'none'}, error={type(error).__name__}: {error}",
+            name="ERROR",
+        )
+        return details
 
     # ---------- 输入解析 ----------
 
@@ -308,6 +376,12 @@ class SeedanceChainVideoComponent(Component):
         read_timeout = max(read_timeout, 30)
         return httpx.Timeout(connect=10, read=read_timeout, write=60, pool=10)
 
+    def _is_retryable_status_code(self, code: int) -> bool:
+        return code == 429 or 500 <= code < 600
+
+    def _retry_delay(self, retry_count: int) -> int:
+        return min(2**retry_count, MAX_RETRY_DELAY)
+
     def _create_task(
         self,
         client: httpx.Client,
@@ -316,53 +390,83 @@ class SeedanceChainVideoComponent(Component):
         ref_video_url: str = "",
     ) -> str:
         payload = self._build_request_body(prompt, ref_image_urls, ref_video_url)
-        start = time.perf_counter()
-        self._debug_log(
-            f"Create task request: model={self.model}, prompt_chars={len(prompt)}, "
-            f"ref_images={len(ref_image_urls)}, has_ref_video={bool(ref_video_url)}"
-        )
-        try:
-            resp = client.post(self.base_url, json=payload)
-            elapsed = time.perf_counter() - start
-            self._debug_log(f"Create task response: status_code={resp.status_code}, elapsed={elapsed:.1f}s")
-            resp.raise_for_status()
-        except httpx.ReadTimeout as e:
-            elapsed = time.perf_counter() - start
-            error_msg = (
-                "Create task timed out while waiting for response. "
-                "The server may still be processing it; increase Request Timeout or use Task-Id idempotency "
-                "before retrying."
-            )
+        max_attempts = MAX_CREATE_TASK_RETRIES + 1
+
+        for attempt in range(1, max_attempts + 1):
+            start = time.perf_counter()
             self._debug_log(
-                f"Create task read timeout: elapsed={elapsed:.1f}s, "
-                f"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s",
-                name="WARNING",
+                f"Create task request: model={self.model}, prompt_chars={len(prompt)}, "
+                f"ref_images={len(ref_image_urls)}, has_ref_video={bool(ref_video_url)}, "
+                f"attempt={attempt}/{max_attempts}"
             )
-            self.log(error_msg, "WARNING")
-            raise TaskError(error_msg) from e
-        except httpx.HTTPStatusError as e:
-            elapsed = time.perf_counter() - start
-            detail = ""
             try:
-                detail = e.response.text
-            except Exception:
-                pass
-            error_msg = f"API error {e.response.status_code}: {detail}"
-            self._debug_log(f"Create task HTTP error: status_code={e.response.status_code}, elapsed={elapsed:.1f}s")
-            self.log(error_msg, "ERROR")
-            raise TaskError(error_msg) from e
-        data = resp.json()
-        task_id = data.get("id", "")
-        if not task_id:
-            raise TaskError(f"No task ID in response: {data}")
-        self._debug_log(f"Create task success: task_id={task_id}")
-        return task_id
+                resp = client.post(self.base_url, json=payload)
+                elapsed = time.perf_counter() - start
+                self._debug_log(f"Create task response: status_code={resp.status_code}, elapsed={elapsed:.1f}s")
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                elapsed = time.perf_counter() - start
+                code = e.response.status_code
+                detail = ""
+                try:
+                    detail = e.response.text
+                except Exception:
+                    pass
+                if self._is_retryable_status_code(code) and attempt < max_attempts:
+                    delay = self._retry_delay(attempt)
+                    self._debug_log(
+                        f"Create task transient HTTP error: status_code={code}, elapsed={elapsed:.1f}s, "
+                        f"retry={attempt}/{MAX_CREATE_TASK_RETRIES}, sleep={delay}s",
+                        name="WARNING",
+                    )
+                    self.log(f"Create task HTTP {code}, retrying in {delay}s...", "WARNING")
+                    time.sleep(delay)
+                    continue
+
+                error_msg = f"API error {code}: {detail}"
+                self._debug_log(f"Create task HTTP error: status_code={code}, elapsed={elapsed:.1f}s", name="ERROR")
+                self.log(error_msg, "ERROR")
+                raise TaskError(error_msg) from e
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                elapsed = time.perf_counter() - start
+                if attempt < max_attempts:
+                    delay = self._retry_delay(attempt)
+                    self._debug_log(
+                        f"Create task transport error: error={type(e).__name__}: {e}, elapsed={elapsed:.1f}s, "
+                        f"retry={attempt}/{MAX_CREATE_TASK_RETRIES}, sleep={delay}s, "
+                        f"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s",
+                        name="WARNING",
+                    )
+                    self.log(f"Create task {type(e).__name__}, retrying in {delay}s...", "WARNING")
+                    time.sleep(delay)
+                    continue
+
+                error_msg = (
+                    "Create task failed after retries while waiting for response. "
+                    f"Last error: {type(e).__name__}: {e}. "
+                    "The server may still be processing one of the attempts."
+                )
+                self._debug_log(
+                    f"Create task failed after retries: error={type(e).__name__}: {e}, elapsed={elapsed:.1f}s",
+                    name="ERROR",
+                )
+                self.log(error_msg, "ERROR")
+                raise TaskError(error_msg) from e
+            else:
+                data = resp.json()
+                task_id = data.get("id", "")
+                if not task_id:
+                    raise TaskError(f"No task ID in response: {data}")
+                self._debug_log(f"Create task success: task_id={task_id}")
+                return task_id
+
+        raise TaskError("Create task failed without response")
 
     def _poll_task(self, client: httpx.Client, task_id: str) -> dict:
         url = f"{self.base_url}/{task_id}"
         deadline = time.time() + self.max_wait_time
         consecutive_errors = 0
-        max_consecutive_errors = 5
+        max_consecutive_errors = MAX_POLL_TRANSIENT_ERRORS
         attempt = 0
 
         while time.time() < deadline:
@@ -408,12 +512,12 @@ class SeedanceChainVideoComponent(Component):
                 )
                 if consecutive_errors >= max_consecutive_errors:
                     raise TaskError(f"Too many read timeouts polling task {task_id[:12]}...") from e
-                time.sleep(self.poll_interval * 2)
+                time.sleep(self._retry_delay(consecutive_errors))
             except httpx.HTTPStatusError as e:
                 elapsed = time.perf_counter() - poll_start
-                # 4xx 立即失败（鉴权错、任务不存在等不会自愈）；5xx 才重试
+                # 400/401 等参数或鉴权错误不会自愈；429 与 5xx 按瞬时错误重试
                 code = e.response.status_code
-                if 400 <= code < 500:
+                if not self._is_retryable_status_code(code):
                     detail = ""
                     try:
                         detail = e.response.text
@@ -433,8 +537,8 @@ class SeedanceChainVideoComponent(Component):
                 )
                 self.log(f"HTTP {code} (transient), retry...", "WARNING")
                 if consecutive_errors >= max_consecutive_errors:
-                    raise TaskError(f"Too many 5xx errors polling task {task_id[:12]}...") from e
-                time.sleep(self.poll_interval * 2)
+                    raise TaskError(f"Too many transient HTTP errors polling task {task_id[:12]}...") from e
+                time.sleep(self._retry_delay(consecutive_errors))
             except (httpx.HTTPError, ValueError, KeyError) as e:
                 elapsed = time.perf_counter() - poll_start
                 consecutive_errors += 1
@@ -446,7 +550,7 @@ class SeedanceChainVideoComponent(Component):
                 self.log(f"Polling error: {e}", "WARNING")
                 if consecutive_errors >= max_consecutive_errors:
                     raise TaskError(f"Too many errors polling task {task_id[:12]}...") from e
-                time.sleep(self.poll_interval * 2)
+                time.sleep(self._retry_delay(consecutive_errors))
 
         raise TaskTimeoutError(f"Task {task_id[:12]}... timed out after {self.max_wait_time}s")
 
@@ -476,19 +580,25 @@ class SeedanceChainVideoComponent(Component):
 
     # ---------- 主流程 ----------
 
-    def _ensure_generated(self):
+    def _ensure_generated(self, *, raise_on_error: bool = True):
         # 已成功完成过 -> 直接复用
         if self._generation_done and self._generation_error is None:
             return
         # 上次失败 -> 抛出原错误，由调用方决定是否重试（重建实例或显式重置）
         if self._generation_error is not None:
-            raise self._generation_error
+            if raise_on_error:
+                raise self._generation_error
+            return
 
         try:
             prompts = self._parse_prompts()
         except (json.JSONDecodeError, ValueError) as e:
             self._generation_error = e
-            raise
+            self._generation_done = True
+            self._set_failure(stage="parse_prompts", error=e)
+            if raise_on_error:
+                raise
+            return
 
         if not prompts:
             self._results = []
@@ -499,7 +609,11 @@ class SeedanceChainVideoComponent(Component):
             ref_image_urls = self._parse_ref_urls()
         except (json.JSONDecodeError, ValueError) as e:
             self._generation_error = e
-            raise
+            self._generation_done = True
+            self._set_failure(stage="parse_reference_images", error=e, total_segments=len(prompts))
+            if raise_on_error:
+                raise
+            return
 
         self._debug_log(
             f"Start chain generation: segments={len(prompts)}, ref_images={len(ref_image_urls)}, "
@@ -519,6 +633,7 @@ class SeedanceChainVideoComponent(Component):
 
         # 重置结果，避免重入时残留
         self._results = []
+        self._failure_info = None
 
         try:
             with httpx.Client(
@@ -549,13 +664,17 @@ class SeedanceChainVideoComponent(Component):
                         )
 
                     task_id = ""
+                    stage = "create_task"
                     try:
                         self.status = f"第 {segment_num}/{len(prompts)} 段：正在提交任务"
+                        stage = "create_task"
                         task_id = self._create_task(client, final_prompt, ref_image_urls, prev_video_url)
                         self.log(f"任务已提交: {task_id}")
 
                         self.status = f"第 {segment_num}/{len(prompts)} 段：正在轮询任务"
+                        stage = "poll_task"
                         result = self._poll_task(client, task_id)
+                        stage = "extract_video_url"
                         video_url = self._extract_video_url(result)
 
                         if not video_url:
@@ -581,10 +700,27 @@ class SeedanceChainVideoComponent(Component):
                         )
 
                     except (TaskError, TaskTimeoutError) as e:
+                        failure_details = self._set_failure(
+                            stage=stage,
+                            error=e,
+                            segment=segment_num,
+                            total_segments=len(prompts),
+                            task_id=task_id,
+                            prompt=final_prompt,
+                            ref_video_url=prev_video_url,
+                            extra={
+                                "model": self.model,
+                                "ref_images": len(ref_image_urls),
+                                "has_ref_video": bool(prev_video_url),
+                                "request_timeout": getattr(self, "request_timeout", DEFAULT_REQUEST_TIMEOUT),
+                                "max_wait_time": self.max_wait_time,
+                                "poll_interval": self.poll_interval,
+                            },
+                        )
                         self.log(f"段落 {segment_num} 失败: {e}", "ERROR")
                         self._debug_log(
                             f"Segment failed: segment={segment_num}, task_id={task_id or 'none'}, "
-                            f"error={type(e).__name__}: {e}",
+                            f"stage={stage}, error={type(e).__name__}: {e}",
                             name="ERROR",
                         )
                         self._results.append(
@@ -594,7 +730,11 @@ class SeedanceChainVideoComponent(Component):
                                 "prompt": prompt,
                                 "video_url": "",
                                 "status": "failed",
+                                "failed_stage": stage,
+                                "failed_stage_name": self._stage_name(stage),
+                                "error_type": type(e).__name__,
                                 "error": str(e),
+                                "failure": failure_details,
                             }
                         )
                         # 链断了：后续段没法依赖前段，停下并把错误记下
@@ -608,12 +748,15 @@ class SeedanceChainVideoComponent(Component):
             self.log(f"客户端错误: {e}", "ERROR")
             self._generation_error = e
             self._generation_done = True
-            raise
+            self._set_failure(stage="client", error=e)
+            if raise_on_error:
+                raise
+            return
 
         self._generation_done = True
 
         # 如果链中途失败，把错误抛给下游而不是静默返回半截结果
-        if self._generation_error is not None:
+        if self._generation_error is not None and raise_on_error:
             raise self._generation_error
 
     # ---------- 输出 ----------
@@ -624,5 +767,13 @@ class SeedanceChainVideoComponent(Component):
         return Message(text=json.dumps(urls, ensure_ascii=False))
 
     def get_task_info(self) -> Data:
-        self._ensure_generated()
-        return Data(data={"segments": self._results})
+        self._ensure_generated(raise_on_error=False)
+        return Data(
+            data={
+                "segments": self._results,
+                "failed": self._generation_error is not None,
+                "failure": self._failure_info,
+                "completed_segments": len([r for r in self._results if r.get("video_url")]),
+                "total_segments": self._failure_info.get("total_segments") if self._failure_info else None,
+            }
+        )
