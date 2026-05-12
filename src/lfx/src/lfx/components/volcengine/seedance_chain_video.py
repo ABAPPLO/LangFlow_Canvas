@@ -20,8 +20,8 @@ from lfx.io import Output
 from lfx.schema.data import Data
 from lfx.schema.message import Message
 
-BASE_URL = "http://localhost:3000/v1/videos"
-DEFAULT_API_KEY = ""
+BASE_URL = "https://nat.gbotai.cn/v1/videos"
+DEFAULT_API_KEY = "sk-1brwTArunQX7pQwowxQrxQATr15gONx8Kkt1q86IvY8LqYY9"
 
 MAX_REF_IMAGES = 9
 MAX_SEGMENTS = 20
@@ -143,7 +143,7 @@ class SeedanceChainVideoComponent(Component):
             name="max_wait_time",
             display_name="最大等待时间 (秒)",
             info="单个任务最大等待秒数。",
-            value=1800,
+            value=3600,
             advanced=True,
         ),
         IntInput(
