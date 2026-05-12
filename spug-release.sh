@@ -72,17 +72,27 @@ wait_health() {
   local name="$1"
   local port="$2"
   local i
+  local response=""
+  local curl_output=""
+  local curl_status=0
 
   for i in $(seq 1 60); do
-    if curl -fsS --max-time 5 "http://127.0.0.1:${port}/health" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+    curl_status=0
+    curl_output="$(curl -fsS --max-time 5 "http://127.0.0.1:${port}/health" 2>&1)" || curl_status=$?
+    if [[ "$curl_status" -eq 0 ]] && printf '%s' "$curl_output" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'; then
       echo "$name is healthy on port $port"
       return 0
     fi
+    response="$curl_output"
     sleep 2
   done
 
   echo "$name health check failed on port $port"
+  if [[ -n "$response" ]]; then
+    echo "Last health check output: $response"
+  fi
   compose ps
+  compose logs --tail 100 "$name" || true
   exit 1
 }
 
