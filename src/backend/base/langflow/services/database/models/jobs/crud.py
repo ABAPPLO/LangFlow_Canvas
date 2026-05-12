@@ -52,13 +52,14 @@ async def get_job_by_job_id(db: AsyncSession, job_id: UUID) -> Job | None:
     return result.first()
 
 
-async def update_job_status(db: AsyncSession, job_id: UUID, status: JobStatus) -> Job | None:
+async def update_job_status(db: AsyncSession, job_id: UUID, status: JobStatus, error: str | None = None) -> Job | None:
     """Update the status of a job.
 
     Args:
         db: Async database session
         job_id: The job ID to update
         status: The new status value
+        error: Optional error message to store
 
     Returns:
         Updated Job object or None if not found
@@ -66,6 +67,8 @@ async def update_job_status(db: AsyncSession, job_id: UUID, status: JobStatus) -
     job = await get_job_by_job_id(db, job_id)
     if job:
         job.status = status
+        if error is not None:
+            job.error = error
         db.add(job)
         await db.flush()
         await db.refresh(job)

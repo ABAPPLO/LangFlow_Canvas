@@ -138,6 +138,13 @@ class LanguageModelComponent(LCModelComponent):
             advanced=True,
             range_spec=RangeSpec(min=1, max=128000, step=1, step_type="int"),
         ),
+        MultilineInput(
+            name="response_format",
+            display_name="Response Format (JSON Schema)",
+            info="JSON Schema for structured JSON output. Uses json_object mode with schema injected into system message.",
+            show=False,
+            advanced=False,
+        ),
     ]
 
     def build_model(self) -> LanguageModel:
@@ -155,7 +162,7 @@ class LanguageModelComponent(LCModelComponent):
                     tid = request_vars.get("TASK-ID")
 
         self.log(f"user_wallet_id={wallet_id}, task_id={tid}")
-        return get_llm(
+        llm = get_llm(
             model=self.model,
             user_id=self.user_id,
             api_key=self.api_key,
@@ -172,6 +179,43 @@ class LanguageModelComponent(LCModelComponent):
             user_wallet_id=wallet_id,
             task_id=tid,
         )
+
+        # Bind response_format as json_object + inject schema into system message
+        response_format_schema = getattr(self, "response_format", None)
+        if response_format_schema:
+            import json as _json
+            import types as _types
+
+            try:
+                schema = _json.loads(response_format_schema)
+
+                # Patch _get_request_payload to hide response_format from the
+                # "if response_format in payload" routing check, forcing
+                # langchain to use the standard chat.completions.create()
+                # endpoint instead of beta.chat.completions.parse().
+                _orig_get_payload = type(llm)._get_request_payload
+
+                class _SkipBetaPayload(dict):
+                    def __contains__(self, key):
+                        if key == "response_format":
+                            return False
+                        return super().__contains__(key)
+
+                def _patched_get_payload(self_inner, input_, *, stop=None, **kw):
+                    payload = _orig_get_payload(self_inner, input_, stop=stop, **kw)
+                    return _SkipBetaPayload(payload)
+
+                llm._get_request_payload = _types.MethodType(_patched_get_payload, llm)
+                llm = llm.bind(response_format={"type": "json_object"})
+
+                # Inject schema into system message to guide structured output
+                schema_str = _json.dumps(schema, ensure_ascii=False)
+                schema_instruction = f"\n\n请严格按照以下JSON Schema输出，不要输出其他内容：\n{schema_str}"
+                self.system_message = (self.system_message or "") + schema_instruction
+            except (ValueError, TypeError):
+                pass
+
+        return llm
 
     def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):
         """Dynamically update build config with user-filtered model options."""
@@ -195,5 +239,8 @@ class LanguageModelComponent(LCModelComponent):
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
+
+        # Always show response_format field
+        build_config["response_format"]["show"] = True
 
         return build_config
