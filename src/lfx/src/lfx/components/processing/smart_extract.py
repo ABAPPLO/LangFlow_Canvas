@@ -15,6 +15,7 @@ from lfx.template.field.base import Output
 
 MODE_TABLE = "Table"
 MODE_DIRECT = "Direct"
+MODE_AUTO_SPLIT = "Auto Split"
 
 EXTRACTION_PROMPT = """你是一个精确的文本提取器。请从输入文本中提取以下字段的值。
 
@@ -34,10 +35,25 @@ EXTRACTION_PROMPT = """你是一个精确的文本提取器。请从输入文本
 请严格按以下JSON格式返回结果：
 {json_template}"""
 
+AUTO_SPLIT_PROMPT = """请将以下输入拆分为独立片段。
+
+规则：
+1. 分析输入结构，自动识别拆分边界：
+   - JSON数组或JSON对象中的数组 → 每个元素为一个片段
+   - 文本中有重复出现的标题/标记/序号/emoji → 按这些边界拆分
+   - 有明确段落/章节/模块结构的长文本 → 按逻辑单元拆分
+2. 每个片段保持原始内容的完整结构和格式，不要遗漏任何字段、表格、列表等细节
+3. 返回JSON数组格式：["片段1", "片段2", ...]
+4. 每个片段以JSON字符串形式返回（片段内含JSON时需正确转义）
+5. 只返回JSON数组，不要其他内容
+
+输入：
+{input_text}"""
+
 
 class SmartExtractComponent(Component):
     display_name = "Smart Extract"
-    description = "用 LLM 从文本中精确提取指定字段，支持表格和直接输出两种模式。"
+    description = "用 LLM 从文本中精确提取指定字段，支持表格、直接输出和自动拆分三种模式。"
     icon = "scan-text"
     name = "SmartExtract"
 
@@ -54,9 +70,9 @@ class SmartExtractComponent(Component):
         DropdownInput(
             name="mode",
             display_name="Output Mode",
-            options=[MODE_TABLE, MODE_DIRECT],
+            options=[MODE_TABLE, MODE_DIRECT, MODE_AUTO_SPLIT],
             value=MODE_TABLE,
-            info="Table：输出一行表格；Direct：每个字段一个独立输出端口。",
+            info="Table：输出一行表格；Direct：每个字段一个独立输出端口；Auto Split：自动识别模块并拆分输出。",
             real_time_refresh=True,
         ),
         MessageTextInput(
@@ -94,6 +110,14 @@ class SmartExtractComponent(Component):
             return [raw.strip()]
         return []
 
+    def update_build_config(self, build_config: dict, field_value: Any, field_name: str | None = None) -> dict:
+        if field_name == "mode":
+            is_auto = (field_value == MODE_AUTO_SPLIT)
+            build_config["fields"]["hidden"] = is_auto
+            build_config["fields"]["show"] = not is_auto
+            build_config["fields"]["value"] = [] if is_auto else build_config["fields"].get("value", [])
+        return build_config
+
     def update_outputs(self, frontend_node: dict, field_name: str, field_value: Any) -> dict:
         template = frontend_node.get("template", {})
 
@@ -116,7 +140,7 @@ class SmartExtractComponent(Component):
             frontend_node["outputs"].append(
                 Output(display_name="Table", name="table", method="extract_table", types=["DataFrame"]),
             )
-        else:
+        elif mode == MODE_DIRECT:
             for i, field in enumerate(fields):
                 frontend_node["outputs"].append(
                     Output(
@@ -136,6 +160,15 @@ class SmartExtractComponent(Component):
                     group_outputs=True,
                 ),
             )
+        elif mode == MODE_AUTO_SPLIT:
+            frontend_node["outputs"].append(
+                Output(
+                    display_name="所有段落",
+                    name="all_segments",
+                    method="extract_all_segments",
+                    types=["Message"],
+                ),
+            )
 
         return frontend_node
 
@@ -143,19 +176,25 @@ class SmartExtractComponent(Component):
     # LLM extraction (cached per run)
     # ------------------------------------------------------------------
 
+    def _get_input_text(self) -> str:
+        input_text = self.input_text
+        if isinstance(input_text, Message):
+            input_text = input_text.get_text()
+        return str(input_text)
+
     def _build_prompt(self, fields: list[str]) -> str:
         fields_text = "\n".join(f"- {f}" for f in fields)
         json_template = json.dumps(dict.fromkeys(fields, "..."), ensure_ascii=False, indent=2)
         instructions_section = f"额外指令：\n{self.instructions}" if self.instructions else ""
-        input_text = self.input_text
-        if isinstance(input_text, Message):
-            input_text = input_text.get_text()
         return EXTRACTION_PROMPT.format(
             fields_text=fields_text,
             json_template=json_template,
             instructions_section=instructions_section,
-            input_text=str(input_text),
+            input_text=self._get_input_text(),
         )
+
+    def _build_split_prompt(self) -> str:
+        return AUTO_SPLIT_PROMPT.format(input_text=self._get_input_text())
 
     def _parse_json(self, text: str) -> dict:
         # Direct parse
@@ -178,6 +217,34 @@ class SmartExtractComponent(Component):
             except (json.JSONDecodeError, TypeError):
                 pass
         return {}
+
+    def _parse_json_array(self, text: str) -> list[str]:
+        # Direct parse
+        try:
+            result = json.loads(text)
+            if isinstance(result, list):
+                return [str(item) for item in result]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # JSON array in code block
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group(1))
+                if isinstance(result, list):
+                    return [str(item) for item in result]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        # First JSON array in text
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group(0))
+                if isinstance(result, list):
+                    return [str(item) for item in result]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return []
 
     def _do_extract(self) -> dict:
         if hasattr(self, "_cached_smart_extract"):
@@ -203,6 +270,22 @@ class SmartExtractComponent(Component):
         self.status = f"Extracted {len(fields)} fields"
         self._cached_smart_extract = result
         return result
+
+    def _do_split(self) -> list[str]:
+        if hasattr(self, "_cached_smart_split"):
+            return self._cached_smart_split
+
+        prompt = self._build_split_prompt()
+        llm = self.language_model
+        response = llm.invoke(prompt)
+        response_text = response.content if hasattr(response, "content") else str(response)
+
+        segments = self._parse_json_array(response_text)
+        segments = segments[:10]  # 最多10个
+
+        self.status = f"Split into {len(segments)} segments"
+        self._cached_smart_split = segments
+        return segments
 
     def _get_fields(self) -> list[str]:
         return self._get_fields_list(getattr(self, "fields", None))
@@ -235,3 +318,7 @@ class SmartExtractComponent(Component):
     def extract_all(self) -> Data:
         result = self._do_extract()
         return Data(data=result)
+
+    def extract_all_segments(self) -> Message:
+        segments = self._do_split()
+        return Message(text=json.dumps(segments, ensure_ascii=False))
