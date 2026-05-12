@@ -136,7 +136,7 @@ class SeedanceChainVideoComponent(Component):
             name="poll_interval",
             display_name="轮询间隔 (秒)",
             info="状态查询间隔秒数。",
-            value=5,
+            value=60,
             advanced=True,
         ),
         IntInput(
