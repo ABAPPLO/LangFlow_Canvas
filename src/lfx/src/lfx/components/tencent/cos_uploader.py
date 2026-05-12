@@ -9,6 +9,7 @@ from lfx.io import (
     SecretStrInput,
     StrInput,
 )
+from lfx.schema.message import Message
 
 MODE_BATCH = "Batch Upload"
 MODE_SINGLE = "Single Upload"
@@ -83,7 +84,7 @@ class COSUploaderComponent(Component):
         ),
     ]
     outputs = [
-        Output(display_name="URLs", name="urls", method="upload_files"),
+        Output(display_name="URLs", name="urls", method="upload_files", types=["Message"]),
     ]
 
     def _cos_client(self):
@@ -136,15 +137,13 @@ class COSUploaderComponent(Component):
         )
         return self._build_url(key)
 
-    def upload_files(self) -> str:
+    def upload_files(self) -> Message:
         mode = getattr(self, "upload_mode", MODE_BATCH)
 
         if mode == MODE_SINGLE:
             path = self.file_path
             if not path:
-                return ""
-            from lfx.schema.message import Message
-
+                return Message(text="")
             if isinstance(path, Message):
                 path = path.get_text()
             path = str(path).strip()
@@ -153,15 +152,15 @@ class COSUploaderComponent(Component):
             url = self._upload_one(client, path)
             if url:
                 self.status = f"Uploaded: {url}"
-            return url or ""
+            return Message(text=url or "")
 
         # Batch mode
         if not self.file_paths:
-            return ""
+            return Message(text="")
 
         client = self._cos_client()
         paths = [p.strip() for p in self.file_paths.splitlines() if p.strip()]
         urls = [u for fp in paths if (u := self._upload_one(client, fp))]
 
         self.status = f"Uploaded {len(urls)} file(s)"
-        return "\n".join(urls)
+        return Message(text="\n".join(urls))
