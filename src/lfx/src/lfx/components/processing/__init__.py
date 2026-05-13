@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
+    from lfx.components.processing.add_fields import AddFieldsComponent
     from lfx.components.processing.combine_text import CombineTextComponent
     from lfx.components.processing.converter import TypeConverterComponent
     from lfx.components.processing.create_list import CreateListComponent
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from lfx.components.processing.dataframe_operations import DataFrameOperationsComponent
     from lfx.components.processing.field_extractor import FieldExtractorComponent
     from lfx.components.processing.json_cleaner import JSONCleaner
+    from lfx.components.processing.json_to_data import JsonToDataComponent
     from lfx.components.processing.output_parser import OutputParserComponent
     from lfx.components.processing.parse_data import ParseDataComponent
     from lfx.components.processing.parser import ParserComponent
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     from lfx.components.processing.text_aggregator import TextAggregatorComponent
 
 _dynamic_imports = {
+    "AddFieldsComponent": "add_fields",
     "CombineTextComponent": "combine_text",
     "TypeConverterComponent": "converter",
     "CreateListComponent": "create_list",
@@ -32,6 +35,7 @@ _dynamic_imports = {
     "DataFrameOperationsComponent": "dataframe_operations",
     "FieldExtractorComponent": "field_extractor",
     "JSONCleaner": "json_cleaner",
+    "JsonToDataComponent": "json_to_data",
     "OutputParserComponent": "output_parser",
     "ParseDataComponent": "parse_data",
     "ParserComponent": "parser",
@@ -44,12 +48,14 @@ _dynamic_imports = {
 }
 
 __all__ = [
+    "AddFieldsComponent",
     "CombineTextComponent",
     "CreateListComponent",
     "DataFrameOperationsComponent",
     "DataOperationsComponent",
     "FieldExtractorComponent",
     "JSONCleaner",
+    "JsonToDataComponent",
     "MessageStoreComponent",
     "OutputParserComponent",
     "ParseDataComponent",
