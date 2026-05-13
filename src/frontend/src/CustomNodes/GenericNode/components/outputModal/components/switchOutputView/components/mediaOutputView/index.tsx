@@ -8,6 +8,17 @@ interface MediaOutputViewProps {
 
 function MediaItem({ item }: { item: MediaUrl }) {
   const filename = getFilename(item.url);
+  const isExternalUrl = /^https?:\/\//i.test(item.url);
+  const openLink = isExternalUrl && (
+    <a
+      href={item.url}
+      rel="noreferrer"
+      referrerPolicy="no-referrer"
+      className="text-xs text-primary underline underline-offset-2"
+    >
+      Open
+    </a>
+  );
 
   switch (item.type) {
     case "image":
@@ -16,11 +27,15 @@ function MediaItem({ item }: { item: MediaUrl }) {
           <img
             src={item.url}
             alt={filename}
+            referrerPolicy="no-referrer"
             className="max-h-[400px] max-w-full rounded-lg border border-border object-contain"
           />
-          {filename && (
-            <span className="text-xs text-muted-foreground">{filename}</span>
-          )}
+          <div className="flex items-center gap-2">
+            {filename && (
+              <span className="text-xs text-muted-foreground">{filename}</span>
+            )}
+            {openLink}
+          </div>
         </div>
       );
     case "video":
@@ -31,9 +46,12 @@ function MediaItem({ item }: { item: MediaUrl }) {
             controls
             className="max-h-[400px] max-w-full rounded-lg border border-border"
           />
-          {filename && (
-            <span className="text-xs text-muted-foreground">{filename}</span>
-          )}
+          <div className="flex items-center gap-2">
+            {filename && (
+              <span className="text-xs text-muted-foreground">{filename}</span>
+            )}
+            {openLink}
+          </div>
         </div>
       );
     case "audio":
@@ -42,6 +60,7 @@ function MediaItem({ item }: { item: MediaUrl }) {
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <ForwardedIconComponent name="Music" className="h-4 w-4" />
             {filename && <span>{filename}</span>}
+            {openLink}
           </div>
           <audio src={item.url} controls className="w-full" />
         </div>

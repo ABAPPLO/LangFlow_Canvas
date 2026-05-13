@@ -58,6 +58,16 @@ export const MarkdownField = ({
           h3({ node, ...props }) {
             return <h3 className={cn("mt-4", props.className)} {...props} />;
           },
+          a: ({ node, ...props }) => (
+            <a
+              {...props}
+              target="_blank"
+              rel="noreferrer"
+              referrerPolicy="no-referrer"
+            >
+              {props.children}
+            </a>
+          ),
           table: ({ node, ...props }) => {
             return (
               <div className="max-w-full overflow-hidden rounded-md border bg-muted">

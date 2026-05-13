@@ -102,7 +102,7 @@ class JobService(Service):
             return job
 
     async def update_job_status(
-        self, job_id: UUID, status: JobStatus, *, finished_timestamp: bool = False
+        self, job_id: UUID, status: JobStatus, *, finished_timestamp: bool = False, error: str | None = None
     ) -> Job | None:
         """Update job status and optionally set finished timestamp.
 
@@ -110,12 +110,13 @@ class JobService(Service):
             job_id: The job ID to update
             status: New status value
             finished_timestamp: If True, set finished_timestamp to current time
+            error: Optional error message to store
 
         Returns:
             Updated Job object or None if not found
         """
         async with session_scope() as session:
-            job = await update_job_status(session, job_id, status)
+            job = await update_job_status(session, job_id, status, error=error)
             if job and finished_timestamp:
                 job.finished_timestamp = datetime.now(timezone.utc)
                 session.add(job)
@@ -174,7 +175,7 @@ class JobService(Service):
         except AssertionError as e:
             # Handle missing required arguments
             await logger.aerror(f"Job {job_id} failed with AssertionError: {e}")
-            await self.update_job_status(job_id, JobStatus.FAILED, finished_timestamp=True)
+            await self.update_job_status(job_id, JobStatus.FAILED, finished_timestamp=True, error=str(e))
             raise
 
         except asyncio.TimeoutError as e:
@@ -192,13 +193,13 @@ class JobService(Service):
             else:
                 # System-initiated cancellation - update status to FAILED
                 await logger.aerror(f"Job {job_id} was cancelled by system")
-                await self.update_job_status(job_id, JobStatus.FAILED, finished_timestamp=True)
+                await self.update_job_status(job_id, JobStatus.FAILED, finished_timestamp=True, error="Job cancelled by system")
             raise
 
         except Exception as e:
             # Handle any other error
             await logger.aexception(f"Job {job_id} failed with unexpected error: {e}")
-            await self.update_job_status(job_id, JobStatus.FAILED, finished_timestamp=True)
+            await self.update_job_status(job_id, JobStatus.FAILED, finished_timestamp=True, error=str(e))
             raise
         else:
             # Update to COMPLETED

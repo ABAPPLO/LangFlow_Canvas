@@ -63,6 +63,7 @@ class JobBase(SQLModel):
     asset_type: str | None = Field(
         index=False, nullable=True
     )  # Polymorphic: records if job is related to an entity like a KB, workflow, etc.
+    error: str | None = Field(default=None, index=False, nullable=True)
 
 
 class Job(JobBase, table=True):  # type: ignore[call-arg]
