@@ -344,6 +344,15 @@ export function isValidConnection(
   const nodesArray = nodes || useFlowStore.getState().nodes;
   const edgesArray = edges || useFlowStore.getState().edges;
 
+  const isExactDuplicate = edgesArray.some(
+    (e) =>
+      e.source === source &&
+      e.sourceHandle === sourceHandle &&
+      e.target === target &&
+      e.targetHandle === targetHandle,
+  );
+  if (isExactDuplicate) return false;
+
   const targetHandleObject: targetHandleType = scapeJSONParse(targetHandle!);
   const sourceHandleObject: sourceHandleType = scapeJSONParse(sourceHandle!);
 

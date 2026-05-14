@@ -45,6 +45,10 @@ function parseSSE(text: string): { messages: SSEMessage[]; remaining: string } {
 
 const STREAM_TIMEOUT_MS = 300_000; // 5min timeout for no data (CLI startup + LLM inference)
 
+// Module-level ref to track pending build promise from trigger_build events.
+// This avoids coupling the pure handleSSEEvent function to component state.
+let _pendingBuildPromise: Promise<void> | null = null;
+
 export function useAssistantChat() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -182,6 +186,35 @@ export function useAssistantChat() {
             } catch {
               // Ignore
             }
+          }
+        }
+
+        // Check for pending build result from trigger_build
+        if (_pendingBuildPromise) {
+          try {
+            await _pendingBuildPromise;
+          } catch {
+            // buildFlow throws for validation errors — handled via buildInfo below
+          }
+          _pendingBuildPromise = null;
+
+          const buildInfo = useFlowStore.getState().buildInfo;
+          if (buildInfo?.error && buildInfo.error.length > 0) {
+            const errorSummary = buildInfo.error.join("\n");
+            const currentMsgs = useAssistantChatStore.getState().messages;
+            const lastContent =
+              currentMsgs.length > 0 &&
+              currentMsgs[currentMsgs.length - 1].role === "assistant"
+                ? currentMsgs[currentMsgs.length - 1].content
+                : "";
+            updateLastAssistantMessage(
+              `${lastContent}\n\n---\n**Flow build failed:**\n\`\`\`\n${errorSummary}\n\`\`\``,
+            );
+
+            // Auto-send error feedback to assistant so it can diagnose and fix
+            const followUp = `[System] Flow build failed with errors:\n${errorSummary}\n\nPlease diagnose and fix the issues, then retry run_flow.`;
+            setTimeout(() => sendMessage(followUp), 1000);
+            return;
           }
         }
 
@@ -349,11 +382,9 @@ function handleSSEEvent(
     case "trigger_build": {
       const flowStore = useFlowStore.getState();
       const stopNodeId = data.stop_component_id as string;
-      if (stopNodeId) {
-        flowStore.buildFlow({ stopNodeId });
-      } else {
-        flowStore.buildFlow({});
-      }
+      _pendingBuildPromise = stopNodeId
+        ? flowStore.buildFlow({ stopNodeId })
+        : flowStore.buildFlow({});
       break;
     }
 
