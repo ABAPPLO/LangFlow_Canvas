@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from lfx.base.models.unified_models import get_language_model_options, update_model_options_in_build_config
 from lfx.custom import Component
 from lfx.inputs import (
     BoolInput,
@@ -16,12 +17,9 @@ from lfx.inputs import (
     SecretStrInput,
 )
 from lfx.inputs.inputs import StrInput
-from lfx.io import Output
+from lfx.io import ModelInput, Output
 from lfx.schema.data import Data
 from lfx.schema.message import Message
-
-BASE_URL = "https://nat.gbotai.cn/v1/videos"
-DEFAULT_API_KEY = "sk-1brwTArunQX7pQwowxQrxQATr15gONx8Kkt1q86IvY8LqYY9"
 
 MAX_REF_IMAGES = 9
 MAX_SEGMENTS = 20
@@ -51,10 +49,10 @@ class SeedanceChainVideoComponent(Component):
     inputs = [
         SecretStrInput(
             name="api_key",
-            display_name="API Key",
-            info="火山引擎 API Key。",
-            required=True,
-            value=DEFAULT_API_KEY,
+            display_name="API Key Override",
+            info="可选。留空时使用所选模型 Provider 的全局 API Key；填写后仅覆盖当前节点。",
+            required=False,
+            advanced=True,
         ),
         StrInput(
             name="user_wallet_id",
@@ -72,16 +70,20 @@ class SeedanceChainVideoComponent(Component):
         ),
         MessageTextInput(
             name="base_url",
-            display_name="Base URL",
-            info="API 基础地址，留空使用默认地址。",
-            value=BASE_URL,
+            display_name="Base URL Override",
+            info=(
+                "可选。留空时使用所选模型 Provider 的全局 Base URL；填写后仅覆盖当前节点。"
+                "支持 root、/v1 或完整 /v1/videos，组件会自动规范化为视频任务接口。"
+            ),
+            value="",
             advanced=True,
         ),
-        MessageTextInput(
+        ModelInput(
             name="model",
-            display_name="模型",
-            info="模型ID，如 doubao-seedance-2-0-260128。",
-            value="doubao-seedance-2-0-260128",
+            display_name="Video Model",
+            info="从 Manage Model Providers 中选择视频生成模型；例如 NewAPI 中配置的 Seedance 模型。",
+            real_time_refresh=True,
+            required=True,
         ),
         MultilineInput(
             name="prompts",
@@ -178,14 +180,22 @@ class SeedanceChainVideoComponent(Component):
         self._generation_done: bool = False
         self._generation_error: Exception | None = None
         self._failure_info: dict | None = None
+        self._resolved_model: str = ""
+        self._video_endpoint: str = ""
+
+    def update_build_config(self, build_config, field_value, field_name=None):
+        return update_model_options_in_build_config(
+            component=self,
+            build_config=build_config,
+            cache_key_prefix="video_model_options",
+            get_options_func=get_language_model_options,
+            field_name=field_name,
+            field_value=field_value,
+        )
 
     def _debug_log(self, message: str, name: str = "Seedance") -> None:
         timestamp = time.strftime("%H:%M:%S")
         self.log(f"[{timestamp}] {message}", name=name)
-
-    def _short_text(self, value: str, limit: int = 240) -> str:
-        text = str(value or "")
-        return text[:limit] + ("..." if len(text) > limit else "")
 
     def _stage_name(self, stage: str) -> str:
         names = {
@@ -223,7 +233,6 @@ class SeedanceChainVideoComponent(Component):
         if task_id:
             details["task_id"] = task_id
         if prompt:
-            details["prompt_preview"] = self._short_text(prompt)
             details["prompt_chars"] = len(prompt)
         if ref_video_url:
             parsed_ref_video = urlparse(ref_video_url)
@@ -234,7 +243,7 @@ class SeedanceChainVideoComponent(Component):
 
         self._failure_info = details
         segment_label = f"第 {segment}/{total_segments} 段" if segment and total_segments else "全局"
-        task_label = f", task_id={task_id[:12]}..." if task_id else ""
+        task_label = f", task_id={task_id}" if task_id else ""
         self.log(
             f"失败位置: {segment_label} / {self._stage_name(stage)}{task_label}; "
             f"错误类型: {type(error).__name__}; 原因: {error}",
@@ -313,6 +322,69 @@ class SeedanceChainVideoComponent(Component):
         self.log(f"user_wallet_id={wallet_id}, task_id={tracking_task_id}")
         return wallet_id, tracking_task_id
 
+    def _resolve_model_selection(self) -> tuple[str, str]:
+        model_data = getattr(self, "model", None)
+        if isinstance(model_data, list) and model_data:
+            model_info = model_data[0]
+            if isinstance(model_info, dict):
+                model_name = str(model_info.get("name") or "").strip()
+                provider = str(model_info.get("provider") or "").strip()
+                if model_name:
+                    return model_name, provider
+
+        # Backward compatibility for old saved flows that stored a plain model string.
+        model_name = str(model_data or "").strip()
+        if model_name:
+            return model_name, ""
+
+        raise ValueError("请选择视频生成模型。")
+
+    @staticmethod
+    def _normalize_video_endpoint(base_url: str) -> str:
+        value = str(base_url or "").strip().rstrip("/")
+        if not value:
+            raise ValueError("Base URL 不能为空。请在 Manage Model Providers 中配置，或在当前节点填写 Base URL Override。")
+
+        lower_value = value.lower()
+        if lower_value.endswith("/v1/videos"):
+            return value
+        if lower_value.endswith("/v1"):
+            return f"{value}/videos"
+        return f"{value}/v1/videos"
+
+    def _resolve_base_url_override(self, override_value: str, provider_vars: dict[str, str]) -> str:
+        value = str(override_value or "").strip()
+        if not value:
+            return ""
+
+        if value in provider_vars:
+            return provider_vars[value]
+
+        return value
+
+    def _resolve_credentials(self) -> tuple[str, str, str, str]:
+        from lfx.base.models.unified_models import get_all_variables_for_provider, get_api_key_for_provider
+
+        model_name, provider = self._resolve_model_selection()
+        api_key = get_api_key_for_provider(self.user_id, provider, getattr(self, "api_key", None))
+        if not api_key:
+            provider_label = provider or "当前"
+            raise ValueError(
+                f"{provider_label} 模型需要 API Key。请在 Manage Model Providers 中配置，"
+                "或在当前节点填写 API Key Override。"
+            )
+
+        provider_vars = get_all_variables_for_provider(self.user_id, provider) if provider else {}
+        base_url = self._resolve_base_url_override(getattr(self, "base_url", ""), provider_vars)
+        if not base_url:
+            for var_key, value in provider_vars.items():
+                if "BASE_URL" in var_key and value:
+                    base_url = value
+                    break
+
+        video_endpoint = self._normalize_video_endpoint(base_url)
+        return api_key, video_endpoint, model_name, provider
+
     # ---------- 提示词构造 ----------
 
     def _build_ref_prefix(self, segment_num: int) -> str:
@@ -357,7 +429,7 @@ class SeedanceChainVideoComponent(Component):
         ref_video_url: str = "",
     ) -> dict:
         return {
-            "model": self.model,
+            "model": self._resolved_model or self._resolve_model_selection()[0],
             "prompt": prompt,
             "metadata": {
                 "content": self._build_content(prompt, ref_image_urls, ref_video_url),
@@ -395,12 +467,13 @@ class SeedanceChainVideoComponent(Component):
         for attempt in range(1, max_attempts + 1):
             start = time.perf_counter()
             self._debug_log(
-                f"Create task request: model={self.model}, prompt_chars={len(prompt)}, "
+                f"Create task request: model={self._resolved_model}, endpoint={self._video_endpoint}, "
+                f"prompt_chars={len(prompt)}, "
                 f"ref_images={len(ref_image_urls)}, has_ref_video={bool(ref_video_url)}, "
                 f"attempt={attempt}/{max_attempts}"
             )
             try:
-                resp = client.post(self.base_url, json=payload)
+                resp = client.post(self._video_endpoint, json=payload)
                 elapsed = time.perf_counter() - start
                 self._debug_log(f"Create task response: status_code={resp.status_code}, elapsed={elapsed:.1f}s")
                 resp.raise_for_status()
@@ -463,35 +536,41 @@ class SeedanceChainVideoComponent(Component):
         raise TaskError("Create task failed without response")
 
     def _poll_task(self, client: httpx.Client, task_id: str) -> dict:
-        url = f"{self.base_url}/{task_id}"
+        url = f"{self._video_endpoint}/{task_id}"
         deadline = time.time() + self.max_wait_time
         consecutive_errors = 0
         max_consecutive_errors = MAX_POLL_TRANSIENT_ERRORS
         attempt = 0
+        task_label = task_id
+        last_logged_status = ""
+
+        self.log(f"Start polling task {task_label}...")
 
         while time.time() < deadline:
             attempt += 1
             try:
                 poll_start = time.perf_counter()
-                self.log(f"Polling task {task_id[:12]}... (attempt {attempt})")
-                self._debug_log(f"Poll task request: task_id={task_id[:12]}, attempt={attempt}")
                 resp = client.get(url)
                 elapsed = time.perf_counter() - poll_start
-                self._debug_log(f"Poll task response: status_code={resp.status_code}, elapsed={elapsed:.1f}s")
                 resp.raise_for_status()
                 data = resp.json()
                 consecutive_errors = 0
 
                 status = data.get("status", "unknown")
-                self.status = f"段落任务 {task_id[:12]}... 状态: {status}"
-                self.log(f"Task {task_id[:12]}... status: {status}")
-                self._debug_log(f"Poll task status: task_id={task_id[:12]}, status={status}")
+                self.status = f"段落任务 {task_label}... 状态: {status}"
+                if status != last_logged_status:
+                    previous = last_logged_status or "none"
+                    self.log(f"Task {task_label}... status changed: {previous} -> {status}")
+                    last_logged_status = status
+                elif attempt % 5 == 0:
+                    self.log(f"Task {task_label}... still {status} after {attempt} polls")
 
                 if status in ("succeeded", "completed"):
+                    self.log(f"Task {task_label}... completed with status: {status}")
                     return data
                 if status in TERMINAL_FAIL_STATUSES:
                     error_msg = data.get("error", {})
-                    raise TaskError(f"Task {task_id[:12]}... ended with status={status}, error={error_msg}")
+                    raise TaskError(f"Task {task_label}... ended with status={status}, error={error_msg}")
 
                 time.sleep(self.poll_interval)
 
@@ -501,7 +580,7 @@ class SeedanceChainVideoComponent(Component):
                 elapsed = time.perf_counter() - poll_start
                 consecutive_errors += 1
                 self._debug_log(
-                    f"Poll read timeout: task_id={task_id[:12]}, attempt={attempt}, elapsed={elapsed:.1f}s, "
+                    f"Poll read timeout: task_id={task_label}, attempt={attempt}, elapsed={elapsed:.1f}s, "
                     f"consecutive_errors={consecutive_errors}/{max_consecutive_errors}, "
                     f"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s",
                     name="WARNING",
@@ -511,7 +590,7 @@ class SeedanceChainVideoComponent(Component):
                     "WARNING",
                 )
                 if consecutive_errors >= max_consecutive_errors:
-                    raise TaskError(f"Too many read timeouts polling task {task_id[:12]}...") from e
+                    raise TaskError(f"Too many read timeouts polling task {task_label}...") from e
                 time.sleep(self._retry_delay(consecutive_errors))
             except httpx.HTTPStatusError as e:
                 elapsed = time.perf_counter() - poll_start
@@ -524,35 +603,35 @@ class SeedanceChainVideoComponent(Component):
                     except Exception:
                         pass
                     self._debug_log(
-                        f"Poll task fatal HTTP error: task_id={task_id[:12]}, status_code={code}, "
+                        f"Poll task fatal HTTP error: task_id={task_label}, status_code={code}, "
                         f"elapsed={elapsed:.1f}s",
                         name="ERROR",
                     )
-                    raise TaskError(f"Polling task {task_id[:12]}... HTTP {code}: {detail}") from e
+                    raise TaskError(f"Polling task {task_label}... HTTP {code}: {detail}") from e
                 consecutive_errors += 1
                 self._debug_log(
-                    f"Poll task transient HTTP error: task_id={task_id[:12]}, status_code={code}, "
+                    f"Poll task transient HTTP error: task_id={task_label}, status_code={code}, "
                     f"elapsed={elapsed:.1f}s, consecutive_errors={consecutive_errors}/{max_consecutive_errors}",
                     name="WARNING",
                 )
                 self.log(f"HTTP {code} (transient), retry...", "WARNING")
                 if consecutive_errors >= max_consecutive_errors:
-                    raise TaskError(f"Too many transient HTTP errors polling task {task_id[:12]}...") from e
+                    raise TaskError(f"Too many transient HTTP errors polling task {task_label}...") from e
                 time.sleep(self._retry_delay(consecutive_errors))
             except (httpx.HTTPError, ValueError, KeyError) as e:
                 elapsed = time.perf_counter() - poll_start
                 consecutive_errors += 1
                 self._debug_log(
-                    f"Poll task error: task_id={task_id[:12]}, error={type(e).__name__}: {e}, "
+                    f"Poll task error: task_id={task_label}, error={type(e).__name__}: {e}, "
                     f"elapsed={elapsed:.1f}s, consecutive_errors={consecutive_errors}/{max_consecutive_errors}",
                     name="WARNING",
                 )
                 self.log(f"Polling error: {e}", "WARNING")
                 if consecutive_errors >= max_consecutive_errors:
-                    raise TaskError(f"Too many errors polling task {task_id[:12]}...") from e
+                    raise TaskError(f"Too many errors polling task {task_label}...") from e
                 time.sleep(self._retry_delay(consecutive_errors))
 
-        raise TaskTimeoutError(f"Task {task_id[:12]}... timed out after {self.max_wait_time}s")
+        raise TaskTimeoutError(f"Task {task_label}... timed out after {self.max_wait_time}s")
 
     def _extract_video_url(self, data: dict) -> str:
         metadata = data.get("metadata")
@@ -621,8 +700,15 @@ class SeedanceChainVideoComponent(Component):
             f"max_wait_time={self.max_wait_time}, poll_interval={self.poll_interval}"
         )
 
+        api_key, video_endpoint, model_name, provider = self._resolve_credentials()
+        self._resolved_model = model_name
+        self._video_endpoint = video_endpoint
+        self._debug_log(
+            f"Resolved video provider: provider={provider or 'override'}, model={model_name}, endpoint={video_endpoint}"
+        )
+
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         wallet_id, tracking_task_id = self._resolve_tracking_headers()
@@ -652,15 +738,15 @@ class SeedanceChainVideoComponent(Component):
                     final_prompt = prefix + prompt
 
                     self.log(f"=== 段落 {segment_num}/{len(prompts)} ===")
-                    self.log(f"原始提示词: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
-                    self.log(f"最终提示词: {final_prompt[:150]}{'...' if len(final_prompt) > 150 else ''}")
+                    self.log(f"原始提示词: {prompt}")
+                    self.log(f"最终提示词: {final_prompt}")
                     if ref_image_urls:
                         self.log(f"参考图({len(ref_image_urls)}张)")
                     if prev_video_url:
-                        self.log(f"参考视频(上一段): {prev_video_url[:80]}...")
+                        self.log(f"参考视频(上一段): {prev_video_url}")
                         self._debug_log(
                             f"Segment uses previous video: segment={segment_num}, "
-                            f"prev_video_domain={urlparse(prev_video_url).netloc}, url_chars={len(prev_video_url)}"
+                            f"prev_video_url={prev_video_url}"
                         )
 
                     task_id = ""
@@ -678,7 +764,7 @@ class SeedanceChainVideoComponent(Component):
                         video_url = self._extract_video_url(result)
 
                         if not video_url:
-                            raise TaskError(f"Task {task_id[:12]}... succeeded but no video_url in response")
+                            raise TaskError(f"Task {task_id} succeeded but no video_url in response")
 
                         self._results.append(
                             {
@@ -692,11 +778,10 @@ class SeedanceChainVideoComponent(Component):
                         )
 
                         prev_video_url = video_url
-                        self.log(f"视频: {video_url[:80]}...")
-                        parsed_video_url = urlparse(video_url)
+                        self.log(f"视频生成完成: {video_url}")
                         self._debug_log(
                             f"Segment success: segment={segment_num}, task_id={task_id}, "
-                            f"video_domain={parsed_video_url.netloc}, url_chars={len(video_url)}"
+                            f"video_url={video_url}"
                         )
 
                     except (TaskError, TaskTimeoutError) as e:
@@ -709,7 +794,9 @@ class SeedanceChainVideoComponent(Component):
                             prompt=final_prompt,
                             ref_video_url=prev_video_url,
                             extra={
-                                "model": self.model,
+                                "model": self._resolved_model,
+                                "provider": provider,
+                                "video_endpoint": self._video_endpoint,
                                 "ref_images": len(ref_image_urls),
                                 "has_ref_video": bool(prev_video_url),
                                 "request_timeout": getattr(self, "request_timeout", DEFAULT_REQUEST_TIMEOUT),
@@ -775,5 +862,7 @@ class SeedanceChainVideoComponent(Component):
                 "failure": self._failure_info,
                 "completed_segments": len([r for r in self._results if r.get("video_url")]),
                 "total_segments": self._failure_info.get("total_segments") if self._failure_info else None,
+                "model": self._resolved_model,
+                "video_endpoint": self._video_endpoint,
             }
         )
