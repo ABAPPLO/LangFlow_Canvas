@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from lfx.components.processing.store_message import MessageStoreComponent
     from lfx.components.processing.table_splitter import TableSplitterComponent
     from lfx.components.processing.text_aggregator import TextAggregatorComponent
-    from lfx.components.processing.volcengine_web_search import VolcengineWebSearchComponent
 
 _dynamic_imports = {
     "AddFieldsComponent": "add_fields",
@@ -46,7 +45,6 @@ _dynamic_imports = {
     "MessageStoreComponent": "store_message",
     "TableSplitterComponent": "table_splitter",
     "TextAggregatorComponent": "text_aggregator",
-    "VolcengineWebSearchComponent": "volcengine_web_search",
 }
 
 __all__ = [
@@ -68,7 +66,6 @@ __all__ = [
     "TableSplitterComponent",
     "TextAggregatorComponent",
     "TypeConverterComponent",
-    "VolcengineWebSearchComponent",
 ]
 
 
