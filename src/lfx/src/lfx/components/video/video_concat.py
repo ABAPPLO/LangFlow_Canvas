@@ -98,7 +98,6 @@ class VideoConcatenatorComponent(Component):
             # Local path — validate existence
             p = Path(url).expanduser().resolve()
             if not p.exists():
-                self.status = f"File not found: {url}"
                 return None
             return p
 
@@ -110,8 +109,7 @@ class VideoConcatenatorComponent(Component):
                 resp = client.get(url)
                 resp.raise_for_status()
                 local_path.write_bytes(resp.content)
-        except httpx.HTTPError as e:
-            self.status = f"Download failed: {url} — {e}"
+        except httpx.HTTPError:
             return None
         return local_path
 
@@ -190,8 +188,8 @@ class VideoConcatenatorComponent(Component):
         """Download/resolve videos and concatenate them with ffmpeg."""
         urls = self._parse_urls()
         if not urls:
-            self.status = "No video URLs provided"
-            return Data(text="", data={"error": "No video URLs provided"})
+            msg = "No video URLs provided"
+            raise ValueError(msg)
 
         if len(urls) == 1:
             url = urls[0]
@@ -199,9 +197,7 @@ class VideoConcatenatorComponent(Component):
                 p = Path(url).expanduser().resolve()
                 if p.exists():
                     duration = self._get_duration(str(p))
-                    self.status = f"Single video: {p}"
                     return Data(text=str(p), data={"path": str(p), "duration": duration, "count": 1})
-            self.status = f"Single video: {url}"
             return Data(text=url, data={"path": url, "count": 1})
 
         with tempfile.TemporaryDirectory(prefix="video_concat_") as tmp_dir_str:
@@ -214,8 +210,8 @@ class VideoConcatenatorComponent(Component):
             for url in urls:
                 path = self._download(url, tmp_dir)
                 if path is None:
-                    self.status = f"Failed to resolve: {url}"
-                    return Data(text="", data={"error": f"Failed to resolve: {url}"})
+                    msg = f"Failed to resolve: {url}"
+                    raise ValueError(msg)
                 local_paths.append(path)
 
             # Step 1: Normalize all videos to consistent format
@@ -223,8 +219,8 @@ class VideoConcatenatorComponent(Component):
             for idx, path in enumerate(local_paths):
                 norm_path = normalized_dir / f"norm_{idx:03d}.mp4"
                 if not self._normalize_video(path, norm_path):
-                    self.status = f"Failed to normalize video: {path}"
-                    return Data(text="", data={"error": f"Failed to normalize video: {path}"})
+                    msg = f"Failed to normalize video: {path}"
+                    raise RuntimeError(msg)
                 normalized_paths.append(norm_path)
 
             # Step 2: Create concat file list from normalized videos
@@ -242,11 +238,10 @@ class VideoConcatenatorComponent(Component):
 
             # Step 3: Concatenate (copy mode is safe now — all videos are normalized)
             if not self._concat_normalized(str(filelist_path), str(output_path)):
-                self.status = "FFmpeg concatenation failed"
-                return Data(text="", data={"error": "FFmpeg concatenation failed"})
+                msg = "FFmpeg concatenation failed"
+                raise RuntimeError(msg)
 
             duration = self._get_duration(str(output_path))
-            self.status = f"Concatenated {len(local_paths)} videos → {output_path} ({duration:.1f}s)"
 
             return Data(
                 text=str(output_path),

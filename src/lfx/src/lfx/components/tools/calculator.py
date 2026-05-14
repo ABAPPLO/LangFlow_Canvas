@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from lfx.base.langchain_utilities.model import LCToolComponent
 from lfx.field_typing import Tool
 from lfx.inputs.inputs import MessageTextInput
-from lfx.log.logger import logger
 from lfx.schema.data import Data
 
 
@@ -73,30 +72,26 @@ class CalculatorToolComponent(LCToolComponent):
             raise ToolException(str(e)) from e
 
     def _evaluate_expression(self, expression: str) -> list[Data]:
+        # Parse the expression and evaluate it
         try:
-            # Parse the expression and evaluate it
             tree = ast.parse(expression, mode="eval")
+        except SyntaxError as e:
+            msg = f"Invalid expression '{expression}': syntax error: {e}"
+            raise ValueError(msg) from e
+
+        try:
             result = self._eval_expr(tree.body)
+        except ZeroDivisionError as e:
+            msg = f"Division by zero in expression '{expression}'"
+            raise ValueError(msg) from e
+        except TypeError as e:
+            msg = f"Invalid operation in expression '{expression}': {e}"
+            raise ValueError(msg) from e
 
-            # Format the result to a reasonable number of decimal places
-            formatted_result = f"{result:.6f}".rstrip("0").rstrip(".")
-
-            self.status = formatted_result
-            return [Data(data={"result": formatted_result})]
-
-        except (SyntaxError, TypeError, KeyError) as e:
-            error_message = f"Invalid expression: {e}"
-            self.status = error_message
-            return [Data(data={"error": error_message, "input": expression})]
-        except ZeroDivisionError:
-            error_message = "Error: Division by zero"
-            self.status = error_message
-            return [Data(data={"error": error_message, "input": expression})]
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error evaluating expression", exc_info=True)
-            error_message = f"Error: {e}"
-            self.status = error_message
-            return [Data(data={"error": error_message, "input": expression})]
+        # Format the result to a reasonable number of decimal places
+        formatted_result = f"{result:.6f}".rstrip("0").rstrip(".")
+        self.status = formatted_result
+        return [Data(data={"result": formatted_result})]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

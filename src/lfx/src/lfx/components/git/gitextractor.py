@@ -71,9 +71,8 @@ class GitExtractorComponent(Component):
                 self.status = result
                 return result
         except git.GitError as e:
-            error_result = [Data(data={"error": f"Error getting repository info: {e!s}"})]
-            self.status = error_result
-            return error_result
+            msg = f"Error getting repository info: {e}"
+            raise RuntimeError(msg) from e
 
     async def get_statistics(self) -> list[Data]:
         try:
@@ -109,9 +108,8 @@ class GitExtractorComponent(Component):
                 self.status = result
                 return result
         except git.GitError as e:
-            error_result = [Data(data={"error": f"Error calculating statistics: {e!s}"})]
-            self.status = error_result
-            return error_result
+            msg = f"Error calculating statistics: {e}"
+            raise RuntimeError(msg) from e
 
     async def get_directory_structure(self) -> Message:
         try:
@@ -130,9 +128,8 @@ class GitExtractorComponent(Component):
                 self.status = directory_structure
                 return Message(text=directory_structure)
         except git.GitError as e:
-            error_message = f"Error getting directory structure: {e!s}"
-            self.status = error_message
-            return Message(text=error_message)
+            msg = f"Error getting directory structure: {e}"
+            raise RuntimeError(msg) from e
 
     async def get_files_content(self) -> list[Data]:
         try:
@@ -154,9 +151,8 @@ class GitExtractorComponent(Component):
                 self.status = content_list
                 return content_list
         except git.GitError as e:
-            error_result = [Data(data={"error": f"Error getting files content: {e!s}"})]
-            self.status = error_result
-            return error_result
+            msg = f"Error getting files content: {e}"
+            raise RuntimeError(msg) from e
 
     async def get_text_based_file_contents(self) -> Message:
         try:
@@ -191,6 +187,5 @@ class GitExtractorComponent(Component):
                 self.status = text_content
                 return Message(text=text_content)
         except git.GitError as e:
-            error_message = f"Error getting text-based file contents: {e!s}"
-            self.status = error_message
-            return Message(text=error_message)
+            msg = f"Error getting text-based file contents: {e}"
+            raise RuntimeError(msg) from e

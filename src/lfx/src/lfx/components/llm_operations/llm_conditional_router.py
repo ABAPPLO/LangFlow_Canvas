@@ -261,8 +261,8 @@ class SmartRouterComponent(Component):
             self.status = f"LLM response: '{categorization}'"
             self._categorization_result = categorization
         except RuntimeError as e:
-            self.status = f"Error in LLM categorization: {e!s}"
-            self._categorization_result = "NONE"
+            msg = f"Error in LLM categorization: {e}"
+            raise RuntimeError(msg) from e
 
         return self._categorization_result
 

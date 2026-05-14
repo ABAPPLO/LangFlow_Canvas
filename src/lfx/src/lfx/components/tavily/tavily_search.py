@@ -187,24 +187,23 @@ class TavilySearchComponent(Component):
             if self.include_images and search_results.get("images"):
                 data_results.append(Data(text="Images found", data={"images": search_results["images"]}))
 
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             error_message = "Request timed out (90s). Please try again or adjust parameters."
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ConnectionError(error_message) from exc
         except httpx.HTTPStatusError as exc:
             error_message = f"HTTP error occurred: {exc.response.status_code} - {exc.response.text}"
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ConnectionError(error_message) from exc
         except httpx.RequestError as exc:
             error_message = f"Request error occurred: {exc}"
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ConnectionError(error_message) from exc
         except ValueError as exc:
             error_message = f"Invalid response format: {exc}"
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ValueError(error_message) from exc
         else:
-            self.status = data_results
             return data_results
 
     def fetch_content_dataframe(self) -> DataFrame:

@@ -98,15 +98,13 @@ class JigsawStackAIWebSearchComponent(Component):
             return Data(data=result_data)
 
         except JigsawStackError as e:
-            error_data = {"error": str(e), "success": False}
-            self.status = f"Error: {e!s}"
-            return Data(data=error_data)
+            raise RuntimeError(f"JigsawStack AI Web Search failed: {e}") from e
 
     def get_content_text(self) -> Message:
         try:
             from jigsawstack import JigsawStack, JigsawStackError
-        except ImportError:
-            return Message(text="Error: JigsawStack package not found.")
+        except ImportError as e:
+            raise ImportError("JigsawStack package not found. Please install it using: pip install jigsawstack>=0.2.7") from e
 
         try:
             # Initialize JigsawStack client
@@ -124,7 +122,7 @@ class JigsawStackAIWebSearchComponent(Component):
             # Call web scraping
             response = client.web.search(search_params)
 
-            request_failed_msg = "Request Failed"
+            request_failed_msg = "JigsawStack AI Search returned unsuccessful response"
             if not response.get("success", False):
                 raise JigsawStackError(request_failed_msg)
 
@@ -133,4 +131,4 @@ class JigsawStackAIWebSearchComponent(Component):
             return Message(text=content)
 
         except JigsawStackError as e:
-            return Message(text=f"Error while using AI Search: {e!s}")
+            raise RuntimeError(f"JigsawStack AI Web Search failed: {e}") from e

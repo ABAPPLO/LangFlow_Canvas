@@ -85,11 +85,8 @@ class AssemblyAIListTranscripts(Component):
                 page = transcriber.list_transcripts(params)
                 transcripts = convert_page_to_data_list(page)
 
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error listing transcripts", exc_info=True)
-            error_data = Data(data={"error": f"An error occurred: {e}"})
-            self.status = [error_data]
-            return [error_data]
+        except Exception as e:
+            raise RuntimeError(f"Failed to list AssemblyAI transcripts: {e}") from e
 
         self.status = transcripts
         return transcripts

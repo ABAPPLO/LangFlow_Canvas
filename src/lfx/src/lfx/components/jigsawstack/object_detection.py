@@ -119,6 +119,4 @@ class JigsawStackObjectDetectionComponent(Component):
             return Data(data=response)
 
         except JigsawStackError as e:
-            error_data = {"error": str(e), "success": False}
-            self.status = f"Error: {e!s}"
-            return Data(data=error_data)
+            raise RuntimeError(f"JigsawStack Object Detection failed: {e}") from e

@@ -38,64 +38,25 @@ class MockDataGeneratorComponent(Component):
         return self.generate_dataframe_output()
 
     def generate_message_output(self) -> Message:
-        """Generate Message output specifically.
-
-        Returns:
-            Message: A Message object containing Lorem Ipsum text
-        """
-        try:
-            self.log("Generating Message mock data")
-            message = self._generate_message()
-            self.status = f"Generated Lorem Ipsum message ({len(message.text)} characters)"
-        except (ValueError, TypeError) as e:
-            error_msg = f"Error generating Message data: {e!s}"
-            self.log(error_msg)
-            self.status = f"Error: {error_msg}"
-            return Message(text=f"Error: {error_msg}")
-        else:
-            return message
+        """Generate Message output specifically."""
+        self.log("Generating Message mock data")
+        message = self._generate_message()
+        self.status = f"Generated Lorem Ipsum message ({len(message.text)} characters)"
+        return message
 
     def generate_data_output(self) -> Data:
-        """Generate Data output specifically.
-
-        Returns:
-            Data: A Data object containing sample JSON data (1 record)
-        """
-        try:
-            record_count = 1  # Fixed to 1 record for Data output
-            self.log(f"Generating Data mock data with {record_count} record")
-            data = self._generate_data(record_count)
-            self.status = f"Generated JSON data with {len(data.data.get('records', []))} record(s)"
-        except (ValueError, TypeError) as e:
-            error_msg = f"Error generating Data: {e!s}"
-            self.log(error_msg)
-            self.status = f"Error: {error_msg}"
-            return Data(data={"error": error_msg, "success": False})
-        else:
-            return data
+        """Generate Data output specifically."""
+        record_count = 1
+        self.log(f"Generating Data mock data with {record_count} record")
+        data = self._generate_data(record_count)
+        self.status = f"Generated JSON data with {len(data.data.get('records', []))} record(s)"
+        return data
 
     def generate_dataframe_output(self) -> DataFrame:
-        """Generate DataFrame output specifically.
-
-        Returns:
-            DataFrame: A Langflow DataFrame with sample data (50 records)
-        """
-        try:
-            record_count = 50  # Fixed to 50 records for DataFrame output
-            self.log(f"Generating DataFrame mock data with {record_count} records")
-            return self._generate_dataframe(record_count)
-        except (ValueError, TypeError) as e:
-            error_msg = f"Error generating DataFrame: {e!s}"
-            self.log(error_msg)
-
-            try:
-                import pandas as pd
-
-                error_df = pd.DataFrame({"error": [error_msg]})
-                return DataFrame(error_df)
-            except ImportError:
-                # Even without pandas, return DataFrame wrapper
-                return DataFrame({"error": [error_msg]})
+        """Generate DataFrame output specifically."""
+        record_count = 50
+        self.log(f"Generating DataFrame mock data with {record_count} records")
+        return self._generate_dataframe(record_count)
 
     def _generate_message(self) -> Message:
         """Generate a sample Message with Lorem Ipsum text.

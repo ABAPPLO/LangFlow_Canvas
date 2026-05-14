@@ -45,10 +45,6 @@ class NotionPageUpdate(LCToolComponent):
 
     def run_model(self) -> Data:
         result = self._update_notion_page(self.page_id, self.properties)
-        if isinstance(result, str):
-            # An error occurred, return it as text
-            return Data(text=result)
-        # Success, return the updated page data
         output = "Updated page properties:\n"
         for prop_name, prop_value in result.get("properties", {}).items():
             output += f"{prop_name}: {prop_value}\n"
@@ -63,12 +59,12 @@ class NotionPageUpdate(LCToolComponent):
             args_schema=self.NotionPageUpdateSchema,
         )
 
-    def _update_notion_page(self, page_id: str, properties: str | dict[str, Any]) -> dict[str, Any] | str:
+    def _update_notion_page(self, page_id: str, properties: str | dict[str, Any]) -> dict[str, Any]:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         headers = {
             "Authorization": f"Bearer {self.notion_secret}",
             "Content-Type": "application/json",
-            "Notion-Version": "2022-06-28",  # Use the latest supported version
+            "Notion-Version": "2022-06-28",
         }
 
         # Parse properties if it's a string
@@ -76,39 +72,23 @@ class NotionPageUpdate(LCToolComponent):
             try:
                 parsed_properties = json.loads(properties)
             except json.JSONDecodeError as e:
-                error_message = f"Invalid JSON format for properties: {e}"
-                logger.exception(error_message)
-                return error_message
-
+                raise ValueError(f"Invalid JSON format for properties: {e}") from e
         else:
             parsed_properties = properties
 
         data = {"properties": parsed_properties}
 
         try:
-            logger.info(f"Sending request to Notion API: URL: {url}, Data: {json.dumps(data)}")
             response = requests.patch(url, headers=headers, json=data, timeout=10)
             response.raise_for_status()
-            updated_page = response.json()
-
-            logger.info(f"Successfully updated Notion page. Response: {json.dumps(updated_page)}")
+            return response.json()
         except requests.exceptions.HTTPError as e:
-            error_message = f"HTTP Error occurred: {e}"
+            status_info = ""
             if e.response is not None:
-                error_message += f"\nStatus code: {e.response.status_code}"
-                error_message += f"\nResponse body: {e.response.text}"
-            logger.exception(error_message)
-            return error_message
+                status_info = f" Status code: {e.response.status_code}, Response: {e.response.text}"
+            raise ConnectionError(f"Failed to update Notion page '{page_id}': {e}{status_info}") from e
         except requests.exceptions.RequestException as e:
-            error_message = f"An error occurred while making the request: {e}"
-            logger.exception(error_message)
-            return error_message
-        except Exception as e:  # noqa: BLE001
-            error_message = f"An unexpected error occurred: {e}"
-            logger.exception(error_message)
-            return error_message
-
-        return updated_page
+            raise ConnectionError(f"Failed to update Notion page '{page_id}': {e}") from e
 
     def __call__(self, *args, **kwargs):
         return self._update_notion_page(*args, **kwargs)

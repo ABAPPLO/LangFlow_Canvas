@@ -268,8 +268,9 @@ class SeedreamImageComponent(Component):
                         image_urls.append(f"data:image/png;base64,{item['b64_json']}")
 
                 if not image_urls:
-                    self._generation_info = {"model": self.model, "error": "No image in response"}
-                    return Message(text="Error: No image in response")
+                    self._generation_info = None
+                    msg = f"Volcengine Seedream API returned no image for model {self.model}, size {self.size}, prompt: {self.prompt[:80]}"
+                    raise RuntimeError(msg)
 
                 if len(image_urls) == 1:
                     result_text = image_urls[0]
@@ -294,14 +295,15 @@ class SeedreamImageComponent(Component):
                 error_detail = e.response.text
             except Exception:
                 pass
-            error_msg = f"HTTP {e.response.status_code}: {error_detail}"
+            error_msg = f"Volcengine Seedream API HTTP error {e.response.status_code} for model {self.model}: {error_detail}"
             self.log(error_msg, "ERROR")
             self._generation_info = None
-            return Message(text=f"Error: {error_msg}")
+            raise ConnectionError(error_msg) from e
         except (httpx.HTTPError, ValueError, KeyError) as e:
-            self.log(f"Error: {e}", "ERROR")
+            error_msg = f"Volcengine Seedream API error for model {self.model}: {e}"
+            self.log(error_msg, "ERROR")
             self._generation_info = None
-            return Message(text=f"Error: {e}")
+            raise RuntimeError(error_msg) from e
 
     def get_generation_info(self) -> Data:
         if self._generation_info:
