@@ -8,6 +8,7 @@ from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
     from lfx.components.processing.add_fields import AddFieldsComponent
+    from lfx.components.processing.array_flatten import ArrayFlattenComponent
     from lfx.components.processing.combine_text import CombineTextComponent
     from lfx.components.processing.converter import TypeConverterComponent
     from lfx.components.processing.create_list import CreateListComponent
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 
 _dynamic_imports = {
     "AddFieldsComponent": "add_fields",
+    "ArrayFlattenComponent": "array_flatten",
     "CombineTextComponent": "combine_text",
     "TypeConverterComponent": "converter",
     "CreateListComponent": "create_list",
@@ -49,6 +51,7 @@ _dynamic_imports = {
 
 __all__ = [
     "AddFieldsComponent",
+    "ArrayFlattenComponent",
     "CombineTextComponent",
     "CreateListComponent",
     "DataFrameOperationsComponent",
