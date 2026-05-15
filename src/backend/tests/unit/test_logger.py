@@ -190,6 +190,23 @@ class TestConfigure:
                 if isinstance(handler, logging.handlers.RotatingFileHandler):
                     logging.root.removeHandler(handler)
 
+    def test_configure_with_log_file_uses_file_friendly_renderer(self):
+        """Test configure() uses a non-console renderer when writing to a file."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_file_path = Path(tmp_dir) / "test.log"
+
+            configure(log_file=log_file_path)
+
+            config = structlog.get_config()
+            processors = config.get("processors", [])
+            assert processors
+            assert not any(isinstance(p, structlog.dev.ConsoleRenderer) for p in processors)
+            assert any(isinstance(p, structlog.processors.KeyValueRenderer) for p in processors)
+
+            for handler in logging.root.handlers[:]:
+                if isinstance(handler, logging.handlers.RotatingFileHandler):
+                    logging.root.removeHandler(handler)
+
     def test_configure_with_invalid_log_rotation(self):
         """Test configure() with invalid log rotation falls back to default."""
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:

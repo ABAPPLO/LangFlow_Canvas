@@ -193,7 +193,7 @@ docker compose --profile worker --env-file .env.app -f deploy/test-env/docker-co
 ### 8.4 文件日志检查
 
 ```bash
-tail -n 200 /www/dk_project/dk_compose/langflow-canvas/app-logs/langflow.log
+tail -n 200 /www/dk_project/dk_compose/langflow-canvas/app-logs/$(date +%Y%m)/langflow-worker-$(date +%F).log
 ```
 
 切换成功后，之前那类：
@@ -233,7 +233,7 @@ Job <job_id> was cancelled by system
 - `langflow-master`
 - `langflow-slave1`
 - `langflow-worker`
-- `/www/dk_project/dk_compose/langflow-canvas/app-logs/langflow.log`
+- `/www/dk_project/dk_compose/langflow-canvas/app-logs/$(date +%Y%m)/langflow-worker-$(date +%F).log`
 
 ## 10. 最小结论
 

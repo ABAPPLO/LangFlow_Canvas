@@ -1,7 +1,18 @@
 services:
   langflow-master:
     image: ${APP_IMAGE}
-    command: ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        LOG_MONTH="$$(date +%Y%m)"
+        LOG_DATE="$$(date +%F)"
+        LOG_DIR="/app/logs/$${LOG_MONTH}"
+        mkdir -p "$${LOG_DIR}"
+        export LANGFLOW_LOG_FILE="$${LOG_DIR}/langflow-master-$${LOG_DATE}.log"
+        echo "Using log file: $${LANGFLOW_LOG_FILE}"
+        exec langflow run --host 0.0.0.0 --port 7860
     restart: unless-stopped
     environment: &langflow-env
       TZ: ${TZ}
@@ -12,7 +23,6 @@ services:
       LANGFLOW_SUPERUSER_PASSWORD: ${LANGFLOW_SUPERUSER_PASSWORD}
       LANGFLOW_SECRET_KEY: ${LANGFLOW_SECRET_KEY}
       LANGFLOW_LOG_LEVEL: ${LANGFLOW_LOG_LEVEL}
-      LANGFLOW_LOG_FILE: /app/logs/langflow.log
       LANGFLOW_OPEN_BROWSER: ${LANGFLOW_OPEN_BROWSER}
       LANGFLOW_CELERY_ENABLED: ${LANGFLOW_CELERY_ENABLED}
       LANGFLOW_CONFIG_DIR: /app/langflow
@@ -31,7 +41,18 @@ services:
 
   langflow-slave1:
     image: ${APP_IMAGE}
-    command: ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        LOG_MONTH="$$(date +%Y%m)"
+        LOG_DATE="$$(date +%F)"
+        LOG_DIR="/app/logs/$${LOG_MONTH}"
+        mkdir -p "$${LOG_DIR}"
+        export LANGFLOW_LOG_FILE="$${LOG_DIR}/langflow-slave1-$${LOG_DATE}.log"
+        echo "Using log file: $${LANGFLOW_LOG_FILE}"
+        exec langflow run --host 0.0.0.0 --port 7860
     restart: unless-stopped
     environment: *langflow-env
     ports:
@@ -48,20 +69,17 @@ services:
     image: ${WORKER_IMAGE}
     restart: unless-stopped
     command:
-      [
-        "python",
-        "-m",
-        "celery",
-        "-A",
-        "langflow.worker.celery_app",
-        "worker",
-        "--loglevel=INFO",
-        "--concurrency=1",
-        "-n",
-        "lf-worker@%h",
-        "-P",
-        "eventlet"
-      ]
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        LOG_MONTH="$$(date +%Y%m)"
+        LOG_DATE="$$(date +%F)"
+        LOG_DIR="/app/logs/$${LOG_MONTH}"
+        mkdir -p "$${LOG_DIR}"
+        export LANGFLOW_LOG_FILE="$${LOG_DIR}/langflow-worker-$${LOG_DATE}.log"
+        echo "Using log file: $${LANGFLOW_LOG_FILE}"
+        exec python -m celery -A langflow.worker.celery_app worker --loglevel=INFO --concurrency=1 -n lf-worker@%h -P eventlet
     environment: *langflow-env
     volumes:
       - ${APP_DATA_DIR}:/app/langflow

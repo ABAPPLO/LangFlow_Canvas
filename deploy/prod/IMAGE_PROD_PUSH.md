@@ -158,7 +158,7 @@ curl https://lfp.gbotai.cn/health
 
 则必须重新生成组件索引后再构建镜像。当前 `build-push.sh` 已在 Docker build 阶段自动处理这一步，不要跳过脚本直接手工构建旧逻辑镜像。
 
-### 6.2 容器启动时报 `Permission denied: '/app/logs/langflow.log'`
+### 6.2 容器启动时报 `Permission denied: '/app/logs/202605/langflow-2026-05-14.log'`
 
 说明宿主机日志目录对容器用户不可写。执行：
 

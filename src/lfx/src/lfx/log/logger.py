@@ -247,7 +247,9 @@ def configure(
     processors = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        # Emit local time explicitly so log timestamps match the configured TZ
+        # in containerized deployments instead of defaulting to UTC.
+        structlog.processors.TimeStamper(fmt="iso", utc=False),
     ]
 
     # Add callsite information only when LANGFLOW_DEV is set
@@ -270,15 +272,17 @@ def configure(
         ]
     )
 
-    # Configure output based on environment
+    # Configure output based on environment. When writing to a file, avoid
+    # ConsoleRenderer so ANSI color codes do not pollute harvested logs.
+    key_order = ["timestamp", "level", "event"]
+    if DEV:
+        key_order += ["filename", "func_name", "lineno"]
+
     if log_env.lower() == "container" or log_env.lower() == "container_json":
         processors.append(structlog.processors.JSONRenderer())
     elif log_env.lower() == "container_csv":
-        # Include callsite fields in key order when DEV is enabled
-        key_order = ["timestamp", "level", "event"]
-        if DEV:
-            key_order += ["filename", "func_name", "lineno"]
-
+        processors.append(structlog.processors.KeyValueRenderer(key_order=key_order, drop_missing=True))
+    elif log_file:
         processors.append(structlog.processors.KeyValueRenderer(key_order=key_order, drop_missing=True))
     else:
         # Use rich console for pretty printing based on environment variable
@@ -352,6 +356,7 @@ def configure(
     # Set up interceptors for uvicorn and gunicorn
     setup_uvicorn_logger()
     setup_gunicorn_logger()
+    setup_third_party_log_levels()
 
     # Create the global logger instance
     global logger  # noqa: PLW0603
@@ -380,6 +385,12 @@ def setup_gunicorn_logger() -> None:
     logging.getLogger("gunicorn.error").propagate = True
     logging.getLogger("gunicorn.access").handlers = []
     logging.getLogger("gunicorn.access").propagate = True
+
+
+def setup_third_party_log_levels() -> None:
+    """Reduce noisy third-party info logs that drown out Langflow runtime logs."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 class InterceptHandler(logging.Handler):
