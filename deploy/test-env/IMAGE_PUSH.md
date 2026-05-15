@@ -154,7 +154,7 @@ https://lft.gbotai.cn
 - `LFX_DEV=1` 仅用于临时排查组件索引是否导致页面字段未刷新
 - 正常测试环境发布应保持默认模式，通过构建阶段自动生成 `component_index.json` 解决问题
 
-### 6.3 容器启动时报 `Permission denied: '/app/logs/langflow.log'`
+### 6.3 容器启动时报 `Permission denied: '/app/logs/202605/langflow-master-2026-05-14.log'`
 
 说明宿主机日志目录对容器用户不可写。执行：
 

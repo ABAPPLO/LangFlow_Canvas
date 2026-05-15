@@ -281,7 +281,7 @@ LANGFLOW_DEVELOPER_API_ENABLED=false
 
 ### 6.2 app-02 的 `.env.app`
 
-`app-02` 也创建同样的 `.env.app`，内容与 `app-01` 保持一致。
+`app-02` 也创建同样的 `.env.app`，内容与 `app-01` 保持一致。每台机器都会把日志写到各自本机的按月目录和按天文件中，无需再额外配置节点名。
 
 要求：
 
