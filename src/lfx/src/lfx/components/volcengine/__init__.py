@@ -7,13 +7,22 @@ from lfx.components._importing import import_mod
 if TYPE_CHECKING:
     from .seedance import SeedanceVideoComponent
     from .seedream import SeedreamImageComponent
+    from .tos_uploader import TOSUploaderComponent
+    from .web_search import VolcengineWebSearchComponent
 
 _dynamic_imports = {
     "SeedanceVideoComponent": "seedance",
     "SeedreamImageComponent": "seedream",
+    "TOSUploaderComponent": "tos_uploader",
+    "VolcengineWebSearchComponent": "web_search",
 }
 
-__all__ = ["SeedanceVideoComponent", "SeedreamImageComponent"]
+__all__ = [
+    "SeedanceVideoComponent",
+    "SeedreamImageComponent",
+    "TOSUploaderComponent",
+    "VolcengineWebSearchComponent",
+]
 
 
 def __getattr__(attr_name: str) -> Any:
