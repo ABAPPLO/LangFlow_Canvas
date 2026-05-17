@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 IMAGE_GEN_TIMEOUT = 180
 
 from lfx.base.models.unified_models import (
-    get_language_model_options,
+    get_image_model_options,
     update_model_options_in_build_config,
 )
 from lfx.custom import Component
@@ -68,20 +68,19 @@ class ImageGenerationComponent(Component):
         ),
         # --- Generation parameters ---
         DropdownInput(
-            name="size",
-            display_name="Size",
-            info="Output image resolution.",
-            options=[
-                "1024x1024",
-                "1536x1536",
-                "2048x2048",
-                "2048x1536",
-                "1536x2048",
-                "1280x720",
-                "720x1280",
-                "960x960",
-            ],
-            value="1024x1024",
+            name="resolution",
+            display_name="Resolution",
+            info="Output image resolution level.",
+            options=["1K", "2K", "4K"],
+            value="2K",
+            advanced=True,
+        ),
+        DropdownInput(
+            name="ratio",
+            display_name="Aspect Ratio",
+            info="Output image aspect ratio.",
+            options=["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"],
+            value="1:1",
             advanced=True,
         ),
         IntInput(
@@ -124,7 +123,7 @@ class ImageGenerationComponent(Component):
             component=self,
             build_config=build_config,
             cache_key_prefix="image_model_options",
-            get_options_func=get_language_model_options,
+            get_options_func=get_image_model_options,
             field_name=field_name,
             field_value=field_value,
         )
@@ -255,6 +254,23 @@ class ImageGenerationComponent(Component):
             i += 1
         return urls
 
+    def _resolve_size(self) -> str:
+        """Compute actual size string from resolution + aspect ratio."""
+        res_base = {"1K": 1024, "2K": 2048, "4K": 4096}.get(self.resolution, 2048)
+        ratio_sizes = {
+            "1:1": (res_base, res_base),
+            "16:9": (res_base, int(res_base * 9 / 16)),
+            "9:16": (int(res_base * 9 / 16), res_base),
+            "4:3": (res_base, int(res_base * 3 / 4)),
+            "3:4": (int(res_base * 3 / 4), res_base),
+            "21:9": (res_base, int(res_base * 9 / 21)),
+        }
+        w, h = ratio_sizes.get(self.ratio, (res_base, res_base))
+        # Round to nearest 64 for compatibility
+        w = max(512, round(w / 64) * 64)
+        h = max(512, round(h / 64) * 64)
+        return f"{w}x{h}"
+
     @staticmethod
     def _is_gemini_image_model(model_name: str) -> bool:
         """Check if the model is a Gemini image generation model."""
@@ -383,12 +399,13 @@ class ImageGenerationComponent(Component):
             return self._generate_via_gemini(api_key, base_url, model_name, prompt, ref_urls)
 
         # --- Standard OpenAI images/generations flow ---
+        size = self._resolve_size()
         # Build request payload
         payload: dict = {
             "model": model_name,
             "prompt": prompt,
             "n": max(1, self.n),
-            "size": self.size,
+            "size": size,
             "response_format": self.response_format,
         }
 
@@ -439,7 +456,7 @@ class ImageGenerationComponent(Component):
         if not image_url and self.response_format == "b64_json":
             b64_data = first_item.get("b64_json", "")
             if b64_data:
-                fmt = "png" if "png" in self.size else "jpeg"
+                fmt = "png" if "png" in size else "jpeg"
                 image_url = f"data:image/{fmt};base64,{b64_data}"
 
         if not image_url:
@@ -451,7 +468,7 @@ class ImageGenerationComponent(Component):
             "model": model_name,
             "mode": self.generation_mode,
             "prompt": prompt[:100],
-            "size": self.size,
+            "size": size,
             "n": len(image_items),
             "usage": data.get("usage"),
             "image_url": image_url,
