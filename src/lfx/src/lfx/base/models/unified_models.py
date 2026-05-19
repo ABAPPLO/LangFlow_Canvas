@@ -1572,6 +1572,238 @@ def get_embedding_model_options(
     return options
 
 
+def _get_enabled_providers_sync(user_id: UUID | str | None) -> set[str]:
+    """Synchronously resolve the set of enabled model providers for a user."""
+    if not user_id:
+        return set()
+    try:
+
+        async def _get_enabled_providers():
+            async with session_scope() as session:
+                variable_service = get_variable_service()
+                if variable_service is None:
+                    return set()
+
+                from langflow.services.variable.service import (
+                    DatabaseVariableService,
+                )
+
+                if not isinstance(variable_service, DatabaseVariableService):
+                    return set()
+
+                all_vars = await variable_service.get_all(
+                    user_id=UUID(user_id) if isinstance(user_id, str) else user_id,
+                    session=session,
+                )
+                all_var_names = {var.name for var in all_vars}
+                provider_variable_map = get_model_provider_variable_mapping()
+
+                class VarWithValue:
+                    def __init__(self, value):
+                        self.value = value
+
+                all_provider_variables = {}
+                user_id_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+
+                for provider in provider_variable_map:
+                    provider_vars = get_provider_all_variables(provider)
+                    for var_info in provider_vars:
+                        var_name = var_info.get("variable_key")
+                        if not var_name or var_name not in all_var_names:
+                            continue
+                        if var_name in all_provider_variables:
+                            continue
+                        try:
+                            variable_obj = await variable_service.get_variable_object(
+                                user_id=user_id_uuid,
+                                name=var_name,
+                                session=session,
+                            )
+                            if variable_obj and variable_obj.value:
+                                all_provider_variables[var_name] = VarWithValue(variable_obj.value)
+                        except Exception:  # noqa: BLE001
+                            continue
+
+                return _validate_and_get_enabled_providers(all_provider_variables, provider_variable_map)
+
+        return run_until_complete(_get_enabled_providers())
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _get_disabled_models_sync(user_id: UUID | str | None) -> set[str]:
+    """Synchronously resolve the set of disabled model keys for a user."""
+    if not user_id:
+        return set()
+    try:
+
+        async def _get_model_status():
+            async with session_scope() as session:
+                variable_service = get_variable_service()
+                if variable_service is None:
+                    return set()
+                from langflow.services.variable.service import (
+                    DatabaseVariableService,
+                )
+
+                if not isinstance(variable_service, DatabaseVariableService):
+                    return set()
+                uid = UUID(user_id) if isinstance(user_id, str) else user_id
+                var = await variable_service.get_variable_object(
+                    user_id=uid, name="__disabled_models__", session=session,
+                )
+                if var and var.value:
+                    parsed = json.loads(var.value)
+                    return set(parsed) if isinstance(parsed, list) else set()
+                return set()
+
+        return run_until_complete(_get_model_status())
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def get_image_model_options(
+    user_id: UUID | str | None = None,
+) -> list[dict[str, Any]]:
+    """Return a list of available image generation model providers with their configuration.
+
+    This fetches models with model_type="image" from the unified model catalog,
+    including live NewAPI models classified by their ``tags`` field.
+    """
+    all_models = get_unified_models_detailed(
+        model_type="image",
+        include_deprecated=False,
+        include_unsupported=False,
+    )
+
+    # Get enabled providers (reuse the same logic as get_language_model_options)
+    enabled_providers = _get_enabled_providers_sync(user_id)
+
+    # Replace static defaults with live models from configured instances
+    if enabled_providers:
+        live_cache_key = f"live_image_{user_id}"
+        live_models_data = _global_cache_get(live_cache_key)
+        if live_models_data is not None:
+            _apply_live_models(all_models, live_models_data, enabled_providers)
+        else:
+            try:
+                replace_with_live_models(all_models, user_id, enabled_providers, "image", model_provider_metadata)
+            except Exception:  # noqa: BLE001
+                logger.debug("Live image model fetch failed, using static defaults")
+            _schedule_live_model_refresh(user_id, enabled_providers, "image", model_provider_metadata)
+
+    # Get disabled models for this user
+    disabled_models = _get_disabled_models_sync(user_id)
+
+    # Build options
+    options: list[dict[str, Any]] = []
+
+    for provider_data in all_models:
+        provider = provider_data.get("provider")
+        icon = provider_data.get("icon", "Bot")
+        metadata = model_provider_metadata.get(provider, {})
+
+        for model_data in provider_data.get("models", []):
+            model_name = model_data.get("model_name")
+            base_metadata = model_data.get("metadata", {})
+            model_key = f"{provider}:{model_name}"
+
+            if model_key in disabled_models:
+                continue
+
+            option = {
+                "name": model_name,
+                "provider": provider,
+                "icon": icon,
+                "category": provider,
+                "metadata": {
+                    **base_metadata,
+                    "model_type": "image",
+                    "is_custom": base_metadata.get("is_custom", False),
+                },
+            }
+
+            for var_config in metadata.get("component_metadata", []):
+                var_name = var_config.get("variable_key", "")
+                if var_name:
+                    option[var_name] = ""
+
+            options.append(option)
+
+    return options
+
+
+def get_video_model_options(
+    user_id: UUID | str | None = None,
+) -> list[dict[str, Any]]:
+    """Return a list of available video generation model providers with their configuration.
+
+    This fetches models with model_type="video" from the unified model catalog,
+    including live NewAPI models classified by their ``tags`` field.
+    """
+    all_models = get_unified_models_detailed(
+        model_type="video",
+        include_deprecated=False,
+        include_unsupported=False,
+    )
+
+    # Get enabled providers (reuse the same logic as get_language_model_options)
+    enabled_providers = _get_enabled_providers_sync(user_id)
+
+    # Replace static defaults with live models from configured instances
+    if enabled_providers:
+        live_cache_key = f"live_video_{user_id}"
+        live_models_data = _global_cache_get(live_cache_key)
+        if live_models_data is not None:
+            _apply_live_models(all_models, live_models_data, enabled_providers)
+        else:
+            try:
+                replace_with_live_models(all_models, user_id, enabled_providers, "video", model_provider_metadata)
+            except Exception:  # noqa: BLE001
+                logger.debug("Live video model fetch failed, using static defaults")
+            _schedule_live_model_refresh(user_id, enabled_providers, "video", model_provider_metadata)
+
+    # Get disabled models for this user
+    disabled_models = _get_disabled_models_sync(user_id)
+
+    # Build options
+    options: list[dict[str, Any]] = []
+
+    for provider_data in all_models:
+        provider = provider_data.get("provider")
+        icon = provider_data.get("icon", "Bot")
+        metadata = model_provider_metadata.get(provider, {})
+
+        for model_data in provider_data.get("models", []):
+            model_name = model_data.get("model_name")
+            base_metadata = model_data.get("metadata", {})
+            model_key = f"{provider}:{model_name}"
+
+            if model_key in disabled_models:
+                continue
+
+            option = {
+                "name": model_name,
+                "provider": provider,
+                "icon": icon,
+                "category": provider,
+                "metadata": {
+                    **base_metadata,
+                    "model_type": "video",
+                    "is_custom": base_metadata.get("is_custom", False),
+                },
+            }
+
+            for var_config in metadata.get("component_metadata", []):
+                var_name = var_config.get("variable_key", "")
+                if var_name:
+                    option[var_name] = ""
+
+            options.append(option)
+
+    return options
+
+
 def normalize_model_names_to_dicts(
     model_names: list[str] | str,
 ) -> list[dict[str, Any]]:
@@ -1929,7 +2161,14 @@ def update_model_options_in_build_config(
         options = options or []
         if options:
             # Determine model type based on cache_key_prefix
-            model_type = "embeddings" if cache_key_prefix == "embedding_model_options" else "language"
+            if cache_key_prefix == "embedding_model_options":
+                model_type = "embeddings"
+            elif cache_key_prefix == "image_model_options":
+                model_type = "image"
+            elif cache_key_prefix == "video_model_options":
+                model_type = "video"
+            else:
+                model_type = "language"
 
             binding_model_name = None
             binding_provider = None
@@ -1966,11 +2205,11 @@ def update_model_options_in_build_config(
                             pass
 
                         # Priority 2: Global default model
-                        var_name = (
-                            "__default_embedding_model__"
-                            if model_type == "embeddings"
-                            else "__default_language_model__"
-                        )
+                        var_name = {
+                            "embeddings": "__default_embedding_model__",
+                            "image": "__default_image_model__",
+                            "video": "__default_video_model__",
+                        }.get(model_type, "__default_language_model__")
                         try:
                             var = await variable_service.get_variable_object(
                                 user_id=uid, name=var_name, session=session,
@@ -2016,6 +2255,8 @@ def update_model_options_in_build_config(
     # Handle visibility of the model input handle based on selection
     if cache_key_prefix == "embedding_model_options":
         build_config[model_field_name]["input_types"] = ["Embeddings"]
+    elif cache_key_prefix in ("image_model_options", "video_model_options"):
+        build_config[model_field_name]["input_types"] = []
     else:
         build_config[model_field_name]["input_types"] = ["LanguageModel"]
 

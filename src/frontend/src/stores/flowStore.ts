@@ -54,7 +54,6 @@ import {
 } from "../utils/reactflowUtils";
 import { getInputsAndOutputs } from "../utils/storeUtils";
 import useAlertStore from "./alertStore";
-import { useDarkStore } from "./darkStore";
 import useFlowsManagerStore from "./flowsManagerStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore/globalVariables";
 import { filterSingletonComponent } from "./helpers/filter-singleton-component";
@@ -623,34 +622,17 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     set({ rightClickedNodeId: nodeId });
   },
   onConnect: (connection) => {
-    const _dark = useDarkStore.getState().dark;
-    // const commonMarkerProps = {
-    //   type: MarkerType.ArrowClosed,
-    //   width: 20,
-    //   height: 20,
-    //   color: dark ? "#555555" : "#000000",
-    // };
-
-    // const inputTypes = INPUT_TYPES;
-    // const outputTypes = OUTPUT_TYPES;
-
-    // const findNode = useFlowStore
-    //   .getState()
-    //   .nodes.find(
-    //     (node) => node.id === connection.source || node.id === connection.target
-    //   );
-
-    // const sourceType = findNode?.data?.type;
-    // let isIoIn = false;
-    // let isIoOut = false;
-    // if (sourceType) {
-    //   isIoIn = inputTypes.has(sourceType);
-    //   isIoOut = outputTypes.has(sourceType);
-    // }
-
-    let newEdges: EdgeType[] = [];
+    const { source, target, sourceHandle, targetHandle } = connection;
     get().setEdges((oldEdges) => {
-      newEdges = addEdge(
+      const exists = oldEdges.some(
+        (e) =>
+          e.source === source &&
+          e.sourceHandle === sourceHandle &&
+          e.target === target &&
+          e.targetHandle === targetHandle,
+      );
+      if (exists) return oldEdges;
+      return addEdge(
         {
           ...connection,
           data: {
@@ -660,8 +642,6 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         },
         oldEdges,
       );
-
-      return newEdges;
     });
   },
   unselectAll: () => {

@@ -139,7 +139,8 @@ class YouTubeChannelComponent(Component):
 
             return playlists
         except (HttpError, HTTPError) as e:
-            return [{"error": str(e)}]
+            msg = f"YouTube API error while fetching playlists for channel '{channel_id}': {e}"
+            raise ConnectionError(msg) from e
         else:
             return playlists
 
@@ -162,7 +163,8 @@ class YouTubeChannelComponent(Component):
             channel_response = youtube.channels().list(part=",".join(parts), id=channel_id).execute()
 
             if not channel_response["items"]:
-                return DataFrame(pd.DataFrame({"error": ["Channel not found"]}))
+                msg = f"Channel not found for channel ID: {channel_id}"
+                raise ValueError(msg)
 
             channel_info = channel_response["items"][0]
 
@@ -210,7 +212,7 @@ class YouTubeChannelComponent(Component):
             # Add playlists if requested
             if self.include_playlists:
                 playlists = self._get_channel_playlists(youtube, channel_id)
-                if playlists and "error" not in playlists[0]:
+                if playlists:
                     # Create a DataFrame for playlists
                     playlists_df = pd.DataFrame(playlists)
                     # Join with main DataFrame
@@ -221,7 +223,8 @@ class YouTubeChannelComponent(Component):
             return DataFrame(channel_df)
 
         except (HttpError, HTTPError) as e:
-            return DataFrame(pd.DataFrame({"error": [str(e)]}))
+            msg = f"YouTube API error while fetching channel info for '{self.channel_url}': {e}"
+            raise ConnectionError(msg) from e
         finally:
             if youtube:
                 youtube.close()

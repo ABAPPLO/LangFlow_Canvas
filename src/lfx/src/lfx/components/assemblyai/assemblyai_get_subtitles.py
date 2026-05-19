@@ -50,17 +50,13 @@ class AssemblyAIGetSubtitles(Component):
 
         # check if it's an error message from the previous step
         if self.transcription_result.data.get("error"):
-            self.status = self.transcription_result.data["error"]
-            return self.transcription_result
+            raise RuntimeError(f"Upstream transcription failed: {self.transcription_result.data['error']}")
 
         try:
             transcript_id = self.transcription_result.data["id"]
             transcript = aai.Transcript.get_by_id(transcript_id)
-        except Exception as e:  # noqa: BLE001
-            error = f"Getting transcription failed: {e}"
-            logger.debug(error, exc_info=True)
-            self.status = error
-            return Data(data={"error": error})
+        except Exception as e:
+            raise RuntimeError(f"Failed to get transcription '{transcript_id}': {e}") from e
 
         if transcript.status == aai.TranscriptStatus.completed:
             subtitles = None
@@ -79,5 +75,4 @@ class AssemblyAIGetSubtitles(Component):
 
             self.status = result
             return result
-        self.status = transcript.error
-        return Data(data={"error": transcript.error})
+        raise RuntimeError(f"Transcription '{transcript_id}' failed: {transcript.error}")

@@ -146,61 +146,41 @@ class YouTubeTranscriptsComponent(Component):
 
     def get_dataframe_output(self) -> DataFrame:
         """Provides transcript output as a DataFrame with timestamp and text columns."""
-        try:
-            chunks = self._load_transcripts(as_chunks=True)
+        chunks = self._load_transcripts(as_chunks=True)
 
-            # Create DataFrame with timestamp and text columns
-            data = []
-            for chunk in chunks:
-                start_seconds = int(chunk["start"])
-                start_minutes = start_seconds // 60
-                start_seconds_remainder = start_seconds % 60
-                timestamp = f"{start_minutes:02d}:{start_seconds_remainder:02d}"
-                data.append({"timestamp": timestamp, "text": chunk["text"]})
+        # Create DataFrame with timestamp and text columns
+        data = []
+        for chunk in chunks:
+            start_seconds = int(chunk["start"])
+            start_minutes = start_seconds // 60
+            start_seconds_remainder = start_seconds % 60
+            timestamp = f"{start_minutes:02d}:{start_seconds_remainder:02d}"
+            data.append({"timestamp": timestamp, "text": chunk["text"]})
 
-            return DataFrame(pd.DataFrame(data))
-
-        except (TranscriptsDisabled, NoTranscriptFound, RuntimeError, ValueError) as exc:
-            error_msg = f"Failed to get YouTube transcripts: {exc!s}"
-            return DataFrame(pd.DataFrame({"error": [error_msg]}))
+        return DataFrame(pd.DataFrame(data))
 
     def get_message_output(self) -> Message:
         """Provides transcript output as continuous text."""
-        try:
-            transcript_data = self._load_transcripts(as_chunks=False)
-            # Handle both dict (old API) and object (new API) formats
-            result = " ".join(
-                segment.text if hasattr(segment, "text") else segment["text"] for segment in transcript_data
-            )
-            return Message(text=result)
-
-        except (TranscriptsDisabled, NoTranscriptFound, RuntimeError, ValueError) as exc:
-            error_msg = f"Failed to get YouTube transcripts: {exc!s}"
-            return Message(text=error_msg)
+        transcript_data = self._load_transcripts(as_chunks=False)
+        # Handle both dict (old API) and object (new API) formats
+        result = " ".join(
+            segment.text if hasattr(segment, "text") else segment["text"] for segment in transcript_data
+        )
+        return Message(text=result)
 
     def get_data_output(self) -> Data:
         """Creates a structured data object with transcript and metadata.
 
-        Returns a Data object containing transcript text, video URL, and any error
-        messages that occurred during processing. The object includes:
-        - 'transcript': continuous text from the entire video (concatenated if multiple parts)
-        - 'video_url': the input YouTube URL
-        - 'error': error message if an exception occurs
+        Returns a Data object containing transcript text and video URL.
+        Raises RuntimeError if no transcripts are found.
         """
-        default_data = {"transcript": "", "video_url": self.url, "error": None}
+        transcript_data = self._load_transcripts(as_chunks=False)
+        if not transcript_data:
+            msg = f"No transcripts found for video '{self.url}'"
+            raise RuntimeError(msg)
 
-        try:
-            transcript_data = self._load_transcripts(as_chunks=False)
-            if not transcript_data:
-                default_data["error"] = "No transcripts found."
-                return Data(data=default_data)
-
-            # Combine all transcript segments - handle both dict and object formats
-            full_transcript = " ".join(
-                segment.text if hasattr(segment, "text") else segment["text"] for segment in transcript_data
-            )
-            return Data(data={"transcript": full_transcript, "video_url": self.url})
-
-        except (TranscriptsDisabled, NoTranscriptFound, RuntimeError, ValueError) as exc:
-            default_data["error"] = str(exc)
-            return Data(data=default_data)
+        # Combine all transcript segments - handle both dict and object formats
+        full_transcript = " ".join(
+            segment.text if hasattr(segment, "text") else segment["text"] for segment in transcript_data
+        )
+        return Data(data={"transcript": full_transcript, "video_url": self.url})

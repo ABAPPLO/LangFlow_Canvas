@@ -69,15 +69,13 @@ class JigsawStackSentimentComponent(Component):
             return Data(data=result_data)
 
         except JigsawStackError as e:
-            error_data = {"error": str(e), "text_analyzed": self.text, "success": False}
-            self.status = f"Error: {e!s}"
-            return Data(data=error_data)
+            raise RuntimeError(f"JigsawStack Sentiment Analysis failed: {e}") from e
 
     def get_sentiment_text(self) -> Message:
         try:
             from jigsawstack import JigsawStack, JigsawStackError
-        except ImportError:
-            return Message(text="Error: JigsawStack package not found. Please install it with: pip install jigsawstack")
+        except ImportError as e:
+            raise ImportError("JigsawStack package not found. Please install it using: pip install jigsawstack>=0.2.7") from e
 
         try:
             client = JigsawStack(api_key=self.api_key)
@@ -109,4 +107,4 @@ Sentence-by-sentence Analysis:
             return Message(text=formatted_output)
 
         except JigsawStackError as e:
-            return Message(text=f"Error analyzing sentiment: {e!s}")
+            raise RuntimeError(f"JigsawStack Sentiment Analysis failed: {e}") from e

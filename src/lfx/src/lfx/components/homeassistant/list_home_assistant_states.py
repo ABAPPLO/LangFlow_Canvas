@@ -79,7 +79,7 @@ class ListHomeAssistantStates(LCToolComponent):
             args_schema=self.ToolSchema,  # Requires only filter_domain
         )
 
-    def _list_states_for_tool(self, filter_domain: str = "") -> list[Any] | str:
+    def _list_states_for_tool(self, filter_domain: str = "") -> list[Any]:
         """Execute the tool when called by the agent.
 
         'ha_token' and 'base_url' are stored in self (not exposed).
@@ -95,7 +95,7 @@ class ListHomeAssistantStates(LCToolComponent):
         ha_token: str,
         base_url: str,
         filter_domain: str = "",
-    ) -> list[Any] | str:
+    ) -> list[Any]:
         """Call the Home Assistant /api/states endpoint."""
         try:
             headers = {
@@ -111,27 +111,24 @@ class ListHomeAssistantStates(LCToolComponent):
                 return [st for st in all_states if st.get("entity_id", "").startswith(f"{filter_domain}.")]
 
         except requests.exceptions.RequestException as e:
-            return f"Error: Failed to fetch states. {e}"
+            msg = f"Failed to fetch Home Assistant states: {e}"
+            raise ConnectionError(msg) from e
         except (ValueError, TypeError) as e:
-            return f"Error processing response: {e}"
+            msg = f"Error processing Home Assistant response: {e}"
+            raise ValueError(msg) from e
         return all_states
 
-    def _make_data_response(self, result: list[Any] | str | dict) -> Data:
+    def _make_data_response(self, result: list[Any] | dict) -> Data:
         """Format the response into a Data object."""
         try:
             if isinstance(result, list):
-                # Wrap list data into a dictionary and convert to text
                 wrapped_result = {"result": result}
                 return Data(data=wrapped_result, text=json.dumps(wrapped_result, indent=2, ensure_ascii=False))
             if isinstance(result, dict):
-                # Return dictionary as-is
                 return Data(data=result, text=json.dumps(result, indent=2, ensure_ascii=False))
-            if isinstance(result, str):
-                # Return error messages or strings
-                return Data(data={}, text=result)
 
-            # Handle unexpected data types
-            return Data(data={}, text="Error: Unexpected response format.")
+            msg = f"Unexpected response format: {type(result).__name__}"
+            raise TypeError(msg)
         except (TypeError, ValueError) as e:
-            # Handle specific exceptions during formatting
-            return Data(data={}, text=f"Error: Failed to process response. Details: {e!s}")
+            msg = f"Failed to process Home Assistant response: {e}"
+            raise ValueError(msg) from e

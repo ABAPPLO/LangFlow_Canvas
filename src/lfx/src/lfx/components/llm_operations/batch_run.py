@@ -254,8 +254,5 @@ class BatchRunComponent(Component):
             return DataFrame(rows)
 
         except (KeyError, AttributeError) as e:
-            # Handle data structure and attribute access errors
-            await logger.aerror(f"Data processing error: {e!s}")
-            error_row = self._create_base_row(dict.fromkeys(df.columns, ""), model_response="", batch_index=-1)
-            self._add_metadata(error_row, success=False, error=str(e))
-            return DataFrame([error_row])
+            msg = f"Batch processing data error: {e}"
+            raise ValueError(msg) from e

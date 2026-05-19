@@ -340,14 +340,17 @@ class TwelveLabsPegasus(Component):
 
             # Otherwise process new video
             if not self.videodata or not isinstance(self.videodata, list) or len(self.videodata) != 1:
-                return Message(text="Please provide exactly one video")
+                msg = "Exactly one video Data object is required, but videodata input is empty, not a list, or has != 1 elements"
+                raise ValueError(msg)
 
             video_path = self.videodata[0].data.get("text")
             if not video_path or not Path(video_path).exists():
-                return Message(text="Invalid video path")
+                msg = f"Invalid video path: {video_path!r}"
+                raise ValueError(msg)
 
             if not self.api_key:
-                return Message(text="No API key provided")
+                msg = "TwelveLabs API key is required"
+                raise ValueError(msg)
 
             client = TwelveLabs(api_key=self.api_key)
 
@@ -359,7 +362,8 @@ class TwelveLabsPegasus(Component):
                 self._index_id = index_id
                 self._index_name = index_name
             except IndexCreationError as e:
-                return Message(text=f"Failed to get/create index: {e}")
+                msg = f"Failed to get/create index: {e}"
+                raise RuntimeError(msg) from e
 
             with Path(video_path).open("rb") as video_file:
                 task = client.task.create(index_id=self._index_id, file=video_file)
@@ -369,7 +373,8 @@ class TwelveLabsPegasus(Component):
             task.wait_for_done(sleep_interval=5, callback=self.on_task_update)
 
             if task.status != "ready":
-                return Message(text=f"Processing failed with status {task.status}")
+                msg = f"Video processing failed with status {task.status}"
+                raise RuntimeError(msg)
 
             # Store video_id for future use
             self._video_id = task.video_id
@@ -397,7 +402,8 @@ class TwelveLabsPegasus(Component):
             self._video_id = None
             self._index_id = None
             self._task_id = None
-            return Message(text=f"Error: {e!s}")
+            msg = f"TwelveLabs Pegasus processing failed: {e}"
+            raise RuntimeError(msg) from e
 
     def get_video_id(self) -> Message:
         """Return the video ID of the processed video as a Message.

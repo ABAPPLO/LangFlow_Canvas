@@ -208,7 +208,15 @@ async def get_ollama_embedding_models(base_url: str) -> list[str]:
 # ============================================================================
 
 
-def get_newapi_models(base_url: str, api_key: str) -> list[str]:
+# NewAPI tags → model_type mapping
+_NEWAPI_TAG_MAP: dict[str, str] = {
+    "图片生成": "image",
+    "视频生成": "video",
+    "音频": "audio",
+}
+
+
+def get_newapi_models(base_url: str, api_key: str) -> list[dict]:
     """Fetch available models from NewAPI gateway via GET /v1/models.
 
     Args:
@@ -216,7 +224,7 @@ def get_newapi_models(base_url: str, api_key: str) -> list[str]:
         api_key: The API key for authentication.
 
     Returns:
-        A sorted list of model IDs available on the gateway.
+        A list of model dicts, each containing at least ``id`` and optionally ``tags``.
 
     Raises:
         ValueError: If there is an issue with the API request or response.
@@ -228,20 +236,37 @@ def get_newapi_models(base_url: str, api_key: str) -> list[str]:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-        models = [m["id"] for m in data.get("data", []) if m.get("id")]
-        return sorted(models)
+        models = [
+            {"id": m["id"], "tags": m.get("tags", "")}
+            for m in data.get("data", [])
+            if m.get("id")
+        ]
+        return sorted(models, key=lambda x: x["id"])
     except requests.RequestException as e:
         msg = f"Could not get models from NewAPI gateway at {base_url}."
         logger.exception(msg)
         raise ValueError(msg) from e
 
 
+def _classify_newapi_model(tags: str) -> str:
+    """Classify a NewAPI model by its tags string into a model_type."""
+    for tag_value, mtype in _NEWAPI_TAG_MAP.items():
+        if tag_value in tags:
+            return mtype
+    return "llm"
+
+
 def fetch_live_newapi_models(user_id: UUID | str | None, model_type: str = "llm") -> list[dict]:
     """Fetch live NewAPI models from the configured gateway.
 
+    When *model_type* is ``"llm"`` the full model list is fetched once and
+    each model is classified by its ``tags`` field (``图片生成`` → ``"image"``,
+    ``视频生成`` → ``"video"``, ``音频`` → ``"audio"``, otherwise ``"llm"``).
+    Only models matching the requested *model_type* are returned.
+
     Args:
         user_id: The user ID to look up the NewAPI credentials
-        model_type: "llm" or "embeddings"
+        model_type: ``"llm"``, ``"embeddings"``, ``"image"``, ``"video"``, or ``"audio"``
 
     Returns:
         List of model metadata dicts, or empty list if unable to fetch
@@ -252,20 +277,41 @@ def fetch_live_newapi_models(user_id: UUID | str | None, model_type: str = "llm"
         return []
 
     try:
-        model_names = get_newapi_models(base_url, api_key)
+        raw_models = get_newapi_models(base_url, api_key)
 
-        # Convert to model metadata format
-        return [
-            create_model_metadata(
-                provider="NewAPI",
-                name=name,
-                icon="Globe",
-                model_type=model_type if model_type == "llm" else "embeddings",
-                tool_calling=model_type == "llm",
-                default=i < MIN_DEFAULT_MODELS,
+        # For embeddings, keep old behaviour (NewAPI doesn't tag embeddings)
+        if model_type == "embeddings":
+            return [
+                create_model_metadata(
+                    provider="NewAPI",
+                    name=m["id"],
+                    icon="Globe",
+                    model_type="embeddings",
+                    tool_calling=False,
+                    default=i < MIN_DEFAULT_MODELS,
+                )
+                for i, m in enumerate(raw_models)
+            ]
+
+        # Classify each model by its tags
+        results: list[dict] = []
+        matched = 0
+        for m in raw_models:
+            classified = _classify_newapi_model(m["tags"])
+            if classified != model_type:
+                continue
+            results.append(
+                create_model_metadata(
+                    provider="NewAPI",
+                    name=m["id"],
+                    icon="Globe",
+                    model_type=classified,
+                    tool_calling=classified == "llm",
+                    default=matched < MIN_DEFAULT_MODELS,
+                )
             )
-            for i, name in enumerate(model_names)
-        ]
+            matched += 1
+        return results
     except Exception:  # noqa: BLE001
         logger.debug("Could not fetch live NewAPI %s models from %s", model_type, base_url)
         return []
@@ -515,7 +561,9 @@ def replace_with_live_models(
         if model_type is None:
             live_llm = get_live_models_for_provider(user_id, provider, "llm")
             live_emb = get_live_models_for_provider(user_id, provider, "embeddings")
-            live_models = live_llm + live_emb
+            live_img = get_live_models_for_provider(user_id, provider, "image")
+            live_vid = get_live_models_for_provider(user_id, provider, "video")
+            live_models = live_llm + live_emb + live_img + live_vid
         else:
             live_models = get_live_models_for_provider(user_id, provider, model_type)
 

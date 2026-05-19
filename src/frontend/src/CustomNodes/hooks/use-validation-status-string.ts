@@ -8,7 +8,6 @@ const useValidationStatusString = (
 ) => {
   useEffect(() => {
     if (validationStatus && validationStatus.data?.outputs) {
-      // if it is not a string turn it into a string
       let newValidationString = "";
       Object.values(validationStatus?.data?.outputs).forEach((output: any) => {
         if (isErrorLog(output)) {
@@ -19,5 +18,18 @@ const useValidationStatusString = (
     }
   }, [validationStatus, validationStatus?.data?.outputs, setValidationString]);
 };
+
+export function extractStackTrace(
+  validationStatus: VertexBuildTypeAPI | null,
+): string {
+  if (!validationStatus?.data?.outputs) return "";
+  let stackTrace = "";
+  Object.values(validationStatus.data.outputs).forEach((output: any) => {
+    if (isErrorLog(output) && output.message.stackTrace) {
+      stackTrace += `${output.message.stackTrace}\n`;
+    }
+  });
+  return stackTrace.trim();
+}
 
 export default useValidationStatusString;

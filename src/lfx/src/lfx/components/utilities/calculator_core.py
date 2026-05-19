@@ -74,15 +74,13 @@ class CalculatorComponent(Component):
             self.status = formatted_result
             return Data(data={"result": formatted_result})
 
-        except ZeroDivisionError:
-            error_message = "Error: Division by zero"
-            self.status = error_message
-            return Data(data={"error": error_message, "input": self.expression})
+        except ZeroDivisionError as e:
+            msg = f"Division by zero in expression '{self.expression}'"
+            raise ValueError(msg) from e
 
         except (SyntaxError, TypeError, KeyError, ValueError, AttributeError, OverflowError) as e:
-            error_message = f"Invalid expression: {e!s}"
-            self.status = error_message
-            return Data(data={"error": error_message, "input": self.expression})
+            msg = f"Invalid expression '{self.expression}': {e}"
+            raise ValueError(msg) from e
 
     def build(self):
         """Return the main evaluation function."""

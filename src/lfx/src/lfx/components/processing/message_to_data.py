@@ -33,5 +33,4 @@ class MessageToDataComponent(Component):
 
         msg = "Error converting Message to Data: Input must be a Message object"
         logger.debug(msg, exc_info=True)
-        self.status = msg
-        return Data(data={"error": msg})
+        raise ValueError(msg)

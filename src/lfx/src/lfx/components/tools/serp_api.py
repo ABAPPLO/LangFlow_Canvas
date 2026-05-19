@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from lfx.base.langchain_utilities.model import LCToolComponent
 from lfx.field_typing import Tool
 from lfx.inputs.inputs import DictInput, IntInput, MultilineInput, SecretStrInput
-from lfx.log.logger import logger
 from lfx.schema.data import Data
 
 
@@ -82,8 +81,7 @@ class SerpAPIComponent(LCToolComponent):
                     limited_results.append(limited_result)
 
             except Exception as e:
-                error_message = f"Error in SerpAPI search: {e!s}"
-                logger.debug(error_message)
+                error_message = f"Error in SerpAPI search for '{query}': {e!s}"
                 raise ToolException(error_message) from e
             return limited_results
 
@@ -108,13 +106,12 @@ class SerpAPIComponent(LCToolComponent):
                     "max_snippet_length": self.max_snippet_length,
                 }
             )
+        except ToolException:
+            raise
+        except Exception as e:
+            msg = f"Error running SerpAPI search for '{self.input_value}': {e}"
+            raise RuntimeError(msg) from e
 
-            data_list = [Data(data=result, text=result.get("snippet", "")) for result in results]
-
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error running SerpAPI", exc_info=True)
-            self.status = f"Error: {e}"
-            return [Data(data={"error": str(e)}, text=str(e))]
-
+        data_list = [Data(data=result, text=result.get("snippet", "")) for result in results]
         self.status = data_list  # type: ignore[assignment]
         return data_list

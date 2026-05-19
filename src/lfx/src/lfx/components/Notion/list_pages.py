@@ -55,10 +55,6 @@ class NotionListPages(LCToolComponent):
     def run_model(self) -> list[Data]:
         result = self._query_notion_database(self.database_id, self.query_json)
 
-        if isinstance(result, str):
-            # An error occurred, return it as a single record
-            return [Data(text=result)]
-
         records = []
         combined_text = f"Pages found: {len(result)}\n\n"
 
@@ -93,7 +89,7 @@ class NotionListPages(LCToolComponent):
             args_schema=self.NotionListPagesSchema,
         )
 
-    def _query_notion_database(self, database_id: str, query_json: str | None = None) -> list[dict[str, Any]] | str:
+    def _query_notion_database(self, database_id: str, query_json: str | None = None) -> list[dict[str, Any]]:
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         headers = {
             "Authorization": f"Bearer {self.notion_secret}",
@@ -106,7 +102,7 @@ class NotionListPages(LCToolComponent):
             try:
                 query_payload = json.loads(query_json)
             except json.JSONDecodeError as e:
-                return f"Invalid JSON format for query: {e}"
+                raise ValueError(f"Invalid JSON format for query: {e}") from e
 
         try:
             response = requests.post(url, headers=headers, json=query_payload, timeout=10)
@@ -114,9 +110,6 @@ class NotionListPages(LCToolComponent):
             results = response.json()
             return results["results"]
         except requests.exceptions.RequestException as e:
-            return f"Error querying Notion database: {e}"
-        except KeyError:
-            return "Unexpected response format from Notion API"
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error querying Notion database", exc_info=True)
-            return f"An unexpected error occurred: {e}"
+            raise ConnectionError(f"Failed to query Notion database '{database_id}': {e}") from e
+        except KeyError as e:
+            raise RuntimeError(f"Unexpected response format from Notion API for database '{database_id}'") from e

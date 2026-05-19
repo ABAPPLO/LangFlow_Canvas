@@ -86,20 +86,13 @@ class AssemblyAILeMUR(Component):
         aai.settings.api_key = self.api_key
 
         if not self.transcription_result and not self.transcript_ids:
-            error = "Either a Transcription Result or Transcript IDs must be provided"
-            self.status = error
-            return Data(data={"error": error})
+            raise ValueError("Either a Transcription Result or Transcript IDs must be provided")
         if self.transcription_result and self.transcription_result.data.get("error"):
-            # error message from the previous step
-            self.status = self.transcription_result.data["error"]
-            return self.transcription_result
+            raise RuntimeError(f"Upstream transcription failed: {self.transcription_result.data['error']}")
         if self.endpoint == "task" and not self.prompt:
-            self.status = "No prompt specified for the task endpoint"
-            return Data(data={"error": "No prompt specified"})
+            raise ValueError("No prompt specified for the task endpoint")
         if self.endpoint == "question-answer" and not self.questions:
-            error = "No Questions were provided for the question-answer endpoint"
-            self.status = error
-            return Data(data={"error": error})
+            raise ValueError("No Questions were provided for the question-answer endpoint")
 
         # Check for valid transcripts
         transcript_ids = None
@@ -110,31 +103,20 @@ class AssemblyAILeMUR(Component):
             transcript_ids = [t.strip() for t in transcript_ids]
 
         if not transcript_ids:
-            error = "Either a valid Transcription Result or valid Transcript IDs must be provided"
-            self.status = error
-            return Data(data={"error": error})
+            raise ValueError("Either a valid Transcription Result or valid Transcript IDs must be provided")
 
         # Get TranscriptGroup and check if there is any error
         transcript_group = aai.TranscriptGroup(transcript_ids=transcript_ids)
         transcript_group, failures = transcript_group.wait_for_completion(return_failures=True)
         if failures:
-            error = f"Getting transcriptions failed: {failures[0]}"
-            self.status = error
-            return Data(data={"error": error})
+            raise RuntimeError(f"Getting transcriptions failed: {failures[0]}")
 
         for t in transcript_group.transcripts:
             if t.status == aai.TranscriptStatus.error:
-                self.status = t.error
-                return Data(data={"error": t.error})
+                raise RuntimeError(f"Transcription failed: {t.error}")
 
         # Perform LeMUR action
-        try:
-            response = self.perform_lemur_action(transcript_group, self.endpoint)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error running LeMUR", exc_info=True)
-            error = f"An Error happened: {e}"
-            self.status = error
-            return Data(data={"error": error})
+        response = self.perform_lemur_action(transcript_group, self.endpoint)
 
         result = Data(data=response)
         self.status = result
