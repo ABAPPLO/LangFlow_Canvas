@@ -113,7 +113,7 @@ class VideoGenerationComponent(Component):
             name="resolution",
             display_name="Resolution",
             info="Output video resolution.",
-            options=["720p", "480p"],
+            options=["1080p", "720p", "480p"],
             value="720p",
             advanced=True,
         ),
@@ -410,6 +410,7 @@ class VideoGenerationComponent(Component):
 
         # NewAPI gateway uses top-level params: image (not image_url), last_frame_url, video_url, audio_url
         mode = getattr(self, "generation_mode", MODE_TEXT)
+        print(f"[VideoGen] mode={mode}, image_url={repr(self.image_url)[:80]}, last_frame_url={repr(self.last_frame_url)[:80]}", flush=True)
         if mode == MODE_IMAGE:
             url = self._resolve_url_value(self.image_url)
             if url:
