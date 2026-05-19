@@ -5,8 +5,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Default timeout for image generation requests (seconds)
-IMAGE_GEN_TIMEOUT = 180
+# Default timeout for image generation requests (5 minutes)
+IMAGE_GEN_TIMEOUT = 300
 
 from lfx.base.models.unified_models import (
     get_image_model_options,
@@ -30,6 +30,9 @@ REF_IMAGE_PREFIX = "ref_image_"
 
 # Gemini models that generate images via chat completions endpoint
 GEMINI_IMAGE_KEYWORDS = ("flash-image", "image-generation", "pro-image-preview")
+
+# GPT Image models that use /v1/images/edits for reference image editing
+GPT_IMAGE_KEYWORDS = ("gpt-image",)
 
 
 class ImageGenerationComponent(Component):
@@ -271,15 +274,31 @@ class ImageGenerationComponent(Component):
         h = max(512, round(h / 64) * 64)
         return f"{w}x{h}"
 
+    def _resolve_gpt_image_size(self) -> str:
+        """Map aspect ratio to valid gpt-image size (1024x1024, 1536x1024, 1024x1536)."""
+        landscape = {"16:9", "4:3", "21:9"}
+        portrait = {"9:16", "3:4"}
+        if self.ratio in landscape:
+            return "1536x1024"
+        if self.ratio in portrait:
+            return "1024x1536"
+        return "1024x1024"
+
     @staticmethod
     def _is_gemini_image_model(model_name: str) -> bool:
         """Check if the model is a Gemini image generation model."""
         return any(kw in model_name for kw in GEMINI_IMAGE_KEYWORDS)
 
     @staticmethod
+    def _is_gpt_image_model(model_name: str) -> bool:
+        """Check if the model is a GPT Image model (gpt-image-1, gpt-image-2, etc.)."""
+        name_lower = model_name.lower()
+        return any(kw in name_lower for kw in GPT_IMAGE_KEYWORDS)
+
+    @staticmethod
     def _download_as_based64(url: str) -> tuple[str, str]:
         """Download a URL and return (base64_data, mime_type)."""
-        with httpx.Client(timeout=60, trust_env=False) as client:
+        with httpx.Client(timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
             resp = client.get(url, follow_redirects=True)
             resp.raise_for_status()
             mime = resp.headers.get("content-type", "image/jpeg")
@@ -377,6 +396,91 @@ class ImageGenerationComponent(Component):
         self.status = f"Image generated: {image_data_url[:80]}..."
         return Message(text=image_data_url)
 
+    def _generate_via_gpt_image_edits(
+        self,
+        api_key: str,
+        base_url: str,
+        model_name: str,
+        prompt: str,
+        ref_urls: list[str],
+    ) -> Message:
+        """Edit an image using gpt-image models via /v1/images/edits (multipart/form-data)."""
+        # Download reference images
+        files = []
+        for ref_url in ref_urls:
+            try:
+                b64_data, mime = self._download_as_based64(ref_url)
+                image_bytes = base64.b64decode(b64_data)
+                ext = "png" if "png" in mime else "jpg"
+                files.append(("image[]", (f"image.{ext}", image_bytes, mime)))
+            except httpx.HTTPError as e:
+                msg = f"Failed to download reference image {ref_url}: {e}"
+                self.log(msg, "ERROR")
+                raise ValueError(msg) from e
+
+        size = self._resolve_gpt_image_size()
+        data = {
+            "prompt": prompt,
+            "model": model_name,
+            "n": str(max(1, self.n)),
+            "size": size,
+        }
+
+        url = f"{base_url}images/edits"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            with httpx.Client(headers=headers, timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
+                self.status = "Editing image via GPT Image..."
+                self.log(f"Submitting edit request to {url}, model: {model_name}")
+
+                resp = client.post(url, files=files, data=data)
+                if not resp.is_success:
+                    self.log(f"API error {resp.status_code}: {resp.text}", "ERROR")
+                    resp.raise_for_status()
+
+                result = resp.json()
+
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text if hasattr(e.response, "text") else ""
+            msg = f"Image edit failed (HTTP {e.response.status_code}): {error_detail}"
+            self.log(msg, "ERROR")
+            raise ValueError(msg) from e
+        except httpx.HTTPError as e:
+            msg = f"Image edit failed: {e}"
+            self.log(msg, "ERROR")
+            raise ValueError(msg) from e
+
+        # Extract image from response — gpt-image models always return b64_json
+        image_items = result.get("data", [])
+        if not image_items:
+            msg = f"No image data in response: {result}"
+            raise ValueError(msg)
+
+        first_item = image_items[0]
+        b64_data = first_item.get("b64_json", "")
+        image_url = ""
+        if b64_data:
+            image_url = f"data:image/png;base64,{b64_data}"
+        else:
+            image_url = first_item.get("url", "")
+
+        if not image_url:
+            msg = f"No image data in response: {result}"
+            raise ValueError(msg)
+
+        self._generation_info = {
+            "model": model_name,
+            "mode": self.generation_mode,
+            "prompt": prompt[:100],
+            "size": size,
+            "n": len(image_items),
+            "image_url": image_url,
+        }
+
+        self.status = f"Image edited: {image_url[:80]}..."
+        return Message(text=image_url)
+
     def generate_image(self) -> Message:
         """Generate an image using the selected model via OpenAI-compatible API."""
         api_key, base_url, model_name = self._resolve_credentials()
@@ -398,19 +502,32 @@ class ImageGenerationComponent(Component):
         if self._is_gemini_image_model(model_name):
             return self._generate_via_gemini(api_key, base_url, model_name, prompt, ref_urls)
 
+        # Route GPT Image models with reference images to /v1/images/edits endpoint
+        if self._is_gpt_image_model(model_name) and ref_urls:
+            return self._generate_via_gpt_image_edits(api_key, base_url, model_name, prompt, ref_urls)
+
         # --- Standard OpenAI images/generations flow ---
-        size = self._resolve_size()
+        is_gpt_image = self._is_gpt_image_model(model_name)
+
+        if is_gpt_image:
+            size = self._resolve_gpt_image_size()
+        else:
+            size = self._resolve_size()
+
         # Build request payload
         payload: dict = {
             "model": model_name,
             "prompt": prompt,
             "n": max(1, self.n),
             "size": size,
-            "response_format": self.response_format,
         }
 
-        # Add reference images for Text + Image(s) mode
-        if ref_urls:
+        # gpt-image models do not support response_format; others use user setting
+        if not is_gpt_image:
+            payload["response_format"] = self.response_format
+
+        # Add reference images for Text + Image(s) mode (non-GPT-Image models only)
+        if ref_urls and not is_gpt_image:
             payload["image"] = ref_urls if len(ref_urls) > 1 else ref_urls[0]
 
         headers = {
@@ -421,7 +538,7 @@ class ImageGenerationComponent(Component):
         url = f"{base_url}images/generations"
 
         try:
-            with httpx.Client(headers=headers, timeout=60, trust_env=False) as client:
+            with httpx.Client(headers=headers, timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
                 self.status = "Generating image..."
                 self.log(f"Submitting request to {url}, model: {model_name}, mode: {self.generation_mode}")
 
@@ -448,16 +565,21 @@ class ImageGenerationComponent(Component):
             msg = f"No image data in response: {data}"
             raise ValueError(msg)
 
-        # Use the first image URL
+        # Parse response — gpt-image models always return b64_json
         first_item = image_items[0]
-        image_url = first_item.get("url", "")
+        image_url = ""
 
-        # Handle base64 response
-        if not image_url and self.response_format == "b64_json":
+        if is_gpt_image:
             b64_data = first_item.get("b64_json", "")
             if b64_data:
-                fmt = "png" if "png" in size else "jpeg"
-                image_url = f"data:image/{fmt};base64,{b64_data}"
+                image_url = f"data:image/png;base64,{b64_data}"
+        else:
+            image_url = first_item.get("url", "")
+            if not image_url and self.response_format == "b64_json":
+                b64_data = first_item.get("b64_json", "")
+                if b64_data:
+                    fmt = "png" if "png" in size else "jpeg"
+                    image_url = f"data:image/{fmt};base64,{b64_data}"
 
         if not image_url:
             msg = f"No image URL in response: {data}"

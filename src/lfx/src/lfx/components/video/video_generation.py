@@ -15,6 +15,7 @@ from lfx.inputs import (
     BoolInput,
     DropdownInput,
     IntInput,
+    MessageTextInput,
     MultilineInput,
 )
 from lfx.io import MessageInput, ModelInput, Output
@@ -69,17 +70,19 @@ class VideoGenerationComponent(Component):
             real_time_refresh=True,
         ),
         # --- Image to Video / First & Last Frame ---
-        MultilineInput(
+        MessageTextInput(
             name="image_url",
             display_name="First Frame Image URL",
             info="URL of the first frame image.",
+            input_types=["Message", "Text"],
             dynamic=True,
             show=False,
         ),
-        MultilineInput(
+        MessageTextInput(
             name="last_frame_url",
             display_name="Last Frame Image URL",
             info="URL of the last frame image.",
+            input_types=["Message", "Text"],
             dynamic=True,
             show=False,
         ),
@@ -326,6 +329,14 @@ class VideoGenerationComponent(Component):
             i += 1
         return urls
 
+    def _resolve_url_value(self, value) -> str:
+        """Resolve a URL from string, Message, or other value."""
+        if not value:
+            return ""
+        if isinstance(value, Message):
+            return value.get_text().strip()
+        return str(value).strip()
+
     def _build_content(self) -> list[dict]:
         """Build the content list based on the selected generation mode."""
         content: list[dict] = []
@@ -339,24 +350,27 @@ class VideoGenerationComponent(Component):
             content.append({"type": "text", "text": prompt})
 
         if mode == MODE_IMAGE:
-            if self.image_url:
+            url = self._resolve_url_value(self.image_url)
+            if url:
                 content.append({
                     "type": "image_url",
-                    "image_url": {"url": self.image_url.strip()},
+                    "image_url": {"url": url},
                     "role": "first_frame",
                 })
 
         elif mode == MODE_FIRST_LAST:
-            if self.image_url:
+            url = self._resolve_url_value(self.image_url)
+            if url:
                 content.append({
                     "type": "image_url",
-                    "image_url": {"url": self.image_url.strip()},
+                    "image_url": {"url": url},
                     "role": "first_frame",
                 })
-            if self.last_frame_url:
+            url = self._resolve_url_value(self.last_frame_url)
+            if url:
                 content.append({
                     "type": "image_url",
-                    "image_url": {"url": self.last_frame_url.strip()},
+                    "image_url": {"url": url},
                     "role": "last_frame",
                 })
 
@@ -394,6 +408,32 @@ class VideoGenerationComponent(Component):
             "content": self._build_content(),
         }
 
+        # NewAPI gateway uses top-level params: image (not image_url), last_frame_url, video_url, audio_url
+        mode = getattr(self, "generation_mode", MODE_TEXT)
+        if mode == MODE_IMAGE:
+            url = self._resolve_url_value(self.image_url)
+            if url:
+                body["image"] = url
+        elif mode == MODE_FIRST_LAST:
+            url = self._resolve_url_value(self.image_url)
+            if url:
+                body["image"] = url
+            url = self._resolve_url_value(self.last_frame_url)
+            if url:
+                body["last_frame_url"] = url
+        elif mode == MODE_MULTIMODAL:
+            image_urls = self._collect_ref_urls(REF_IMAGE_PREFIX)
+            if len(image_urls) >= 1:
+                body["image"] = image_urls[0]
+            if len(image_urls) >= 2:
+                body["last_frame_url"] = image_urls[1]
+            video_urls = self._collect_ref_urls(REF_VIDEO_PREFIX)
+            if video_urls:
+                body["video_url"] = video_urls[0] if len(video_urls) == 1 else video_urls
+            audio_urls = self._collect_ref_urls(REF_AUDIO_PREFIX)
+            if audio_urls:
+                body["audio_url"] = audio_urls[0] if len(audio_urls) == 1 else audio_urls
+
         if self.resolution:
             body["resolution"] = self.resolution
         if self.ratio:
@@ -409,6 +449,8 @@ class VideoGenerationComponent(Component):
         """Submit a video generation task and return the task ID."""
         payload = self._build_request_body()
         url = f"{base_url}video/generations"
+
+        print(f"[VideoGen] Payload: {json.dumps(payload, ensure_ascii=False)[:1000]}", flush=True)
 
         print(f"[VideoGen] Submitting task to {url}, model={self._resolved_model}, mode={self.generation_mode}", flush=True)
 
