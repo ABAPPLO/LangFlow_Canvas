@@ -529,7 +529,9 @@ WORKFLOW (follow strictly):
   Step 3: prepare_flow (auto-fix issues)
           → if errors remain: use update_node / add_edge / delete_edge to fix, then retry prepare_flow
   Step 4: run_flow (triggers frontend build, user sees progress on canvas)
-          → the build runs on the frontend; tell the user to check the canvas for results
+          → if build errors are reported back: diagnose the error, use update_node / add_edge / delete_edge to fix, then retry prepare_flow → run_flow
+          → common fixes: wrong model name (use get_component_details to check available_options), missing API key, type mismatch between connected components
+          → NEVER give up after a build error — always attempt to diagnose and fix before reporting to user
   Step 5: Report success to user
 
 PARAMETER GUIDELINES:
@@ -546,7 +548,8 @@ CRITICAL SUCCESS CRITERIA:
   - build_flow succeeding does NOT mean the task is done.
   - You MUST run run_flow to trigger the frontend build and let the user verify it works.
   - The user will see build progress and results on the canvas (node status, edge animations, output preview).
-  - Tell the user to check the canvas for results.
+  - If the build fails, you will receive a [System] message with error details. You MUST diagnose and fix before telling the user it failed.
+  - Fix loop: read error → identify component/field → use update_node to fix → prepare_flow → run_flow again (up to 3 retries).
 
 Respond in the same language as the user's message.
 """

@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { getSpecificClassFromBuildStatus } from "@/CustomNodes/helpers/get-class-from-build-status";
 import { mutateTemplate } from "@/CustomNodes/helpers/mutate-template";
 import useIconStatus from "@/CustomNodes/hooks/use-icons-status";
 import useUpdateValidationStatus from "@/CustomNodes/hooks/use-update-validation-status";
-import useValidationStatusString from "@/CustomNodes/hooks/use-validation-status-string";
+import useValidationStatusString, {
+  extractStackTrace,
+} from "@/CustomNodes/hooks/use-validation-status-string";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
 import { ICON_STROKE_WIDTH } from "@/constants/constants";
@@ -211,6 +213,10 @@ export default function NodeStatus({
   const flowPool = useFlowStore((state) => state.flowPool);
   useHotkeys(play, handlePlayWShortcut, { preventDefault: true });
   useValidationStatusString(validationStatus, setValidationString);
+  const stackTrace = useMemo(
+    () => extractStackTrace(validationStatus),
+    [validationStatus],
+  );
   useUpdateValidationStatus(
     nodeId_,
     flowPool,
@@ -403,6 +409,7 @@ export default function NodeStatus({
                   validationStatus={validationStatus}
                   validationString={validationString}
                   lastRunTime={lastRunTime}
+                  stackTrace={stackTrace}
                 />
               }
               side="bottom"

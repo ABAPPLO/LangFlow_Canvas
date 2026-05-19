@@ -54,33 +54,34 @@ class DuckDuckGoSearchComponent(Component):
 
     def fetch_content(self) -> list[Data]:
         """Execute the search and return results as Data objects."""
+        wrapper = self._build_wrapper()
+
         try:
-            wrapper = self._build_wrapper()
-
             full_results = wrapper.run(f"{self.input_value} (site:*)")
-
-            result_list = full_results.split("\n")[: self.max_results]
-
-            data_results = []
-            for result in result_list:
-                if result.strip():
-                    snippet = result[: self.max_snippet_length]
-                    data_results.append(
-                        Data(
-                            text=snippet,
-                            data={
-                                "content": result,
-                                "snippet": snippet,
-                            },
-                        )
-                    )
         except (ValueError, AttributeError) as e:
-            error_data = [Data(text=str(e), data={"error": str(e)})]
-            self.status = error_data
-            return error_data
-        else:
-            self.status = data_results
-            return data_results
+            msg = f"DuckDuckGo search failed for query '{self.input_value}': {e}"
+            raise RuntimeError(msg) from e
+        except Exception as e:
+            msg = f"DuckDuckGo search failed for query '{self.input_value}': {e}"
+            raise ConnectionError(msg) from e
+
+        result_list = full_results.split("\n")[: self.max_results]
+
+        data_results = []
+        for result in result_list:
+            if result.strip():
+                snippet = result[: self.max_snippet_length]
+                data_results.append(
+                    Data(
+                        text=snippet,
+                        data={
+                            "content": result,
+                            "snippet": snippet,
+                        },
+                    )
+                )
+        self.status = data_results
+        return data_results
 
     def fetch_content_dataframe(self) -> DataFrame:
         """Convert the search results to a DataFrame.

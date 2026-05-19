@@ -34,10 +34,6 @@ class NotionDatabaseProperties(LCToolComponent):
 
     def run_model(self) -> Data:
         result = self._fetch_database_properties(self.database_id)
-        if isinstance(result, str):
-            # An error occurred, return it as text
-            return Data(text=result)
-        # Success, return the properties
         return Data(text=str(result), data=result)
 
     def build_tool(self) -> Tool:
@@ -48,11 +44,11 @@ class NotionDatabaseProperties(LCToolComponent):
             args_schema=self.NotionDatabasePropertiesSchema,
         )
 
-    def _fetch_database_properties(self, database_id: str) -> dict | str:
+    def _fetch_database_properties(self, database_id: str) -> dict:
         url = f"https://api.notion.com/v1/databases/{database_id}"
         headers = {
             "Authorization": f"Bearer {self.notion_secret}",
-            "Notion-Version": "2022-06-28",  # Use the latest supported version
+            "Notion-Version": "2022-06-28",
         }
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -60,9 +56,6 @@ class NotionDatabaseProperties(LCToolComponent):
             data = response.json()
             return data.get("properties", {})
         except requests.exceptions.RequestException as e:
-            return f"Error fetching Notion database properties: {e}"
+            raise ConnectionError(f"Failed to fetch Notion database properties for '{database_id}': {e}") from e
         except ValueError as e:
-            return f"Error parsing Notion API response: {e}"
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error fetching Notion database properties", exc_info=True)
-            return f"An unexpected error occurred: {e}"
+            raise RuntimeError(f"Failed to parse Notion API response for database '{database_id}': {e}") from e

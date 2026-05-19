@@ -222,10 +222,11 @@ class YouTubeCommentsComponent(Component):
                 return DataFrame(comments_df)
 
         except HttpError as e:
-            error_message = f"YouTube API error: {e!s}"
             if e.resp.status == self.COMMENTS_DISABLED_STATUS:
-                error_message = "Comments are disabled for this video or API quota exceeded."
+                error_message = f"Comments are disabled for video '{self.video_url}' or API quota exceeded."
             elif e.resp.status == self.NOT_FOUND_STATUS:
-                error_message = "Video not found."
+                error_message = f"Video not found: '{self.video_url}'"
+            else:
+                error_message = f"YouTube API error while fetching comments for '{self.video_url}': {e}"
 
-            return DataFrame(pd.DataFrame({"error": [error_message]}))
+            raise ConnectionError(error_message) from e

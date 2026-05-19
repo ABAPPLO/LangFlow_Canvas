@@ -51,14 +51,15 @@ class PythonFunctionComponent(Component):
         function_code = self.function_code
 
         if not function_code:
-            return "No function code provided."
+            msg = "No function code provided."
+            raise ValueError(msg)
 
         try:
             func = get_function(function_code)
             return func()
         except Exception as e:  # noqa: BLE001
-            logger.debug("Error executing function", exc_info=True)
-            return f"Error executing function: {e}"
+            msg = f"Error executing function: {e}"
+            raise RuntimeError(msg) from e
 
     def execute_function_data(self) -> list[Data]:
         results = self.execute_function()

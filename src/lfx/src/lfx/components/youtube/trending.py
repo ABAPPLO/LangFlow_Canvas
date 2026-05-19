@@ -6,7 +6,6 @@ from googleapiclient.errors import HttpError
 
 from lfx.custom.custom_component.component import Component
 from lfx.inputs.inputs import BoolInput, DropdownInput, IntInput, SecretStrInput
-from lfx.log.logger import logger
 from lfx.schema.dataframe import DataFrame
 from lfx.template.field.base import Output
 
@@ -272,14 +271,14 @@ class YouTubeTrendingComponent(Component):
                 return DataFrame(videos_df)
 
         except HttpError as e:
-            error_message = f"YouTube API error: {e}"
             if e.resp.status == HTTP_FORBIDDEN:
-                error_message = "API quota exceeded or access forbidden."
+                error_message = f"YouTube API quota exceeded or access forbidden while fetching trending videos for region '{self.region}': {e}"
             elif e.resp.status == HTTP_NOT_FOUND:
-                error_message = "Resource not found."
-
-            return DataFrame(pd.DataFrame({"error": [error_message]}))
+                error_message = f"Resource not found while fetching trending videos for region '{self.region}': {e}"
+            else:
+                error_message = f"YouTube API error while fetching trending videos for region '{self.region}': {e}"
+            raise ConnectionError(error_message) from e
 
         except Exception as e:  # noqa: BLE001
-            logger.exception("An unexpected error occurred:")
-            return DataFrame(pd.DataFrame({"error": [str(e)]}))
+            error_message = f"Unexpected error while fetching trending videos for region '{self.region}': {e}"
+            raise RuntimeError(error_message) from e

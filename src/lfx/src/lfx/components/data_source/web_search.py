@@ -166,14 +166,10 @@ class WebSearchComponent(Component):
             response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as e:
-            self.status = f"Failed request: {e!s}"
-            return DataFrame(pd.DataFrame([{"title": "Error", "link": "", "snippet": str(e), "content": ""}]))
+            raise ConnectionError(f"Web search request failed for query '{query}': {e}") from e
 
         if not response.text or "text/html" not in response.headers.get("content-type", "").lower():
-            self.status = "No results found"
-            return DataFrame(
-                pd.DataFrame([{"title": "Error", "link": "", "snippet": "No results found", "content": ""}])
-            )
+            raise ValueError(f"No results found for web search query '{query}'")
 
         soup = BeautifulSoup(response.text, "html.parser")
         results = []
@@ -235,12 +231,7 @@ class WebSearchComponent(Component):
             params = f"&hl={hl}&gl={gl}&ceid={ceid}"
             rss_url = f"{base_url}{query_encoded}{params}"
         else:
-            self.status = "No search query, topic, or location provided."
-            return DataFrame(
-                pd.DataFrame(
-                    [{"title": "Error", "link": "", "published": "", "summary": "No search parameters provided"}]
-                )
-            )
+            raise ValueError("No search query, topic, or location provided for news search")
 
         try:
             response = requests.get(rss_url, timeout=self.timeout)
@@ -248,12 +239,10 @@ class WebSearchComponent(Component):
             soup = BeautifulSoup(response.content, "xml")
             items = soup.find_all("item")
         except requests.RequestException as e:
-            self.status = f"Failed to fetch news: {e}"
-            return DataFrame(pd.DataFrame([{"title": "Error", "link": "", "published": "", "summary": str(e)}]))
+            raise ConnectionError(f"Failed to fetch news from '{rss_url}': {e}") from e
 
         if not items:
-            self.status = "No news articles found."
-            return DataFrame(pd.DataFrame([{"title": "No articles found", "link": "", "published": "", "summary": ""}]))
+            raise ValueError(f"No news articles found for query '{query}'")
 
         articles = []
         for item in items:
@@ -273,9 +262,7 @@ class WebSearchComponent(Component):
         """Read RSS feed."""
         rss_url = getattr(self, "query", "")
         if not rss_url:
-            return DataFrame(
-                pd.DataFrame([{"title": "Error", "link": "", "published": "", "summary": "No RSS URL provided"}])
-            )
+            raise ValueError("No RSS URL provided")
 
         try:
             response = requests.get(rss_url, timeout=self.timeout)
@@ -294,8 +281,7 @@ class WebSearchComponent(Component):
             soup = BeautifulSoup(response.content, "xml")
             items = soup.find_all("item")
         except (requests.RequestException, ValueError) as e:
-            self.status = f"Failed to fetch RSS: {e}"
-            return DataFrame(pd.DataFrame([{"title": "Error", "link": "", "published": "", "summary": str(e)}]))
+            raise ConnectionError(f"Failed to fetch RSS feed from '{rss_url}': {e}") from e
 
         articles = [
             {

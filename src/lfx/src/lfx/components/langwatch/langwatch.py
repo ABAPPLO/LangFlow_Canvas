@@ -150,7 +150,8 @@ class LangWatchComponent(Component):
             logger.info(f"Current evaluator set to: {self.current_evaluator}")
 
         except (KeyError, AttributeError, ValueError) as e:
-            self.status = f"Error updating component: {e!s}"
+            msg = f"Error updating component: {e!s}"
+            raise RuntimeError(msg) from e
         return build_config
 
     def get_dynamic_inputs(self, evaluator: dict[str, Any]):
@@ -207,13 +208,14 @@ class LangWatchComponent(Component):
                 dynamic_inputs[setting_name] = input_type(**input_params)
 
         except (KeyError, AttributeError, ValueError, TypeError) as e:
-            self.status = f"Error creating dynamic inputs: {e!s}"
-            return {}
+            msg = f"Error creating dynamic inputs: {e!s}"
+            raise RuntimeError(msg) from e
         return dynamic_inputs
 
     async def evaluate(self) -> Data:
         if not self.api_key:
-            return Data(data={"error": "API key is required"})
+            msg = "API key is required"
+            raise ValueError(msg)
 
         self.set_evaluators(os.getenv("LANGWATCH_ENDPOINT", "https://app.langwatch.ai"))
         self.dynamic_inputs = {}
@@ -228,14 +230,14 @@ class LangWatchComponent(Component):
                 evaluator_name = next(iter(self.evaluators))
                 await logger.ainfo(f"No evaluator was selected. Using default: {evaluator_name}")
             else:
-                return Data(
-                    data={"error": "No evaluator selected and no evaluators available. Please choose an evaluator."}
-                )
+                msg = "No evaluator selected and no evaluators available. Please choose an evaluator."
+                raise ValueError(msg)
 
         try:
             evaluator = self.evaluators.get(evaluator_name)
             if not evaluator:
-                return Data(data={"error": f"Selected evaluator '{evaluator_name}' not found."})
+                msg = f"Selected evaluator '{evaluator_name}' not found."
+                raise ValueError(msg)
 
             await logger.ainfo(f"Evaluating with evaluator: {evaluator_name}")
 
@@ -274,5 +276,4 @@ class LangWatchComponent(Component):
 
         except (httpx.RequestError, KeyError, AttributeError, ValueError) as e:
             error_message = f"Evaluation error: {e!s}"
-            self.status = error_message
-            return Data(data={"error": error_message})
+            raise RuntimeError(error_message) from e

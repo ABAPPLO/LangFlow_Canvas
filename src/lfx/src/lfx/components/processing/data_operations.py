@@ -545,9 +545,9 @@ class DataOperationsComponent(Component):
                 return Data(data=result)
             return Data(data={"result": result})
         except (ValueError, TypeError, KeyError) as e:
-            self.status = f"Error: {e!s}"
-            self.log(self.status)
-            return Data(data={"error": str(e)})
+            msg = f"Error: {e!s}"
+            self.log(msg)
+            raise ValueError(msg) from e
 
     def as_data(self) -> Data:
         if not hasattr(self, "operations") or not self.operations:

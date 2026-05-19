@@ -34,10 +34,6 @@ class NotionPageContent(LCToolComponent):
 
     def run_model(self) -> Data:
         result = self._retrieve_page_content(self.page_id)
-        if isinstance(result, str) and result.startswith("Error:"):
-            # An error occurred, return it as text
-            return Data(text=result)
-        # Success, return the content
         return Data(text=result, data={"content": result})
 
     def build_tool(self) -> Tool:
@@ -60,13 +56,12 @@ class NotionPageContent(LCToolComponent):
             blocks_data = blocks_response.json()
             return self.parse_blocks(blocks_data.get("results", []))
         except requests.exceptions.RequestException as e:
-            error_message = f"Error: Failed to retrieve Notion page content. {e}"
+            status_info = ""
             if hasattr(e, "response") and e.response is not None:
-                error_message += f" Status code: {e.response.status_code}, Response: {e.response.text}"
-            return error_message
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error retrieving Notion page content", exc_info=True)
-            return f"Error: An unexpected error occurred while retrieving Notion page content. {e}"
+                status_info = f" Status code: {e.response.status_code}, Response: {e.response.text}"
+            raise ConnectionError(f"Failed to retrieve Notion page content for '{page_id}': {e}{status_info}") from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to retrieve Notion page content for '{page_id}': {e}") from e
 
     def parse_blocks(self, blocks: list) -> str:
         content = ""

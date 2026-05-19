@@ -116,5 +116,5 @@ class YouTubeSearchComponent(Component):
                 return DataFrame(pd.DataFrame(results))
 
         except HttpError as e:
-            error_message = f"YouTube API error: {e!s}"
-            return DataFrame(pd.DataFrame({"error": [error_message]}))
+            error_message = f"YouTube API error while searching for '{self.query}': {e!s}"
+            raise ConnectionError(error_message) from e

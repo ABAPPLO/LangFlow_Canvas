@@ -323,7 +323,7 @@ class FileComponent(BaseFileComponent):
                     return result.text
                 return str(result)
             except (FileNotFoundError, ValueError, OSError, RuntimeError) as e:
-                return f"Error reading files: {e}"
+                raise RuntimeError(f"Error reading files: {e}") from e
 
         description = self.get_tool_description()
 
@@ -1002,7 +1002,8 @@ class FileComponent(BaseFileComponent):
 
         # Validate file_path to avoid command injection or unsafe input
         if not isinstance(args["file_path"], str) or any(c in args["file_path"] for c in [";", "|", "&", "$", "`"]):
-            return Data(data={"error": "Unsafe file path detected.", "file_path": args["file_path"]})
+            msg = f"Unsafe file path detected: {args['file_path']}"
+            raise ValueError(msg)
 
         proc = subprocess.run(  # noqa: S603
             [sys.executable, "-u", "-c", child_script],
@@ -1013,25 +1014,20 @@ class FileComponent(BaseFileComponent):
 
         if not proc.stdout:
             err_msg = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else "no output from child process"
-            return Data(data={"error": f"Docling subprocess error: {err_msg}", "file_path": original_file_path})
+            msg = f"Docling subprocess error: {err_msg} (file_path={original_file_path})"
+            raise RuntimeError(msg)
 
         try:
             result = json.loads(proc.stdout.decode("utf-8"))
         except Exception as e:  # noqa: BLE001
             err_msg = proc.stderr.decode("utf-8", errors="replace")
-            return Data(
-                data={
-                    "error": f"Invalid JSON from Docling subprocess: {e}. stderr={err_msg}",
-                    "file_path": original_file_path,
-                },
-            )
+            msg = f"Invalid JSON from Docling subprocess: {e}. stderr={err_msg} (file_path={original_file_path})"
+            raise RuntimeError(msg) from e
 
         if not result.get("ok"):
             error_msg = result.get("error", "Unknown Docling error")
-            # Override meta file_path with original_file_path to ensure correct path matching
-            meta = result.get("meta", {})
-            meta["file_path"] = original_file_path
-            return Data(data={"error": error_msg, **meta})
+            msg = f"Docling processing failed for '{original_file_path}': {error_msg}"
+            raise RuntimeError(msg)
 
         meta = result.get("meta", {})
         # Override meta file_path with original_file_path to ensure correct path matching

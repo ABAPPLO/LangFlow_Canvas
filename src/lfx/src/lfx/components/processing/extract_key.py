@@ -48,7 +48,7 @@ class ExtractDataKeyComponent(Component):
                 result = Data(data={key: extracted_value})
                 self.status = result
                 return result
-            self.status = f"Key '{key}' not found in Data object."
-            return Data(data={"error": f"Key '{key}' not found in Data object."})
-        self.status = "Invalid input. Expected Data object or list of Data objects."
-        return Data(data={"error": "Invalid input. Expected Data object or list of Data objects."})
+            msg = f"Key '{key}' not found in Data object."
+            raise ValueError(msg)
+        msg = "Invalid input. Expected Data object or list of Data objects."
+        raise ValueError(msg)

@@ -69,11 +69,11 @@ class DataConditionalRouterComponent(Component):
 
     def validate_input(self, data_item: Data) -> bool:
         if not isinstance(data_item, Data):
-            self.status = "Input is not a Data object"
-            return False
+            msg = "Input is not a Data object"
+            raise ValueError(msg)
         if self.key_name not in data_item.data:
-            self.status = f"Key '{self.key_name}' not found in Data"
-            return False
+            msg = f"Key '{self.key_name}' not found in Data"
+            raise ValueError(msg)
         return True
 
     def process_data(self) -> Data | list[Data]:
@@ -89,8 +89,7 @@ class DataConditionalRouterComponent(Component):
                         false_output.append(item)
             self.stop("false_output" if true_output else "true_output")
             return true_output or false_output
-        if not self.validate_input(self.data_input):
-            return Data(data={"error": self.status})
+        self.validate_input(self.data_input)
         result = self.process_single_data(self.data_input)
         self.stop("false_output" if result else "true_output")
         return self.data_input

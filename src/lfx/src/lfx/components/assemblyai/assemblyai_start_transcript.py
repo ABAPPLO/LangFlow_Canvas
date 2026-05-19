@@ -142,8 +142,7 @@ class AssemblyAITranscriptionJobCreator(Component):
             try:
                 speakers_expected = int(self.speakers_expected)
             except ValueError:
-                self.status = "Error: Expected Number of Speakers must be a valid integer"
-                return Data(data={"error": "Error: Expected Number of Speakers must be a valid integer"})
+                raise ValueError("Expected Number of Speakers must be a valid integer") from None
 
         language_code = self.language_code or None
 
@@ -164,25 +163,20 @@ class AssemblyAITranscriptionJobCreator(Component):
 
             # Check if the file exists
             if not Path(self.audio_file).exists():
-                self.status = "Error: Audio file not found"
-                return Data(data={"error": "Error: Audio file not found"})
+                raise FileNotFoundError(f"Audio file not found: {self.audio_file}")
             audio = self.audio_file
         elif self.audio_file_url:
             audio = self.audio_file_url
         else:
-            self.status = "Error: Either an audio file or an audio URL must be specified"
-            return Data(data={"error": "Error: Either an audio file or an audio URL must be specified"})
+            raise ValueError("Either an audio file or an audio URL must be specified")
 
         try:
             transcript = aai.Transcriber().submit(audio, config=config)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error submitting transcription job", exc_info=True)
-            self.status = f"An error occurred: {e}"
-            return Data(data={"error": f"An error occurred: {e}"})
+        except Exception as e:
+            raise RuntimeError(f"Failed to submit AssemblyAI transcription job: {e}") from e
 
         if transcript.error:
-            self.status = transcript.error
-            return Data(data={"error": transcript.error})
+            raise RuntimeError(f"AssemblyAI transcription failed: {transcript.error}")
         result = Data(data={"transcript_id": transcript.id})
         self.status = result
         return result

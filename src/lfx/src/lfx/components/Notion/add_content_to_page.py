@@ -57,7 +57,7 @@ class AddContentToPage(LCToolComponent):
             args_schema=self.AddContentToPageSchema,
         )
 
-    def _add_content_to_page(self, markdown_text: str, block_id: str) -> dict[str, Any] | str:
+    def _add_content_to_page(self, markdown_text: str, block_id: str) -> dict[str, Any]:
         try:
             html_text = markdown(markdown_text)
             soup = BeautifulSoup(html_text, "html.parser")
@@ -79,13 +79,12 @@ class AddContentToPage(LCToolComponent):
 
             return response.json()
         except requests.exceptions.RequestException as e:
-            error_message = f"Error: Failed to add content to Notion page. {e}"
+            status_info = ""
             if hasattr(e, "response") and e.response is not None:
-                error_message += f" Status code: {e.response.status_code}, Response: {e.response.text}"
-            return error_message
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Error adding content to Notion page", exc_info=True)
-            return f"Error: An unexpected error occurred while adding content to Notion page. {e}"
+                status_info = f" Status code: {e.response.status_code}, Response: {e.response.text}"
+            raise ConnectionError(f"Failed to add content to Notion page '{block_id}': {e}{status_info}") from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to add content to Notion page '{block_id}': {e}") from e
 
     def process_node(self, node):
         blocks = []

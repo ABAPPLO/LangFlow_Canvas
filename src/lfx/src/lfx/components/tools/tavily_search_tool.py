@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from lfx.base.langchain_utilities.model import LCToolComponent
 from lfx.field_typing import Tool
 from lfx.inputs.inputs import BoolInput, DropdownInput, IntInput, MessageTextInput, SecretStrInput
-from lfx.log.logger import logger
 from lfx.schema.data import Data
 
 # Add at the top with other constants
@@ -184,18 +183,16 @@ Note: Check 'Advanced' for all options.
                 else TavilySearchDepth(str(self.search_depth).lower())
             )
         except ValueError as e:
-            error_message = f"Invalid search depth value: {e!s}"
-            self.status = error_message
-            return [Data(data={"error": error_message})]
+            msg = f"Invalid search depth value '{self.search_depth}': {e}"
+            raise ValueError(msg) from e
 
         try:
             topic_enum = (
                 self.topic if isinstance(self.topic, TavilySearchTopic) else TavilySearchTopic(str(self.topic).lower())
             )
         except ValueError as e:
-            error_message = f"Invalid topic value: {e!s}"
-            self.status = error_message
-            return [Data(data={"error": error_message})]
+            msg = f"Invalid topic value '{self.topic}': {e}"
+            raise ValueError(msg) from e
 
         try:
             time_range_enum = (
@@ -206,9 +203,8 @@ Note: Check 'Advanced' for all options.
                 else None
             )
         except ValueError as e:
-            error_message = f"Invalid time range value: {e!s}"
-            self.status = error_message
-            return [Data(data={"error": error_message})]
+            msg = f"Invalid time range value '{self.time_range}': {e}"
+            raise ValueError(msg) from e
 
         # Initialize domain variables as None
         include_domains = None
@@ -328,18 +324,12 @@ Note: Check 'Advanced' for all options.
             self.status = data_results  # type: ignore[assignment]
 
         except httpx.TimeoutException as e:
-            error_message = "Request timed out (90s). Please try again or adjust parameters."
-            logger.error(f"Timeout error: {e}")
-            self.status = error_message
+            error_message = "Tavily search request timed out (90s). Please try again or adjust parameters."
             raise ToolException(error_message) from e
         except httpx.HTTPStatusError as e:
-            error_message = f"HTTP error: {e.response.status_code} - {e.response.text}"
-            logger.debug(error_message)
-            self.status = error_message
+            error_message = f"Tavily search HTTP error: {e.response.status_code} - {e.response.text}"
             raise ToolException(error_message) from e
         except Exception as e:
-            error_message = f"Unexpected error: {e}"
-            logger.debug("Error running Tavily Search", exc_info=True)
-            self.status = error_message
+            error_message = f"Unexpected error in Tavily search for query '{query}': {e}"
             raise ToolException(error_message) from e
         return data_results

@@ -47,16 +47,12 @@ class AssemblyAITranscriptionJobPoller(Component):
 
         # check if it's an error message from the previous step
         if self.transcript_id.data.get("error"):
-            self.status = self.transcript_id.data["error"]
-            return self.transcript_id
+            raise RuntimeError(f"Upstream transcription failed: {self.transcript_id.data['error']}")
 
         try:
             transcript = aai.Transcript.get_by_id(self.transcript_id.data["transcript_id"])
-        except Exception as e:  # noqa: BLE001
-            error = f"Getting transcription failed: {e}"
-            logger.debug(error, exc_info=True)
-            self.status = error
-            return Data(data={"error": error})
+        except Exception as e:
+            raise RuntimeError(f"Failed to get transcription '{self.transcript_id.data.get('transcript_id')}': {e}") from e
 
         if transcript.status == aai.TranscriptStatus.completed:
             json_response = transcript.json_response
@@ -68,5 +64,4 @@ class AssemblyAITranscriptionJobPoller(Component):
             data = Data(data=sorted_data)
             self.status = data
             return data
-        self.status = transcript.error
-        return Data(data={"error": transcript.error})
+        raise RuntimeError(f"Transcription '{transcript.id}' failed: {transcript.error}")
