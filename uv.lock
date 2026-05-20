@@ -5785,6 +5785,7 @@ version = "1.8.4"
 source = { editable = "." }
 dependencies = [
     { name = "langflow-base", extra = ["complete"] },
+    { name = "tencentcloud-sdk-python" },
 ]
 
 [package.optional-dependencies]
@@ -5897,6 +5898,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'local'", specifier = ">=2.3.1" },
     { name = "sqlalchemy", extras = ["postgresql-psycopg"], marker = "extra == 'postgresql'", specifier = ">=2.0.38,<3.0.0" },
     { name = "sqlalchemy", extras = ["postgresql-psycopg2binary"], marker = "extra == 'postgresql'", specifier = ">=2.0.38,<3.0.0" },
+    { name = "tencentcloud-sdk-python", specifier = ">=3.0.0" },
     { name = "tesserocr", marker = "extra == 'docling'", specifier = ">=2.8.0" },
     { name = "torch", marker = "extra == 'docling'", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchvision", marker = "extra == 'docling'", specifier = ">=0.15.0", index = "https://download.pytorch.org/whl/cpu" },
@@ -6040,6 +6042,7 @@ dependencies = [
     { name = "sqlalchemy", extra = ["aiosqlite"] },
     { name = "sqlmodel" },
     { name = "structlog" },
+    { name = "tencentcloud-sdk-python" },
     { name = "trustcall" },
     { name = "typer" },
     { name = "uncurl" },
@@ -6929,6 +6932,7 @@ requires-dist = [
     { name = "sseclient-py", marker = "extra == 'sseclient'", specifier = "==1.8.0" },
     { name = "structlog", specifier = ">=25.4.0,<26.0.0" },
     { name = "supabase", marker = "extra == 'supabase'", specifier = ">=2.6.0,<3.0.0" },
+    { name = "tencentcloud-sdk-python", specifier = ">=3.0.0,<4.0.0" },
     { name = "traceloop-sdk", marker = "extra == 'traceloop'", specifier = ">=0.43.1,<1.0.0" },
     { name = "trustcall", specifier = ">=0.0.38,<1.0.0" },
     { name = "twelvelabs", marker = "extra == 'twelvelabs'", specifier = ">=0.4.7,<1.0.0" },
@@ -7178,6 +7182,7 @@ dependencies = [
     { name = "rich" },
     { name = "setuptools" },
     { name = "structlog" },
+    { name = "tencentcloud-sdk-python" },
     { name = "tomli" },
     { name = "tos" },
     { name = "typer" },
@@ -7240,6 +7245,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0,<14.0.0" },
     { name = "setuptools", specifier = ">=80.0.0,<81.0.0" },
     { name = "structlog", specifier = ">=25.4.0,<26.0.0" },
+    { name = "tencentcloud-sdk-python", specifier = ">=3.0.0,<4.0.0" },
     { name = "tomli", specifier = ">=2.2.1,<3.0.0" },
     { name = "tos", specifier = ">=2.9.0,<3.0.0" },
     { name = "typer", specifier = ">=0.16.0,<1.0.0" },
@@ -13935,6 +13941,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a3/4d/6a19536c50b849338fcbe9290d562b52cbdcf30d8963d3588a68a4107df1/tenacity-8.5.0.tar.gz", hash = "sha256:8bc6c0c8a09b31e6cad13c47afbed1a567518250a9a171418582ed8d9c20ca78", size = 47309, upload-time = "2024-07-05T07:25:31.836Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/3f/8ba87d9e287b9d385a02a7114ddcef61b26f86411e121c9003eb509a1773/tenacity-8.5.0-py3-none-any.whl", hash = "sha256:b594c2a5945830c267ce6b79a166228323ed52718f30302c1359836112346687", size = 28165, upload-time = "2024-07-05T07:25:29.591Z" },
+]
+
+[[package]]
+name = "tencentcloud-sdk-python"
+version = "3.1.98"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fa/8b/8d24c115d497de44e4272f2241205f51e31e430b358ca28fb2e6a424c186/tencentcloud_sdk_python-3.1.98.tar.gz", hash = "sha256:6b3d2bb07dd405680bdd5a5c82849e62f6418462833ac0d7a3e67eacb9de0caf", size = 14874084, upload-time = "2026-05-17T21:16:05.568Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/00/da53b66b9f29b554217d09b1c874d18af509ac603adb3a98ca6fee6f4f17/tencentcloud_sdk_python-3.1.98-py2.py3-none-any.whl", hash = "sha256:4ac0720d1705035f9de2dacaa9581ea31b603a68086858f634d539d3e0550a26", size = 15771344, upload-time = "2026-05-17T21:15:51.226Z" },
 ]
 
 [[package]]

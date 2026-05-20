@@ -23,7 +23,7 @@ RUN npm run build
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS python-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libaio-dev curl \
+    build-essential libaio-dev curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1
@@ -48,9 +48,14 @@ RUN mkdir -p /app/src/backend/langflow && touch /app/src/backend/langflow/__init
 RUN uv sync --frozen --no-dev --no-editable --extra postgresql --package langflow
 
 # 再复制真实源码（此层在依赖安装之后，源码变更只重建此层）
+COPY scripts/build_component_index.py /app/scripts/build_component_index.py
 COPY src/backend/base/langflow /app/src/backend/base/langflow
 COPY src/lfx/src /app/src/lfx/src
 COPY src/backend/langflow /app/src/backend/langflow
+
+# 基于最新源码在镜像构建阶段生成组件索引，避免依赖本地开发环境
+RUN PYTHONPATH="/app/src/backend/base:/app/src/backend:/app/src/lfx/src" \
+    .venv/bin/python /app/scripts/build_component_index.py
 
 # 注入前端构建产物
 COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/frontend
@@ -59,7 +64,7 @@ COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/
 FROM python:3.12-slim-bookworm AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl libpq5 \
+    curl libpq5 ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 langflow
 

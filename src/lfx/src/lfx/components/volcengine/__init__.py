@@ -6,21 +6,21 @@ from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
     from .seedance import SeedanceVideoComponent
+    from .seedance_chain_video import SeedanceChainVideoComponent
     from .seedream import SeedreamImageComponent
-    from .tos_uploader import TOSUploaderComponent
     from .web_search import VolcengineWebSearchComponent
 
 _dynamic_imports = {
     "SeedanceVideoComponent": "seedance",
+    "SeedanceChainVideoComponent": "seedance_chain_video",
     "SeedreamImageComponent": "seedream",
-    "TOSUploaderComponent": "tos_uploader",
     "VolcengineWebSearchComponent": "web_search",
 }
 
 __all__ = [
+    "SeedanceChainVideoComponent",
     "SeedanceVideoComponent",
     "SeedreamImageComponent",
-    "TOSUploaderComponent",
     "VolcengineWebSearchComponent",
 ]
 

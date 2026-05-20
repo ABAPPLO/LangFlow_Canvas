@@ -31,12 +31,10 @@ Docker 基础设施和持久化数据目录：
 ├── infra
 │   ├── docker-compose.infra.yml
 │   └── .env.infra
-├── app
-│   ├── docker-compose.app.yml
-│   └── .env.app
 ├── postgres
 ├── redis
-└── app-data
+├── app-data
+└── app-logs
 ```
 
 ## 一、先部署 PostgreSQL 和 Redis
@@ -48,6 +46,7 @@ mkdir -p /www/dk_project/dk_compose/langflow-canvas/infra
 mkdir -p /www/dk_project/dk_compose/langflow-canvas/postgres
 mkdir -p /www/dk_project/dk_compose/langflow-canvas/redis
 mkdir -p /www/dk_project/dk_compose/langflow-canvas/app-data
+mkdir -p /www/dk_project/dk_compose/langflow-canvas/app-logs
 cd /www/dk_project/dk_compose/langflow-canvas/infra
 ```
 
@@ -75,16 +74,44 @@ docker exec -it langflow-redis redis-cli ping
 - 基础设施网络名保持固定，例如 `langflow-test-net`
 - PostgreSQL 建议先固定使用 `postgres:15.4`，满足 Langflow 的 PostgreSQL 15+ 要求，并和仓库现有部署模板保持一致
 
-## 二、部署 Langflow 应用和 Worker
+## 二、Spug 配置中心
 
-在应用目录准备 compose 和环境变量：
+应用运行配置由 Spug 配置中心管理，发布时生成 `/www/wwwroot/langflow-canvas/.env.deploy`。应用镜像提前在外部构建并推送到腾讯云 TCR，目标服务器只负责拉取镜像和重建容器。
 
-```bash
-mkdir -p /www/dk_project/dk_compose/langflow-canvas/app
-cd /www/dk_project/dk_compose/langflow-canvas/app
+建议配置这些 key：
+
+```env
+COMPOSE_PROJECT_NAME=langflow-test
+APP_IMAGE=ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test:test-latest
+WORKER_IMAGE=ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test:test-latest
+LANGFLOW_CELERY_ENABLED=False
+DOCKER_NETWORK_NAME=langflow-test-net
+TZ=Asia/Shanghai
+
+MASTER_PORT=7862
+SLAVE1_PORT=7861
+
+POSTGRES_HOST=langflow-postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=langflow
+POSTGRES_PASSWORD=和.env.infra一致
+POSTGRES_DB=langflow_build
+
+REDIS_HOST=langflow-redis
+REDIS_PORT=6379
+
+APP_DATA_DIR=/www/dk_project/dk_compose/langflow-canvas/app-data
+APP_LOG_DIR=/www/dk_project/dk_compose/langflow-canvas/app-logs
+
+LANGFLOW_AUTO_LOGIN=False
+LANGFLOW_SUPERUSER=admin@xiaoti.com
+LANGFLOW_SUPERUSER_PASSWORD=LangFlow2024!Secure
+LANGFLOW_SECRET_KEY=使用 Fernet.generate_key() 生成
+LANGFLOW_LOG_LEVEL=info
+LANGFLOW_OPEN_BROWSER=False
+LFX_DEV=
+LANGFLOW_DEVELOPER_API_ENABLED=
 ```
-
-将仓库中的 [docker-compose.app.yml](./docker-compose.app.yml) 放到该目录，并基于 [`.env.app.example`](./.env.app.example) 创建 `.env.app`。
 
 应用关键配置：
 
@@ -95,16 +122,33 @@ cd /www/dk_project/dk_compose/langflow-canvas/app
 - `LANGFLOW_SECRET_KEY` 必须固定，多个实例必须一致
 - `LANGFLOW_SUPERUSER` 和 `LANGFLOW_SUPERUSER_PASSWORD` 建议显式设置
 - 多个 Langflow 实例共用同一个 `APP_DATA_DIR`
+- `APP_LOG_DIR` 会映射到容器内 `/app/logs`
+- 日志文件会按 `/app/logs/YYYYMM/langflow-<service>-YYYY-MM-DD.log` 自动生成
 - 应用容器连接 PostgreSQL 时使用 Docker 网络内端口 `5432`；外部客户端连接测试机时使用宿主机映射端口，例如 `35432`
+- `LFX_DEV` 和 `LANGFLOW_DEVELOPER_API_ENABLED` 默认留空，仅在临时排查组件动态加载或开发接口问题时使用，不建议长期在测试环境开启
+
+Spug 发布目录建议为：
+
+```text
+/www/wwwroot/langflow-canvas
+```
+
+该目录下至少需要：
+
+- `docker-compose.app.yml`
+- `spug-release.sh`
+- `.env.deploy`（由 Spug 发布前脚本生成）
 
 首次启动前，确保应用数据目录允许容器用户写入：
 
 ```bash
 mkdir -p /www/dk_project/dk_compose/langflow-canvas/app-data
+mkdir -p /www/dk_project/dk_compose/langflow-canvas/app-logs
 chmod -R 775 /www/dk_project/dk_compose/langflow-canvas/app-data
+chmod -R 775 /www/dk_project/dk_compose/langflow-canvas/app-logs
 ```
 
-如果启动日志仍出现 `Permission denied: '/app/langflow/secret_key'`，先查容器用户 UID/GID：
+如果启动日志仍出现 `Permission denied: '/app/langflow/secret_key'` 或 `Permission denied: '/app/logs/202605/langflow-2026-05-14.log'`，先查容器用户 UID/GID：
 
 ```bash
 docker compose --env-file .env.app -f docker-compose.app.yml run --rm --entrypoint id langflow-master
@@ -114,43 +158,12 @@ docker compose --env-file .env.app -f docker-compose.app.yml run --rm --entrypoi
 
 ```bash
 chown -R 1000:1000 /www/dk_project/dk_compose/langflow-canvas/app-data
+chown -R 1000:1000 /www/dk_project/dk_compose/langflow-canvas/app-logs
 ```
 
-启动一个主实例和一个备实例：
+`langflow-worker` 已放入 `worker` profile，但默认不要启动。当前 `LANGFLOW_CELERY_ENABLED=False` 时 Web 实例不会向 Celery 投递任务。
 
-```bash
-docker compose --env-file .env.app -f docker-compose.app.yml up -d
-```
-
-默认会启动：
-
-- `langflow-master`
-- `langflow-slave1`
-
-访问端口示例：
-
-- `master`: `7860`
-- `slave1`: `7861`
-
-如果机器配置偏小，第一阶段可以只启动 `master`：
-
-```bash
-docker compose --env-file .env.app -f docker-compose.app.yml up -d langflow-master
-```
-
-`langflow-worker` 已放入 `worker` profile，但默认不要启动。当前官方 `langflowai/langflow:latest` 和 `langflowai/langflow-backend:latest` 镜像都没有 `celery` 模块，并且默认 `LANGFLOW_CELERY_ENABLED=False` 时 Web 实例不会向 Celery 投递任务。
-
-只有同时满足下面条件时，才启用 worker：
-
-- `APP_IMAGE` 包含 `celery` 依赖
-- `WORKER_IMAGE` 包含 `celery` 依赖
-- `.env.app` 设置 `LANGFLOW_CELERY_ENABLED=True`
-
-启用 Celery worker：
-
-```bash
-docker compose --env-file .env.app -f docker-compose.app.yml --profile worker up -d
-```
+如果测试环境必须保持双实例，并且需要稳定承接带 `job_id` 的异步执行，参考 [TEST_ENV_CELERY_WORKER.md](./TEST_ENV_CELERY_WORKER.md) 切换到 `双实例 + Redis + Celery worker` 架构。
 
 ## 三、反向代理和负载均衡
 
@@ -167,23 +180,39 @@ docker compose --env-file .env.app -f docker-compose.app.yml --profile worker up
 如果你们和 `new-api` 一样走镜像发布，建议沿用相同策略：
 
 - 先在外部构建机 build/push 镜像
-- 测试服务器只负责 `docker compose pull` 和 `docker compose up -d`
+- 测试服务器只负责 `docker compose pull` 和滚动重建容器
 - `APP_IMAGE` 第一阶段固定一个测试标签，例如 `:test-latest`
 - 后续再切换到 `:test-<git-sha>` 方便回滚
 
-发布命令：
+当前仓库的 `build-push.sh` 已在 Docker build 阶段自动生成组件索引。
+
+因此：
+
+- 组件索引已改为在 Docker build 阶段自动生成，不依赖开发者本地 Python/uv 环境
+- 改动组件定义时，不需要手工再跑一次脚本，只要走 `build-push.sh` 即可
+- 不建议依赖 `LFX_DEV=1` 作为长期发布方案
+
+Spug 发布后脚本：
 
 ```bash
-docker compose --env-file .env.app -f docker-compose.app.yml pull
-docker compose --env-file .env.app -f docker-compose.app.yml up -d
+cd "${SPUG_DST_DIR:-/www/wwwroot/langflow-canvas}"
+bash spug-release.sh
 ```
 
 查看状态：
 
 ```bash
-docker compose --env-file .env.app -f docker-compose.app.yml ps
-docker compose --env-file .env.app -f docker-compose.app.yml logs -f langflow-master
-docker compose --env-file .env.app -f docker-compose.app.yml logs -f langflow-slave1
+cd /www/wwwroot/langflow-canvas
+docker compose --env-file .env.deploy -f docker-compose.app.yml ps
+docker compose --env-file .env.deploy -f docker-compose.app.yml logs -f langflow-master
+docker compose --env-file .env.deploy -f docker-compose.app.yml logs -f langflow-slave1
+```
+
+日志会按月份目录和 service 日期文件自动生成，例如：
+
+```bash
+tail -f /www/dk_project/dk_compose/langflow-canvas/app-logs/$(date +%Y%m)/langflow-master-$(date +%F).log
+tail -f /www/dk_project/dk_compose/langflow-canvas/app-logs/$(date +%Y%m)/langflow-slave1-$(date +%F).log
 ```
 
 ## 五、验收检查

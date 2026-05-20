@@ -1,22 +1,80 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-REGISTRY="ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test"
-TAG="$(date +%Y%m%d-%H%M%S)"
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+pause_on_exit() {
+  local status=$?
+  trap - EXIT
+
+  if [[ "${CI:-}" == "true" || "${BUILD_PUSH_NO_PAUSE:-}" == "1" ]]; then
+    exit "$status"
+  fi
+
+  echo
+  if [[ "$status" -eq 0 ]]; then
+    echo "=== 脚本执行成功，按 Enter 关闭窗口 ==="
+  else
+    echo "=== 脚本执行失败，退出码: $status，按 Enter 关闭窗口 ==="
+  fi
+  read -r _ || true
+  exit "$status"
+}
+
+trap pause_on_exit EXIT
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing command: $1"
+    exit 1
+  fi
+}
+
+require_cmd docker
+
+IMAGE_REPO="${IMAGE_REPO:-ai-capability.tencentcloudcr.com/ai-capability-test/lang-flow-test}"
+IMAGE_TAG="${IMAGE_TAG:-test-latest}"
+TARGET_PLATFORM="${TARGET_PLATFORM:-linux/amd64}"
 LANGFLOW_AUTO_LOGIN_VALUE="${LANGFLOW_AUTO_LOGIN:-false}"
+DEFAULT_EXTRA_TAG="test-$(date +%Y%m%d-%H%M%S)"
+EXTRA_TAG="${EXTRA_TAG:-$DEFAULT_EXTRA_TAG}"
+
+if [[ -z "$IMAGE_REPO" ]]; then
+  echo "Missing IMAGE_REPO"
+  exit 1
+fi
+
+if [[ -z "$IMAGE_TAG" ]]; then
+  echo "Missing IMAGE_TAG"
+  exit 1
+fi
 
 echo "=== 登录 TCR ==="
 docker login ai-capability.tencentcloudcr.com
 
-echo "=== 构建镜像（tag: ${TAG}） ==="
-docker buildx build \
-  --platform linux/amd64 \
-  --build-arg LANGFLOW_AUTO_LOGIN=${LANGFLOW_AUTO_LOGIN_VALUE} \
-  -t ${REGISTRY}:latest \
-  -t ${REGISTRY}:${TAG} \
-  --push \
-  .
+BUILD_ARGS=(
+  --platform "$TARGET_PLATFORM"
+  --build-arg "LANGFLOW_AUTO_LOGIN=${LANGFLOW_AUTO_LOGIN_VALUE}"
+  -t "${IMAGE_REPO}:${IMAGE_TAG}"
+)
+
+if [[ -n "$EXTRA_TAG" ]]; then
+  BUILD_ARGS+=(-t "${IMAGE_REPO}:${EXTRA_TAG}")
+fi
+
+echo "=== 构建镜像 ==="
+echo "ROOT_DIR=$ROOT_DIR"
+echo "IMAGE_REPO=$IMAGE_REPO"
+echo "IMAGE_TAG=$IMAGE_TAG"
+echo "EXTRA_TAG=${EXTRA_TAG:-<none>}"
+echo "TARGET_PLATFORM=$TARGET_PLATFORM"
+echo "LANGFLOW_AUTO_LOGIN=$LANGFLOW_AUTO_LOGIN_VALUE"
+
+cd "$ROOT_DIR"
+docker buildx build "${BUILD_ARGS[@]}" --push .
 
 echo "=== 完成 ==="
-echo "镜像已推送: ${REGISTRY}:${TAG}"
-echo "镜像已推送: ${REGISTRY}:latest"
+echo "镜像已推送: ${IMAGE_REPO}:${IMAGE_TAG}"
+if [[ -n "$EXTRA_TAG" ]]; then
+  echo "镜像已推送: ${IMAGE_REPO}:${EXTRA_TAG}"
+fi

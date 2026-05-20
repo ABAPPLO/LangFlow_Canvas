@@ -93,6 +93,8 @@ typings/
 # dotenv environment variables file
 .env
 .env.test
+deploy/**/.env.app
+deploy/**/.env.infra
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -297,3 +299,7 @@ data/user
 
 sso-config.yaml
 AGENTS.md
+CLAUDE.md
+
+# Starter projects JSON (auto-generated on first launch)
+src/backend/base/langflow/initial_setup/starter_projects/*.json

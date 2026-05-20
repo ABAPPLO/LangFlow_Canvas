@@ -4,7 +4,6 @@ import rehypeMathjax from "rehype-mathjax/browser";
 import remarkGfm from "remark-gfm";
 import type { ContentType, JSONValue } from "@/types/chat";
 import { extractLanguage, isCodeBlock } from "@/utils/codeBlockUtils";
-import ForwardedIconComponent from "../../common/genericIconComponent";
 import SimplifiedCodeTabComponent from "../codeTabsComponent";
 import DurationDisplay from "./DurationDisplay";
 
@@ -35,7 +34,12 @@ export default function ContentDisplay({
             className="markdown prose max-w-full text-sm font-normal dark:prose-invert"
             components={{
               a: ({ node, ...props }) => (
-                <a {...props} target="_blank" rel="noopener noreferrer">
+                <a
+                  {...props}
+                  target="_blank"
+                  rel="noreferrer"
+                  referrerPolicy="no-referrer"
+                >
                   {props.children}
                 </a>
               ),
@@ -141,6 +145,16 @@ export default function ContentDisplay({
                 pre({ node, ...props }) {
                   return <>{props.children}</>;
                 },
+                a: ({ node, ...props }) => (
+                  <a
+                    {...props}
+                    target="_blank"
+                    rel="noreferrer"
+                    referrerPolicy="no-referrer"
+                  >
+                    {props.children}
+                  </a>
+                ),
                 ol({ node, ...props }) {
                   return <ol className="max-w-full">{props.children}</ol>;
                 },
@@ -236,6 +250,7 @@ export default function ContentDisplay({
               key={index}
               src={url}
               alt={content.caption || `Media ${index}`}
+              referrerPolicy="no-referrer"
             />
           ))}
           {content.caption && <div>{content.caption}</div>}

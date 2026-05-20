@@ -27,6 +27,7 @@ function MediaGrid({ items }: { items: MediaUrl[] }) {
               key={`img-${i}`}
               src={item.url}
               alt={`preview-${i}`}
+              referrerPolicy="no-referrer"
               className="max-h-[140px] w-full rounded-md object-contain"
             />
           ))}
