@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from lfx.base.models.unified_models import get_language_model_options, update_model_options_in_build_config
+from lfx.base.models.unified_models import get_video_model_options, update_model_options_in_build_config
 from lfx.custom import Component
 from lfx.inputs import (
     BoolInput,
@@ -188,7 +188,7 @@ class SeedanceChainVideoComponent(Component):
             component=self,
             build_config=build_config,
             cache_key_prefix="video_model_options",
-            get_options_func=get_language_model_options,
+            get_options_func=get_video_model_options,
             field_name=field_name,
             field_value=field_value,
         )
