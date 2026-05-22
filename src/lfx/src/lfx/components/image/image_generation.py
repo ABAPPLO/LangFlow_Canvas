@@ -745,7 +745,7 @@ class ImageGenerationComponent(Component):
             data["response_format"] = self.response_format
 
         url = f"{base_url}images/edits"
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = {"Authorization": f"Bearer {api_key}","Content-Type": "application/json"}
 
         try:
             with httpx.Client(headers=headers, timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
