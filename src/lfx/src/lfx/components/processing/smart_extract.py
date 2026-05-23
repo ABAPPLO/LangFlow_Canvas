@@ -7,14 +7,13 @@ import re
 from typing import Any
 
 from lfx.custom import Component
-from lfx.inputs.inputs import DropdownInput, MessageTextInput, ModelInput, StrInput
+from lfx.inputs.inputs import DropdownInput, MessageTextInput, ModelInput, MultilineInput, StrInput
 from lfx.schema.data import Data
-from lfx.schema.dataframe import DataFrame
 from lfx.schema.message import Message
 from lfx.template.field.base import Output
 
-MODE_TABLE = "Table"
-MODE_DIRECT = "Direct"
+MODE_TEXT = "Text"
+MODE_JSON = "JSON"
 MODE_AUTO_SPLIT = "Auto Split"
 
 EXTRACTION_PROMPT = """你是一个精确的文本提取器。请从输入文本中提取以下字段的值。
@@ -35,6 +34,27 @@ EXTRACTION_PROMPT = """你是一个精确的文本提取器。请从输入文本
 请严格按以下JSON格式返回结果：
 {json_template}"""
 
+EXTRACTION_PROMPT_WITH_EXAMPLE = """你是一个精确的文本提取器。请从输入文本中提取以下字段的值。
+
+规则：
+1. 严格按照给定的JSON格式返回结果
+2. 如果某个字段在文本中找不到，返回空字符串或默认值
+3. 只返回JSON，不要返回其他内容
+
+需要提取的字段：
+{fields_text}
+
+{instructions_section}
+
+输入文本：
+{input_text}
+
+请严格按照以下JSON格式返回结果（参考示例中的结构和类型）：
+{json_template}
+
+输出示例：
+{json_example}"""
+
 AUTO_SPLIT_PROMPT = """请将以下输入拆分为独立片段。
 
 规则：
@@ -53,7 +73,7 @@ AUTO_SPLIT_PROMPT = """请将以下输入拆分为独立片段。
 
 class SmartExtractComponent(Component):
     display_name = "Smart Extract"
-    description = "用 LLM 从文本中精确提取指定字段，支持表格、直接输出和自动拆分三种模式。"
+    description = "用 LLM 从文本中精确提取指定字段，支持文本直接输出、JSON 格式输出和自动拆分三种模式。"
     icon = "scan-text"
     name = "SmartExtract"
 
@@ -70,9 +90,9 @@ class SmartExtractComponent(Component):
         DropdownInput(
             name="mode",
             display_name="Output Mode",
-            options=[MODE_TABLE, MODE_DIRECT, MODE_AUTO_SPLIT],
-            value=MODE_TABLE,
-            info="Table：输出一行表格；Direct：每个字段一个独立输出端口；Auto Split：自动识别模块并拆分输出。",
+            options=[MODE_TEXT, MODE_JSON, MODE_AUTO_SPLIT],
+            value=MODE_TEXT,
+            info="Text：每个字段直接输出；JSON：按JSON格式输出（可提供格式示例）；Auto Split：自动识别模块并拆分输出。",
             real_time_refresh=True,
         ),
         MessageTextInput(
@@ -85,6 +105,15 @@ class SmartExtractComponent(Component):
             input_types=[],
             real_time_refresh=True,
         ),
+        MultilineInput(
+            name="json_example",
+            display_name="JSON Example",
+            info="JSON 输出格式示例，LLM 会参考此格式输出。仅在 JSON 模式下生效。",
+            value="",
+            show=False,
+            placeholder='例如：{"name": "张三", "age": 25, "skills": ["Python", "Go"]}',
+            advanced=False,
+        ),
         StrInput(
             name="instructions",
             display_name="Instructions",
@@ -94,7 +123,7 @@ class SmartExtractComponent(Component):
     ]
 
     outputs = [
-        Output(display_name="Table", name="table", method="extract_table", types=["DataFrame"]),
+        Output(display_name="Result", name="result", method="extract_text"),
     ]
 
     # ------------------------------------------------------------------
@@ -113,9 +142,11 @@ class SmartExtractComponent(Component):
     def update_build_config(self, build_config: dict, field_value: Any, field_name: str | None = None) -> dict:
         if field_name == "mode":
             is_auto = (field_value == MODE_AUTO_SPLIT)
+            is_json = (field_value == MODE_JSON)
             build_config["fields"]["hidden"] = is_auto
             build_config["fields"]["show"] = not is_auto
             build_config["fields"]["value"] = [] if is_auto else build_config["fields"].get("value", [])
+            build_config["json_example"]["show"] = is_json
         return build_config
 
     def update_outputs(self, frontend_node: dict, field_name: str, field_value: Any) -> dict:
@@ -125,7 +156,7 @@ class SmartExtractComponent(Component):
         if field_name == "mode":
             mode = field_value
         else:
-            mode = template.get("mode", {}).get("value", MODE_TABLE)
+            mode = template.get("mode", {}).get("value", MODE_TEXT)
 
         # Resolve current fields
         if field_name == "fields":
@@ -136,11 +167,7 @@ class SmartExtractComponent(Component):
 
         frontend_node["outputs"] = []
 
-        if mode == MODE_TABLE:
-            frontend_node["outputs"].append(
-                Output(display_name="Table", name="table", method="extract_table", types=["DataFrame"]),
-            )
-        elif mode == MODE_DIRECT:
+        if mode == MODE_TEXT:
             for i, field in enumerate(fields):
                 frontend_node["outputs"].append(
                     Output(
@@ -158,6 +185,23 @@ class SmartExtractComponent(Component):
                     method="extract_all",
                     types=["Data"],
                     group_outputs=True,
+                ),
+            )
+        elif mode == MODE_JSON:
+            frontend_node["outputs"].append(
+                Output(
+                    display_name="JSON Result",
+                    name="json_result",
+                    method="extract_json",
+                    types=["Message"],
+                ),
+            )
+            frontend_node["outputs"].append(
+                Output(
+                    display_name="Data Result",
+                    name="data_result",
+                    method="extract_data",
+                    types=["Data"],
                 ),
             )
         elif mode == MODE_AUTO_SPLIT:
@@ -186,6 +230,17 @@ class SmartExtractComponent(Component):
         fields_text = "\n".join(f"- {f}" for f in fields)
         json_template = json.dumps(dict.fromkeys(fields, "..."), ensure_ascii=False, indent=2)
         instructions_section = f"额外指令：\n{self.instructions}" if self.instructions else ""
+
+        json_example = getattr(self, "json_example", "").strip()
+        if json_example:
+            return EXTRACTION_PROMPT_WITH_EXAMPLE.format(
+                fields_text=fields_text,
+                json_template=json_template,
+                instructions_section=instructions_section,
+                input_text=self._get_input_text(),
+                json_example=json_example,
+            )
+
         return EXTRACTION_PROMPT.format(
             fields_text=fields_text,
             json_template=json_template,
@@ -294,9 +349,9 @@ class SmartExtractComponent(Component):
     # Output methods
     # ------------------------------------------------------------------
 
-    def extract_table(self) -> DataFrame:
+    def extract_text(self) -> Message:
         result = self._do_extract()
-        return DataFrame([result])
+        return Message(text=json.dumps(result, ensure_ascii=False, indent=2))
 
     def extract_field(self) -> Message:
         result = self._do_extract()
@@ -316,6 +371,14 @@ class SmartExtractComponent(Component):
         return Message(text=str(value))
 
     def extract_all(self) -> Data:
+        result = self._do_extract()
+        return Data(data=result)
+
+    def extract_json(self) -> Message:
+        result = self._do_extract()
+        return Message(text=json.dumps(result, ensure_ascii=False, indent=2))
+
+    def extract_data(self) -> Data:
         result = self._do_extract()
         return Data(data=result)
 
