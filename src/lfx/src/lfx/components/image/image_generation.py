@@ -1,5 +1,7 @@
 import base64
+import json
 import logging
+import re
 
 import httpx
 
@@ -17,14 +19,17 @@ from lfx.inputs import (
     DropdownInput,
     IntInput,
 )
+from lfx.inputs.inputs import MultilineInput, MessageTextInput
 from lfx.io import MessageInput, ModelInput, Output
 from lfx.schema.data import Data
+from lfx.schema.image import Image
 from lfx.schema.message import Message
 
 MODE_TEXT = "Text to Image"
 MODE_TEXT_IMAGE = "Text + Image(s)"
+MODE_BATCH_JSON = "Batch from JSON"
 
-MODE_OPTIONS = [MODE_TEXT, MODE_TEXT_IMAGE]
+MODE_OPTIONS = [MODE_TEXT, MODE_TEXT_IMAGE, MODE_BATCH_JSON]
 
 REF_IMAGE_PREFIX = "ref_image_"
 
@@ -53,6 +58,14 @@ class ImageGenerationComponent(Component):
             name="input_value",
             display_name="Prompt",
             info="Text prompt for image generation.",
+        ),
+        MessageTextInput(
+            name="json_input",
+            display_name="JSON Input",
+            info="JSON array (or object) describing characters/items. Each object should have a field for the image prompt (e.g., description, prompt). Auto-detects the prompt field.",
+            value="",
+            show=False,
+            placeholder='[{"name": "角色1", "description": "一个战士..."}]',
         ),
         DropdownInput(
             name="generation_mode",
@@ -110,6 +123,11 @@ class ImageGenerationComponent(Component):
             method="generate_image",
         ),
         Output(
+            display_name="Batch Result",
+            name="batch_result",
+            method="generate_batch",
+        ),
+        Output(
             display_name="Generation Info",
             name="generation_info",
             method="get_generation_info",
@@ -133,6 +151,11 @@ class ImageGenerationComponent(Component):
 
         if field_name == "generation_mode":
             is_text_image = field_value == MODE_TEXT_IMAGE
+            is_batch = field_value == MODE_BATCH_JSON
+
+            build_config["input_value"]["show"] = not is_batch
+            build_config["json_input"]["show"] = is_batch
+            build_config["ref_image_count"]["show"] = is_text_image
 
             # Remove old dynamic ref image fields when switching modes
             to_remove = [k for k in build_config if k.startswith(REF_IMAGE_PREFIX) and k[len(REF_IMAGE_PREFIX):].isdigit()]
@@ -305,6 +328,75 @@ class ImageGenerationComponent(Component):
             b64 = base64.b64encode(resp.content).decode()
         return b64, mime
 
+    def _ensure_displayable(self, image_url: str) -> str:
+        """Download external image to local storage and return a local URL.
+
+        Signed URLs (e.g. Volcengine TOS) may have CORS restrictions.
+        Saves the image via the storage service so the frontend can
+        access it through /files/images/{flow_id}/{file_name}.
+        """
+        if image_url.startswith("data:"):
+            return image_url
+        if not image_url.startswith("http"):
+            return image_url
+
+        try:
+            # Download image bytes
+            with httpx.Client(timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
+                resp = client.get(image_url, follow_redirects=True)
+                resp.raise_for_status()
+                image_bytes = resp.content
+                mime = resp.headers.get("content-type", "image/jpeg")
+
+            # Determine extension from mime type
+            ext_map = {
+                "image/png": ".png",
+                "image/jpeg": ".jpg",
+                "image/jpg": ".jpg",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+                "image/svg+xml": ".svg",
+            }
+            ext = ext_map.get(mime, ".png")
+
+            # Save to local storage via storage service
+            import uuid
+            from lfx.services.deps import get_storage_service
+
+            storage = get_storage_service()
+            flow_id = str(self.graph.flow_id) if hasattr(self, "graph") and self.graph else str(uuid.uuid4())
+            file_name = f"{uuid.uuid4().hex[:12]}{ext}"
+
+            # Run async save_file in sync context
+            import asyncio
+            from lfx.utils.async_helpers import run_until_complete
+            run_until_complete(storage.save_file(flow_id=flow_id, file_name=file_name, data=image_bytes))
+
+            # Build local URL for the frontend to fetch
+            from lfx.utils.util import transform_localhost_url
+            settings_service = None
+            try:
+                from lfx.services.deps import get_settings_service
+                settings_service = get_settings_service()
+            except Exception:
+                pass
+
+            base_url = ""
+            if settings_service:
+                try:
+                    base_url = settings_service.settings.base_url or ""
+                except Exception:
+                    pass
+            if base_url:
+                base_url = base_url.rstrip("/")
+            else:
+                base_url = "http://localhost:7880"
+
+            return f"{base_url}/api/v1/files/images/{flow_id}/{file_name}"
+        except Exception:
+            # If anything fails, return original URL as fallback
+            return image_url
+
     def _generate_via_gemini(
         self,
         api_key: str,
@@ -394,7 +486,7 @@ class ImageGenerationComponent(Component):
         }
 
         self.status = f"Image generated: {image_data_url[:80]}..."
-        return Message(text=image_data_url)
+        return Message(text=image_data_url, files=[Image(url=image_data_url)])
 
     def _generate_via_gpt_image_edits(
         self,
@@ -479,10 +571,14 @@ class ImageGenerationComponent(Component):
         }
 
         self.status = f"Image edited: {image_url[:80]}..."
-        return Message(text=image_url)
+        return Message(text=image_url, files=[Image(url=image_url)])
 
-    def generate_image(self) -> Message:
+    def generate_image(self, *args) -> Message:
         """Generate an image using the selected model via OpenAI-compatible API."""
+        # Delegate to batch mode if applicable
+        if self.generation_mode == MODE_BATCH_JSON:
+            return self.generate_batch(*args)
+
         api_key, base_url, model_name = self._resolve_credentials()
 
         # Get prompt
@@ -585,6 +681,9 @@ class ImageGenerationComponent(Component):
             msg = f"No image URL in response: {data}"
             raise ValueError(msg)
 
+        # Convert to base64 for display if external URL
+        display_url = self._ensure_displayable(image_url)
+
         # Store generation info
         self._generation_info = {
             "model": model_name,
@@ -597,9 +696,198 @@ class ImageGenerationComponent(Component):
         }
 
         self.status = f"Image generated: {image_url[:80]}..."
-        return Message(text=image_url)
+        return Message(text=display_url, files=[Image(url=display_url)])
 
-    def get_generation_info(self) -> Data:
+    # ------------------------------------------------------------------
+    # Batch JSON mode helpers
+    # ------------------------------------------------------------------
+
+    def _parse_batch_json(self, raw_text: str) -> list[dict]:
+        """Parse JSON array or object text with fallback to regex extraction."""
+        text = raw_text.strip()
+        if not text:
+            return []
+
+        def _extract_list(parsed) -> list[dict]:
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+            if isinstance(parsed, dict):
+                return [parsed]
+            return []
+
+        # Direct parse
+        try:
+            return _extract_list(json.loads(text))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # JSON in code block
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+        if match:
+            try:
+                return _extract_list(json.loads(match.group(1)))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # First JSON array or object in text
+        match = re.search(r"[\[{].*[\]}]", text, re.DOTALL)
+        if match:
+            try:
+                return _extract_list(json.loads(match.group(0)))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return []
+
+    @staticmethod
+    def _detect_prompt_field(item: dict) -> tuple[str, str]:
+        """Auto-detect which field to use as the image generation prompt.
+
+        Returns (field_name, field_value). Falls back to the first
+        string-valued field if no known prompt field is found.
+        """
+        prompt_candidates = [
+            "prompt", "image_prompt", "description", "content",
+            "text", "desc", "描述", "内容",
+        ]
+        for key in prompt_candidates:
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                return key, val.strip()
+
+        # Fall back to first string field
+        for key, val in item.items():
+            if isinstance(val, str) and val.strip() and key not in ("image_url", "name", "名字"):
+                return key, val.strip()
+
+        return "", ""
+
+    def _generate_single_image(self, api_key: str, base_url: str, model_name: str, prompt: str) -> str:
+        """Generate a single image and return its URL/data URI.
+
+        Reuses the existing routing logic (Gemini / GPT-Image / standard).
+        """
+        # Route Gemini
+        if self._is_gemini_image_model(model_name):
+            msg = self._generate_via_gemini(api_key, base_url, model_name, prompt, [])
+            return msg.get_text()
+
+        # Route GPT-Image (no ref images in batch mode)
+        if self._is_gpt_image_model(model_name):
+            return self._generate_single_standard(api_key, base_url, model_name, prompt)
+
+        return self._generate_single_standard(api_key, base_url, model_name, prompt)
+
+    def _generate_single_standard(self, api_key: str, base_url: str, model_name: str, prompt: str) -> str:
+        """Generate a single image via standard OpenAI images/generations endpoint."""
+        is_gpt_image = self._is_gpt_image_model(model_name)
+
+        if is_gpt_image:
+            size = self._resolve_gpt_image_size()
+        else:
+            size = self._resolve_size()
+
+        payload: dict = {
+            "model": model_name,
+            "prompt": prompt,
+            "n": 1,
+            "size": size,
+        }
+
+        if not is_gpt_image:
+            payload["response_format"] = self.response_format
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        url = f"{base_url}images/generations"
+
+        with httpx.Client(headers=headers, timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
+            resp = client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        image_items = data.get("data", [])
+        if not image_items:
+            msg = f"No image data in response: {data}"
+            raise ValueError(msg)
+
+        first_item = image_items[0]
+        if is_gpt_image:
+            b64_data = first_item.get("b64_json", "")
+            if b64_data:
+                return f"data:image/png;base64,{b64_data}"
+        else:
+            image_url = first_item.get("url", "")
+            if image_url:
+                return self._ensure_displayable(image_url)
+            if self.response_format == "b64_json":
+                b64_data = first_item.get("b64_json", "")
+                if b64_data:
+                    fmt = "png" if "png" in size else "jpeg"
+                    return f"data:image/{fmt};base64,{b64_data}"
+
+        msg = f"No image URL in response: {data}"
+        raise ValueError(msg)
+
+    def generate_batch(self, *args) -> Message:
+        """Generate images for each item in a JSON array and return combined JSON result."""
+        raw_input = (self.json_input or "").strip()
+
+        if not raw_input:
+            msg = "Please provide JSON input for batch generation"
+            raise ValueError(msg)
+
+        items = self._parse_batch_json(raw_input)
+        if not items:
+            msg = f"Could not parse JSON from input. First 200 chars: {raw_input[:200]}"
+            raise ValueError(msg)
+
+        api_key, base_url, model_name = self._resolve_credentials()
+        results: list[dict] = []
+        total = len(items)
+
+        for i, item in enumerate(items):
+            field_name, prompt = self._detect_prompt_field(item)
+            if not prompt:
+                item["image_url"] = ""
+                item["_error"] = "No prompt field detected"
+                results.append(item)
+                continue
+
+            self.status = f"Generating image {i + 1}/{total}: {prompt[:50]}..."
+            self.log(f"Batch [{i + 1}/{total}] prompt (from '{field_name}'): {prompt[:80]}")
+
+            try:
+                image_url = self._generate_single_image(api_key, base_url, model_name, prompt)
+                item["image_url"] = image_url
+            except Exception as e:
+                self.log(f"Batch [{i + 1}/{total}] failed: {e}", "ERROR")
+                item["image_url"] = ""
+                item["_error"] = str(e)
+
+            results.append(item)
+
+        self._generation_info = {
+            "model": model_name,
+            "mode": self.generation_mode,
+            "total": total,
+            "success": sum(1 for r in results if r.get("image_url")),
+            "failed": sum(1 for r in results if not r.get("image_url")),
+        }
+
+        # Collect image files for frontend rendering
+        image_files = [Image(url=r["image_url"]) for r in results if r.get("image_url")]
+
+        self.status = f"Batch complete: {self._generation_info['success']}/{total} images generated"
+        return Message(
+            text=json.dumps(results, ensure_ascii=False, indent=2),
+            files=image_files,
+        )
+
+    def get_generation_info(self, *args) -> Data:
         """Return generation information as Data."""
         if self._generation_info:
             return Data(data=self._generation_info)

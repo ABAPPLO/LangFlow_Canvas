@@ -34,25 +34,23 @@ EXTRACTION_PROMPT = """你是一个精确的文本提取器。请从输入文本
 请严格按以下JSON格式返回结果：
 {json_template}"""
 
-EXTRACTION_PROMPT_WITH_EXAMPLE = """你是一个精确的文本提取器。请从输入文本中提取以下字段的值。
+EXTRACTION_PROMPT_WITH_EXAMPLE = """你是一个精确的文本提取器。请从输入文本中提取信息，严格按照给定的JSON格式输出。
 
 规则：
-1. 严格按照给定的JSON格式返回结果
-2. 如果某个字段在文本中找不到，返回空字符串或默认值
-3. 只返回JSON，不要返回其他内容
-
-需要提取的字段：
-{fields_text}
+1. 仔细阅读输入文本，从中提取与示例格式中各字段对应的信息
+2. 严格按照下面的JSON示例格式返回结果，保持相同的结构和字段名
+3. 如果示例是数组格式，对文本中每个独立的条目都生成一个数组元素
+4. 尽量使用原文中的确切文字，不要改写、总结或转述
+5. 如果某个字段在文本中找不到，返回空字符串
+6. 示例中的具体值仅表示格式，你需要用从文本中提取的真实数据替换它们
+7. 只返回JSON，不要返回其他内容
 
 {instructions_section}
 
 输入文本：
 {input_text}
 
-请严格按照以下JSON格式返回结果（参考示例中的结构和类型）：
-{json_template}
-
-输出示例：
+请严格按照以下JSON格式返回结果（保持示例中的结构和字段名，用从文本中提取的真实数据替换示例中的占位值）：
 {json_example}"""
 
 AUTO_SPLIT_PROMPT = """请将以下输入拆分为独立片段。
@@ -227,20 +225,20 @@ class SmartExtractComponent(Component):
         return str(input_text)
 
     def _build_prompt(self, fields: list[str]) -> str:
-        fields_text = "\n".join(f"- {f}" for f in fields)
-        json_template = json.dumps(dict.fromkeys(fields, "..."), ensure_ascii=False, indent=2)
         instructions_section = f"额外指令：\n{self.instructions}" if self.instructions else ""
 
         json_example = getattr(self, "json_example", "").strip()
         if json_example:
+            # Normalize fullwidth commas/colons to ASCII for valid JSON
+            json_example = json_example.replace("，", ",").replace("：", ":")
             return EXTRACTION_PROMPT_WITH_EXAMPLE.format(
-                fields_text=fields_text,
-                json_template=json_template,
                 instructions_section=instructions_section,
                 input_text=self._get_input_text(),
                 json_example=json_example,
             )
 
+        fields_text = "\n".join(f"- {f}" for f in fields)
+        json_template = json.dumps(dict.fromkeys(fields, "..."), ensure_ascii=False, indent=2)
         return EXTRACTION_PROMPT.format(
             fields_text=fields_text,
             json_template=json_template,
@@ -251,17 +249,30 @@ class SmartExtractComponent(Component):
     def _build_split_prompt(self) -> str:
         return AUTO_SPLIT_PROMPT.format(input_text=self._get_input_text())
 
-    def _parse_json(self, text: str) -> dict:
+    def _parse_json(self, text: str) -> dict | list:
         # Direct parse
         try:
-            return json.loads(text)
+            result = json.loads(text)
+            if isinstance(result, (dict, list)):
+                return result
         except (json.JSONDecodeError, TypeError):
             pass
         # JSON in code block
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(1))
+                result = json.loads(match.group(1))
+                if isinstance(result, (dict, list)):
+                    return result
+            except (json.JSONDecodeError, TypeError):
+                pass
+        # First JSON array in text
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group(0))
+                if isinstance(result, list):
+                    return result
             except (json.JSONDecodeError, TypeError):
                 pass
         # First JSON object in text
@@ -301,28 +312,38 @@ class SmartExtractComponent(Component):
                 pass
         return []
 
-    def _do_extract(self) -> dict:
+    def _do_extract(self) -> dict | list:
         if hasattr(self, "_cached_smart_extract"):
             return self._cached_smart_extract
 
         fields = self._get_fields()
-        if not fields:
+        json_example = getattr(self, "json_example", "").strip()
+
+        print(f"[SmartExtract] fields={fields}, json_example={repr(json_example[:80]) if json_example else '(empty)'}", flush=True)
+
+        if not fields and not json_example:
             self._cached_smart_extract = {}
             return {}
 
         prompt = self._build_prompt(fields)
+        print(f"[SmartExtract] prompt:\n{prompt}", flush=True)
+
         llm = self.language_model
         response = llm.invoke(prompt)
         response_text = response.content if hasattr(response, "content") else str(response)
 
+        print(f"[SmartExtract] LLM response (first 300): {response_text[:300]}", flush=True)
+
         result = self._parse_json(response_text)
+        print(f"[SmartExtract] parsed result type={type(result).__name__}, len={len(result)}", flush=True)
 
-        # Ensure all fields exist in result
-        for f in fields:
-            if f not in result:
-                result[f] = ""
+        # Ensure all fields exist in result (only when using fields-based prompt)
+        if not json_example and isinstance(result, dict):
+            for f in fields:
+                if f not in result:
+                    result[f] = ""
 
-        self.status = f"Extracted {len(fields)} fields"
+        self.status = f"Extracted {len(result)} items"
         self._cached_smart_extract = result
         return result
 
@@ -349,11 +370,11 @@ class SmartExtractComponent(Component):
     # Output methods
     # ------------------------------------------------------------------
 
-    def extract_text(self) -> Message:
+    def extract_text(self, *args) -> Message:
         result = self._do_extract()
         return Message(text=json.dumps(result, ensure_ascii=False, indent=2))
 
-    def extract_field(self) -> Message:
+    def extract_field(self, *args) -> Message:
         result = self._do_extract()
         output_name = getattr(self, "_current_output", "")
         fields = self._get_fields()
@@ -370,18 +391,18 @@ class SmartExtractComponent(Component):
             value = ""
         return Message(text=str(value))
 
-    def extract_all(self) -> Data:
+    def extract_all(self, *args) -> Data:
         result = self._do_extract()
-        return Data(data=result)
+        return Data(data={"items": result} if isinstance(result, list) else result)
 
-    def extract_json(self) -> Message:
+    def extract_json(self, *args) -> Message:
         result = self._do_extract()
         return Message(text=json.dumps(result, ensure_ascii=False, indent=2))
 
-    def extract_data(self) -> Data:
+    def extract_data(self, *args) -> Data:
         result = self._do_extract()
-        return Data(data=result)
+        return Data(data={"items": result} if isinstance(result, list) else result)
 
-    def extract_all_segments(self) -> Message:
+    def extract_all_segments(self, *args) -> Message:
         segments = self._do_split()
         return Message(text=json.dumps(segments, ensure_ascii=False))

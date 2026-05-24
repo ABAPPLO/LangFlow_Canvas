@@ -47,6 +47,24 @@ export function getMediaType(url: string): MediaType | null {
     return null;
   }
 
+  // Check local API file paths that serve media
+  if (trimmed.includes("/files/images/") || trimmed.includes("/files/media/")) {
+    // Try to detect type from the filename portion
+    const lastSegment = trimmed.split("/").pop() ?? "";
+    for (const ext of IMAGE_EXTENSIONS) {
+      if (lastSegment.endsWith(ext)) return "image";
+    }
+    for (const ext of VIDEO_EXTENSIONS) {
+      if (lastSegment.endsWith(ext)) return "video";
+    }
+    for (const ext of AUDIO_EXTENSIONS) {
+      if (lastSegment.endsWith(ext)) return "audio";
+    }
+    // Default to image for /files/images/ paths
+    if (trimmed.includes("/files/images/")) return "image";
+    if (trimmed.includes("/files/media/")) return "image";
+  }
+
   // Extract the path portion (strip query params and fragments)
   const pathOnly = trimmed.split("?")[0]?.split("#")[0] ?? trimmed;
 
@@ -108,7 +126,20 @@ function _extractMediaUrls(
   if (value == null || depth > MAX_RECURSION_DEPTH) return [];
 
   if (typeof value === "string") {
-    const urls = value
+    const trimmed = value.trim();
+
+    // Try parsing as JSON first — this handles text outputs that contain
+    // JSON arrays/objects with nested image_url fields
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return _extractMediaUrls(parsed, depth, seen);
+      } catch {
+        // Not valid JSON — fall through to line-by-line extraction
+      }
+    }
+
+    const urls = trimmed
       .split(/[\n\r]+/)
       .map((line) => line.trim())
       .filter(Boolean);
