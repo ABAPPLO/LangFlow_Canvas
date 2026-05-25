@@ -62,6 +62,7 @@ from langflow.api.v1.schemas import (
     MCPProjectUpdateRequest,
     MCPSettings,
 )
+from langflow.helpers.flow import get_mcp_input_parameters
 from langflow.services.auth.constants import AUTO_LOGIN_WARNING
 from langflow.services.auth.mcp_encryption import decrypt_auth_settings, encrypt_auth_settings
 from langflow.services.database.models import Flow, Folder
@@ -260,9 +261,9 @@ async def _build_project_tools_response(
                         action_name=name,
                         action_description=description,
                         mcp_enabled=flow.mcp_enabled,
-                        # inputSchema=json_schema_from_flow(flow),
                         name=flow.name,
                         description=flow.description,
+                        mcp_input_parameters=get_mcp_input_parameters(flow),
                     )
                     tools.append(tool)
                 except Exception as e:  # noqa: BLE001
@@ -526,6 +527,8 @@ async def update_project_mcp_settings(
                     flow.mcp_enabled = settings_to_update.mcp_enabled
                     flow.action_name = settings_to_update.action_name
                     flow.action_description = settings_to_update.action_description
+                    if "mcp_input_parameters" in settings_to_update.model_fields_set:
+                        flow.mcp_input_parameters = settings_to_update.mcp_input_parameters
                     flow.updated_at = datetime.now(timezone.utc)
                     session.add(flow)
                     updated_flows.append(flow)

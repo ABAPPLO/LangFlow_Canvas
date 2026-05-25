@@ -20,7 +20,7 @@ from pydantic import (
 from langflow.schema.dotdict import dotdict
 from langflow.schema.graph import Tweaks
 from langflow.schema.schema import InputType, OutputType, OutputValue
-from langflow.serialization.serialization import get_max_items_length, get_max_text_length, serialize
+from langflow.serialization.serialization import get_max_items_length, serialize
 from langflow.services.database.models.api_key.model import ApiKeyRead
 from langflow.services.database.models.base import orjson_dumps
 from langflow.services.database.models.flow.model import FlowCreate, FlowRead
@@ -482,6 +482,7 @@ class MCPSettings(BaseModel):
     action_description: str | None = None
     name: str | None = None
     description: str | None = None
+    mcp_input_parameters: list[dict[str, Any]] | None = None
 
 
 class MCPProjectUpdateRequest(BaseModel):
