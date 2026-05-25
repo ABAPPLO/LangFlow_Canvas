@@ -601,6 +601,14 @@ class ImageGenerationComponent(Component):
         return any(kw in name_lower or kw in compact for kw in GPT_IMAGE_KEYWORDS)
 
     @staticmethod
+    def _response_rejects_parameter(response: httpx.Response, parameter: str) -> bool:
+        if response.status_code != 400:
+            return False
+        text = response.text.lower()
+        parameter = parameter.lower()
+        return parameter in text and ("unknown parameter" in text or "unknown_parameter" in text)
+
+    @staticmethod
     def _download_as_based64(url: str) -> tuple[str, str]:
         """Download a URL and return (base64_data, mime_type)."""
         with httpx.Client(timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
@@ -741,11 +749,12 @@ class ImageGenerationComponent(Component):
             "n": str(max(1, self.n)),
             "size": size,
         }
-        if self._is_gpt_image_2_model(model_name):
-            data["response_format"] = self.response_format
 
         url = f"{base_url}images/edits"
-        headers = {"Authorization": f"Bearer {api_key}","Content-Type": "application/json"}
+        # Do not set Content-Type here. httpx must add the multipart boundary
+        # when files are sent, otherwise JSON parsers see the multipart prefix
+        # and fail with errors such as "invalid character '-' in numeric literal".
+        headers = {"Authorization": f"Bearer {api_key}"}
 
         try:
             with httpx.Client(headers=headers, timeout=IMAGE_GEN_TIMEOUT, trust_env=False) as client:
@@ -753,6 +762,16 @@ class ImageGenerationComponent(Component):
                 self.log(f"Submitting edit request to {url}, model: {model_name}")
 
                 resp = client.post(url, files=files, data=data)
+                if (
+                    not resp.is_success
+                    and "response_format" in data
+                    and self._response_rejects_parameter(resp, "response_format")
+                ):
+                    self.log("Gateway rejected response_format; retrying edit request without it.")
+                    retry_data = data.copy()
+                    retry_data.pop("response_format", None)
+                    resp = client.post(url, files=files, data=retry_data)
+
                 if not resp.is_success:
                     self.log(f"API error {resp.status_code}: {resp.text}", "ERROR")
                     resp.raise_for_status()
@@ -817,7 +836,7 @@ class ImageGenerationComponent(Component):
         if self._is_gemini_image_model(model_name):
             return self._generate_via_gemini(api_key, base_url, model_name, prompt, ref_urls)
 
-        # Route GPT Image models with reference images to /v1/images/edits endpoint
+        # Route GPT Image models with reference images to /v1/images/edits endpoint.
         if self._is_gpt_image_model(model_name) and ref_urls:
             return self._generate_via_gpt_image_edits(api_key, base_url, model_name, prompt, ref_urls)
 
@@ -833,11 +852,12 @@ class ImageGenerationComponent(Component):
             "size": size,
         }
 
-        # Prefer URL responses to keep graph payloads small, but parse either url or b64_json below.
-        if not is_gpt_image or self._is_gpt_image_2_model(model_name):
+        # Prefer URL responses for generic OpenAI-compatible image models.
+        # GPT Image gateways may reject response_format while returning b64_json by default.
+        if not is_gpt_image:
             payload["response_format"] = self.response_format
 
-        # Add reference images for Text + Image(s) mode (non-GPT-Image models only)
+        # Add reference images for Text + Image(s) mode (non-GPT-Image models only).
         if ref_urls and not is_gpt_image:
             payload["image"] = ref_urls if len(ref_urls) > 1 else ref_urls[0]
 
@@ -854,6 +874,15 @@ class ImageGenerationComponent(Component):
                 self.log(f"Submitting request to {url}, model: {model_name}, mode: {self.generation_mode}")
 
                 resp = client.post(url, json=payload)
+                if (
+                    not resp.is_success
+                    and "response_format" in payload
+                    and self._response_rejects_parameter(resp, "response_format")
+                ):
+                    self.log("Gateway rejected response_format; retrying generation request without it.")
+                    retry_payload = payload.copy()
+                    retry_payload.pop("response_format", None)
+                    resp = client.post(url, json=retry_payload)
                 if not resp.is_success:
                     self.log(f"API error {resp.status_code}: {resp.text}", "ERROR")
                     resp.raise_for_status()
