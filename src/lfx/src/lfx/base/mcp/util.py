@@ -186,6 +186,28 @@ def validate_headers(headers: dict[str, str]) -> dict[str, str]:
     return sanitized_headers
 
 
+def normalize_headers(headers: Any) -> dict[str, str]:
+    """Normalize dict/list header input without resolving global variables."""
+    if headers is None:
+        return {}
+    if isinstance(headers, dict):
+        items = headers.items()
+    elif isinstance(headers, list):
+        items = (
+            (item.get("key"), item.get("value"))
+            for item in headers
+            if isinstance(item, dict) and "key" in item and "value" in item
+        )
+    else:
+        return {}
+
+    normalized: dict[str, str] = {}
+    for key, value in items:
+        if isinstance(key, str) and isinstance(value, str):
+            normalized[key.lower()] = value
+    return normalized
+
+
 def sanitize_mcp_name(name: str, max_length: int = 46) -> str:
     """Sanitize a name for MCP usage by removing emojis, diacritics, and special characters.
 
@@ -306,7 +328,38 @@ def _handle_tool_validation_error(
     raise ValueError(msg) from e
 
 
-def create_tool_coroutine(tool_name: str, arg_schema: type[BaseModel], client) -> Callable[..., Awaitable]:
+DEFAULT_TOOL_CALL_TIMEOUT_SECONDS = 30 * 60.0
+DEFAULT_TOOL_CALL_MAX_RETRIES = 0
+
+
+def _coerce_tool_call_timeout_seconds(timeout_seconds: float | None) -> float:
+    if timeout_seconds is None:
+        return DEFAULT_TOOL_CALL_TIMEOUT_SECONDS
+    try:
+        timeout = float(timeout_seconds)
+    except (TypeError, ValueError):
+        return DEFAULT_TOOL_CALL_TIMEOUT_SECONDS
+    return max(1.0, timeout)
+
+
+def _coerce_tool_call_max_retries(max_retries: int | None) -> int:
+    if max_retries is None:
+        return DEFAULT_TOOL_CALL_MAX_RETRIES
+    try:
+        retries = int(max_retries)
+    except (TypeError, ValueError):
+        return DEFAULT_TOOL_CALL_MAX_RETRIES
+    return max(0, retries)
+
+
+def create_tool_coroutine(
+    tool_name: str,
+    arg_schema: type[BaseModel],
+    client,
+    *,
+    tool_call_timeout_seconds: float | None = None,
+    tool_call_max_retries: int | None = None,
+) -> Callable[..., Awaitable]:
     async def tool_coroutine(*args, **kwargs):
         # Get field names from the model (preserving order)
         field_names = list(arg_schema.model_fields.keys())
@@ -327,7 +380,12 @@ def create_tool_coroutine(tool_name: str, arg_schema: type[BaseModel], client) -
             _handle_tool_validation_error(e, tool_name, provided_args, arg_schema)
 
         try:
-            return await client.run_tool(tool_name, arguments=validated.model_dump())
+            return await client.run_tool(
+                tool_name,
+                arguments=validated.model_dump(),
+                timeout_seconds=tool_call_timeout_seconds,
+                max_retries=tool_call_max_retries,
+            )
         except Exception as e:
             await logger.aerror(f"Tool '{tool_name}' execution failed: {e}")
             # Re-raise with more context
@@ -337,7 +395,14 @@ def create_tool_coroutine(tool_name: str, arg_schema: type[BaseModel], client) -
     return tool_coroutine
 
 
-def create_tool_func(tool_name: str, arg_schema: type[BaseModel], client) -> Callable[..., str]:
+def create_tool_func(
+    tool_name: str,
+    arg_schema: type[BaseModel],
+    client,
+    *,
+    tool_call_timeout_seconds: float | None = None,
+    tool_call_max_retries: int | None = None,
+) -> Callable[..., str]:
     def tool_func(*args, **kwargs):
         field_names = list(arg_schema.model_fields.keys())
         provided_args = {}
@@ -354,7 +419,14 @@ def create_tool_func(tool_name: str, arg_schema: type[BaseModel], client) -> Cal
             _handle_tool_validation_error(e, tool_name, provided_args, arg_schema)
 
         try:
-            return run_until_complete(client.run_tool(tool_name, arguments=validated.model_dump()))
+            return run_until_complete(
+                client.run_tool(
+                    tool_name,
+                    arguments=validated.model_dump(),
+                    timeout_seconds=tool_call_timeout_seconds,
+                    max_retries=tool_call_max_retries,
+                )
+            )
         except Exception as e:
             logger.error(f"Tool '{tool_name}' execution failed: {e}")
             # Re-raise with more context
@@ -1053,6 +1125,9 @@ class MCPStdioClient:
         self._connected = False
         self._session_context: str | None = None
         self._component_cache = component_cache
+        self.disable_session_cache = False
+        self._oneoff_task: asyncio.Task | None = None
+        self._oneoff_session_manager: MCPSessionManager | None = None
 
     async def _connect_to_server(self, command_str: str, env: dict[str, str] | None = None) -> list[StructuredTool]:
         """Connect to MCP server using stdio transport (SDK style)."""
@@ -1126,16 +1201,36 @@ class MCPStdioClient:
             msg = "Session context and connection params must be set"
             raise ValueError(msg)
 
+        if self.disable_session_cache:
+            if self.session is not None:
+                return self.session
+            self._oneoff_session_manager = MCPSessionManager()
+            self.session, self._oneoff_task = await self._oneoff_session_manager._create_stdio_session(
+                self._session_context,
+                self._connection_params,
+            )
+            return self.session
+
         # Use cached session manager to get/create persistent session
         session_manager = self._get_session_manager()
-        return await session_manager.get_session(self._session_context, self._connection_params, "stdio")
+        self.session = await session_manager.get_session(self._session_context, self._connection_params, "stdio")
+        return self.session
 
-    async def run_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+    async def run_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
+    ) -> Any:
         """Run a tool with the given arguments using context-specific session.
 
         Args:
             tool_name: Name of the tool to run
             arguments: Dictionary of arguments to pass to the tool
+            timeout_seconds: Maximum seconds to wait for this tool call
+            max_retries: Number of retries after the first tool call attempt
 
         Returns:
             The result of the tool execution
@@ -1155,18 +1250,20 @@ class MCPStdioClient:
             param_hash = uuid.uuid4().hex[:8]
             self._session_context = f"default_{param_hash}"
 
-        max_retries = 2
+        timeout_seconds = _coerce_tool_call_timeout_seconds(timeout_seconds)
+        max_retries = _coerce_tool_call_max_retries(max_retries)
+        max_attempts = max_retries + 1
         last_error_type = None
 
-        for attempt in range(max_retries):
+        for attempt in range(max_attempts):
             try:
-                await logger.adebug(f"Attempting to run tool '{tool_name}' (attempt {attempt + 1}/{max_retries})")
+                await logger.adebug(f"Attempting to run tool '{tool_name}' (attempt {attempt + 1}/{max_attempts})")
                 # Get or create persistent session
                 session = await self._get_or_create_session()
 
                 result = await asyncio.wait_for(
                     session.call_tool(tool_name, arguments=arguments),
-                    timeout=30.0,  # 30 second timeout
+                    timeout=timeout_seconds,
                 )
             except Exception as e:
                 current_error_type = type(e).__name__
@@ -1191,7 +1288,7 @@ class MCPStdioClient:
                 last_error_type = current_error_type
 
                 # If it's a connection error (ClosedResourceError or MCP connection closed) and we have retries left
-                if (is_closed_resource_error or is_mcp_connection_error) and attempt < max_retries - 1:
+                if (is_closed_resource_error or is_mcp_connection_error) and attempt < max_attempts - 1:
                     await logger.awarning(
                         f"MCP session connection issue for tool '{tool_name}', retrying with fresh session..."
                     )
@@ -1204,7 +1301,7 @@ class MCPStdioClient:
                     continue
 
                 # If it's a timeout error and we have retries left, try once more
-                if is_timeout_error and attempt < max_retries - 1:
+                if is_timeout_error and attempt < max_attempts - 1:
                     await logger.awarning(f"Tool '{tool_name}' timed out, retrying...")
                     # Don't clean up session for timeouts, might just be a slow response
                     await asyncio.sleep(1.0)
@@ -1229,6 +1326,8 @@ class MCPStdioClient:
                 raise
             else:
                 await logger.adebug(f"Tool '{tool_name}' completed successfully")
+                if self.disable_session_cache:
+                    await self.disconnect()
                 return result
 
         # This should never be reached due to the exception handling above
@@ -1238,11 +1337,19 @@ class MCPStdioClient:
 
     async def disconnect(self):
         """Properly close the connection and clean up resources."""
-        # For stdio transport, there is no remote session to terminate explicitly
-        # The session cleanup happens when the background task is cancelled
+        if self.disable_session_cache and self._oneoff_task is not None:
+            self._oneoff_task.cancel()
+            import contextlib
+
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._oneoff_task
+            if self._oneoff_session_manager and self._oneoff_session_manager._cleanup_task:
+                self._oneoff_session_manager._cleanup_task.cancel()
+            self._oneoff_task = None
+            self._oneoff_session_manager = None
 
         # Clean up local session using the session manager
-        if self._session_context:
+        elif self._session_context:
             session_manager = self._get_session_manager()
             await session_manager._cleanup_session(self._session_context)
 
@@ -1266,6 +1373,9 @@ class MCPStreamableHttpClient:
         self._connected = False
         self._session_context: str | None = None
         self._component_cache = component_cache
+        self.disable_session_cache = False
+        self._oneoff_task: asyncio.Task | None = None
+        self._oneoff_session_manager: MCPSessionManager | None = None
 
     def _get_session_manager(self) -> MCPSessionManager:
         """Get or create session manager from component cache."""
@@ -1369,6 +1479,19 @@ class MCPStreamableHttpClient:
             msg = "Session context and params must be set"
             raise ValueError(msg)
 
+        if self.disable_session_cache:
+            if self.session is not None:
+                return self.session
+            self._oneoff_session_manager = MCPSessionManager()
+            self.session, self._oneoff_task, _actual_transport = (
+                await self._oneoff_session_manager._create_streamable_http_session(
+                    self._session_context,
+                    self._connection_params,
+                    None,
+                )
+            )
+            return self.session
+
         # Use cached session manager to get/create persistent session
         session_manager = self._get_session_manager()
         # Cache session so we can access server-assigned session_id later for DELETE
@@ -1402,12 +1525,21 @@ class MCPStreamableHttpClient:
             # DELETE is advisory—log and continue
             logger.debug(f"Unable to send session DELETE to '{url}': {e}")
 
-    async def run_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+    async def run_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
+    ) -> Any:
         """Run a tool with the given arguments using context-specific session.
 
         Args:
             tool_name: Name of the tool to run
             arguments: Dictionary of arguments to pass to the tool
+            timeout_seconds: Maximum seconds to wait for this tool call
+            max_retries: Number of retries after the first tool call attempt
 
         Returns:
             The result of the tool execution
@@ -1427,18 +1559,20 @@ class MCPStreamableHttpClient:
             param_hash = uuid.uuid4().hex[:8]
             self._session_context = f"default_http_{param_hash}"
 
-        max_retries = 2
+        timeout_seconds = _coerce_tool_call_timeout_seconds(timeout_seconds)
+        max_retries = _coerce_tool_call_max_retries(max_retries)
+        max_attempts = max_retries + 1
         last_error_type = None
 
-        for attempt in range(max_retries):
+        for attempt in range(max_attempts):
             try:
-                await logger.adebug(f"Attempting to run tool '{tool_name}' (attempt {attempt + 1}/{max_retries})")
+                await logger.adebug(f"Attempting to run tool '{tool_name}' (attempt {attempt + 1}/{max_attempts})")
                 # Get or create persistent session
                 session = await self._get_or_create_session()
 
                 result = await asyncio.wait_for(
                     session.call_tool(tool_name, arguments=arguments),
-                    timeout=30.0,  # 30 second timeout
+                    timeout=timeout_seconds,
                 )
             except Exception as e:
                 current_error_type = type(e).__name__
@@ -1466,7 +1600,7 @@ class MCPStreamableHttpClient:
                 last_error_type = current_error_type
 
                 # If it's a connection error (ClosedResourceError or MCP connection closed) and we have retries left
-                if (is_closed_resource_error or is_mcp_connection_error) and attempt < max_retries - 1:
+                if (is_closed_resource_error or is_mcp_connection_error) and attempt < max_attempts - 1:
                     await logger.awarning(
                         f"MCP session connection issue for tool '{tool_name}', retrying with fresh session..."
                     )
@@ -1479,7 +1613,7 @@ class MCPStreamableHttpClient:
                     continue
 
                 # If it's a timeout error and we have retries left, try once more
-                if is_timeout_error and attempt < max_retries - 1:
+                if is_timeout_error and attempt < max_attempts - 1:
                     await logger.awarning(f"Tool '{tool_name}' timed out, retrying...")
                     # Don't clean up session for timeouts, might just be a slow response
                     await asyncio.sleep(1.0)
@@ -1504,6 +1638,8 @@ class MCPStreamableHttpClient:
                 raise
             else:
                 await logger.adebug(f"Tool '{tool_name}' completed successfully")
+                if self.disable_session_cache:
+                    await self.disconnect()
                 return result
 
         # This should never be reached due to the exception handling above
@@ -1516,8 +1652,19 @@ class MCPStreamableHttpClient:
         # Attempt best-effort remote session termination first
         await self._terminate_remote_session()
 
+        if self.disable_session_cache and self._oneoff_task is not None:
+            self._oneoff_task.cancel()
+            import contextlib
+
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._oneoff_task
+            if self._oneoff_session_manager and self._oneoff_session_manager._cleanup_task:
+                self._oneoff_session_manager._cleanup_task.cancel()
+            self._oneoff_task = None
+            self._oneoff_session_manager = None
+
         # Clean up local session using the session manager
-        if self._session_context:
+        elif self._session_context:
             session_manager = self._get_session_manager()
             await session_manager._cleanup_session(self._session_context)
 
@@ -1546,6 +1693,10 @@ async def update_tools(
     mcp_streamable_http_client: MCPStreamableHttpClient | None = None,
     mcp_sse_client: MCPStreamableHttpClient | None = None,  # Backward compatibility
     request_variables: dict[str, str] | None = None,
+    *,
+    disable_session_cache: bool = False,
+    tool_call_timeout_seconds: float | None = None,
+    tool_call_max_retries: int | None = None,
 ) -> tuple[str, list[StructuredTool], dict[str, StructuredTool]]:
     """Fetch server config and update available tools.
 
@@ -1556,17 +1707,27 @@ async def update_tools(
         mcp_streamable_http_client: Optional streamable HTTP client instance
         mcp_sse_client: Optional SSE client instance (backward compatibility)
         request_variables: Optional dict of global variables to resolve in headers
+        disable_session_cache: If true, bypass MCPSessionManager persistent session reuse
+        tool_call_timeout_seconds: Per-tool execution timeout in seconds
+        tool_call_max_retries: Number of retries after the first tool call attempt
     """
     if server_config is None:
         server_config = {}
     if not server_name:
         return "", [], {}
-    if mcp_stdio_client is None:
+    if disable_session_cache:
+        mcp_stdio_client = MCPStdioClient()
+        mcp_streamable_http_client = MCPStreamableHttpClient()
+        mcp_stdio_client.disable_session_cache = True
+        mcp_streamable_http_client.disable_session_cache = True
+    elif mcp_stdio_client is None:
         mcp_stdio_client = MCPStdioClient()
 
     # Backward compatibility: accept mcp_sse_client parameter
     if mcp_streamable_http_client is None:
         mcp_streamable_http_client = mcp_sse_client if mcp_sse_client is not None else MCPStreamableHttpClient()
+    mcp_stdio_client.disable_session_cache = disable_session_cache
+    mcp_streamable_http_client.disable_session_cache = disable_session_cache
 
     # Fetch server config from backend
     # Determine mode from config, defaulting to Streamable_HTTP if URL present
@@ -1722,8 +1883,20 @@ async def update_tools(
                 name=tool.name,
                 description=tool.description or "",
                 args_schema=args_schema,
-                func=create_tool_func(tool.name, args_schema, client),
-                coroutine=create_tool_coroutine(tool.name, args_schema, client),
+                func=create_tool_func(
+                    tool.name,
+                    args_schema,
+                    client,
+                    tool_call_timeout_seconds=tool_call_timeout_seconds,
+                    tool_call_max_retries=tool_call_max_retries,
+                ),
+                coroutine=create_tool_coroutine(
+                    tool.name,
+                    args_schema,
+                    client,
+                    tool_call_timeout_seconds=tool_call_timeout_seconds,
+                    tool_call_max_retries=tool_call_max_retries,
+                ),
                 tags=[tool.name],
                 metadata={"server_name": server_name},
             )

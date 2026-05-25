@@ -5,6 +5,7 @@ This module serves as the single source of truth for MCP functionality.
 
 import asyncio
 import base64
+import json
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from functools import wraps
@@ -22,8 +23,10 @@ from sqlmodel import select
 
 from langflow.api.v1.endpoints import simple_run_flow
 from langflow.api.v1.schemas import SimplifiedAPIRequest
-from langflow.helpers.flow import json_schema_from_flow
+from langflow.helpers.flow import get_mcp_input_parameters, json_schema_from_flow
+from langflow.schema.data import Data
 from langflow.schema.message import Message
+from langflow.serialization.serialization import serialize
 from langflow.services.database.models import Flow
 from langflow.services.database.models.file.model import File as UserFile
 from langflow.services.database.models.user.model import User
@@ -40,6 +43,184 @@ current_user_ctx: ContextVar[User] = ContextVar("current_user_ctx")
 current_request_variables_ctx: ContextVar[dict[str, str] | None] = ContextVar(
     "current_request_variables_ctx", default=None
 )
+
+
+class MCPToolInputError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def build_tweaks_from_mcp_arguments(flow: Flow, arguments: dict[str, Any] | None) -> dict[str, dict[str, str]]:
+    parameters = get_mcp_input_parameters(flow)
+    arguments = arguments or {}
+    allowed_names = {
+        parameter.get("parameter_name")
+        for parameter in parameters
+        if isinstance(parameter, dict) and parameter.get("parameter_name")
+    }
+
+    for parameter in parameters:
+        if not isinstance(parameter, dict) or not parameter.get("parameter_name"):
+            continue
+        name = parameter["parameter_name"]
+        if parameter.get("required", False) and (name not in arguments or arguments[name] is None):
+            code = "missing_required_parameter"
+            raise MCPToolInputError(
+                code,
+                f"Missing required parameter: {name}",
+            )
+        if parameter.get("required", False) and isinstance(arguments.get(name), str) and not arguments[name].strip():
+            code = "empty_required_parameter"
+            raise MCPToolInputError(
+                code,
+                f"Required parameter cannot be empty: {name}",
+            )
+
+    for name in arguments:
+        if name not in allowed_names:
+            code = "unknown_parameter"
+            raise MCPToolInputError(
+                code,
+                f"Unknown parameter: {name}",
+            )
+
+    tweaks: dict[str, dict[str, str]] = {}
+    for parameter in parameters:
+        if not isinstance(parameter, dict):
+            continue
+        name = parameter.get("parameter_name")
+        component_id = parameter.get("component_id")
+        if not name or not component_id or name not in arguments:
+            continue
+        value = arguments[name]
+        if not isinstance(value, str):
+            code = "invalid_parameter_type"
+            raise MCPToolInputError(
+                code,
+                f"Parameter {name} must be a string. Serialize complex values to JSON strings before calling the tool.",
+            )
+        field = parameter.get("field") or "input_value"
+        tweaks.setdefault(component_id, {})[field] = value
+    return tweaks
+
+
+def build_mcp_error_content(
+    *,
+    flow: Flow | None,
+    tool_name: str,
+    code: str,
+    message: str,
+) -> types.TextContent:
+    envelope = {
+        "flow_id": str(flow.id) if flow else None,
+        "flow_name": flow.name if flow else None,
+        "tool_name": tool_name,
+        "success": False,
+        "outputs": {},
+        "error": {
+            "code": code,
+            "message": message,
+        },
+    }
+    return types.TextContent(type="text", text=json.dumps(envelope, ensure_ascii=False))
+
+
+def _json_content(value: Any) -> Any:
+    if isinstance(value, Message):
+        return value.get_text()
+    if isinstance(value, Data):
+        return serialize(value.data)
+    if isinstance(value, dict):
+        return {key: _json_content(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_content(item) for item in value]
+    return serialize(value)
+
+
+def _result_data_content(result_data: Any) -> Any:
+    results = getattr(result_data, "results", None)
+    if results:
+        if isinstance(results, dict):
+            if len(results) == 1:
+                return _json_content(next(iter(results.values())))
+            return {key: _json_content(value) for key, value in results.items()}
+        return _json_content(results)
+
+    messages = getattr(result_data, "messages", None) or []
+    message_texts = [message.message for message in messages if getattr(message, "message", None)]
+    if len(message_texts) == 1:
+        return message_texts[0]
+    if message_texts:
+        return message_texts
+
+    outputs = getattr(result_data, "outputs", None)
+    if outputs:
+        return _json_content(outputs)
+    return None
+
+
+def _mcp_output_type(component_id: str, result_data: Any, output_vertices: dict[str, Any]) -> str:
+    vertex = output_vertices.get(component_id)
+    vertex_type = getattr(vertex, "vertex_type", None)
+    if vertex_type == "DataOutput":
+        return "data"
+    if vertex_type == "ChatOutput":
+        return "message"
+    if vertex_type == "TextOutput":
+        return "text"
+
+    results = getattr(result_data, "results", None)
+    if isinstance(results, dict):
+        if any(isinstance(value, Data) for value in results.values()):
+            return "data"
+        if any(isinstance(value, Message) for value in results.values()):
+            return "message"
+    return str(vertex_type or "unknown").lower()
+
+
+def build_mcp_tool_output_envelope(flow: Flow, run_response: Any, tool_name: str | None = None) -> dict[str, Any]:
+    from lfx.graph.graph.base import Graph
+
+    graph = Graph.from_payload(flow.data or {})
+    output_vertices = {vertex.id: vertex for vertex in graph.vertices if vertex.is_output}
+    result_data_by_component_id: dict[str, Any] = {}
+
+    if run_response.outputs:
+        for run_output in run_response.outputs:
+            for result_data in getattr(run_output, "outputs", []) or []:
+                component_id = getattr(result_data, "component_id", None)
+                if component_id:
+                    result_data_by_component_id[component_id] = result_data
+
+    outputs: dict[str, dict[str, Any]] = {}
+    component_ids = list(output_vertices) or list(result_data_by_component_id)
+    for component_id in component_ids:
+        result_data = result_data_by_component_id.get(component_id)
+        vertex = output_vertices.get(component_id)
+        display_name = (
+            getattr(result_data, "component_display_name", None)
+            or getattr(vertex, "display_name", None)
+            or component_id
+        )
+        outputs[component_id] = {
+            "display_name": display_name,
+            "type": _mcp_output_type(component_id, result_data, output_vertices) if result_data else "unknown",
+            "content": _result_data_content(result_data) if result_data else None,
+        }
+
+    resolved_tool_name = tool_name or (
+        sanitize_mcp_name(flow.action_name) if flow.action_name else sanitize_mcp_name(flow.name)
+    )
+    return {
+        "flow_id": str(flow.id),
+        "flow_name": flow.name,
+        "tool_name": resolved_tool_name,
+        "success": True,
+        "outputs": outputs,
+        "error": None,
+    }
 
 
 def handle_mcp_errors(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
@@ -228,8 +409,10 @@ async def handle_call_tool(
             msg = f"Flow '{name}' not found in project {project_id}"
             raise ValueError(msg)
 
-        # Process inputs
-        processed_inputs = dict(arguments)
+        try:
+            tweaks = build_tweaks_from_mcp_arguments(flow, arguments)
+        except MCPToolInputError as e:
+            return [build_mcp_error_content(flow=flow, tool_name=name, code=e.code, message=e.message)]
 
         # Initial progress notification
         if mcp_config.enable_progress_notifications and (progress_token := server.request_context.meta.progressToken):
@@ -239,7 +422,10 @@ async def handle_call_tool(
 
         conversation_id = str(uuid4())
         input_request = SimplifiedAPIRequest(
-            input_value=processed_inputs.get("input_value", ""), session_id=conversation_id
+            input_value=None,
+            tweaks=tweaks,
+            output_type="any",
+            session_id=conversation_id,
         )
 
         async def send_progress_updates(progress_token):
@@ -258,7 +444,6 @@ async def handle_call_tool(
                     )
                 raise
 
-        collected_results = []
         try:
             progress_task = None
             if mcp_config.enable_progress_notifications and server.request_context.meta.progressToken:
@@ -273,30 +458,18 @@ async def handle_call_tool(
                         api_key_user=current_user,
                         context=exec_context,
                     )
-                    # Process all outputs and messages, ensuring no duplicates
-                    processed_texts = set()
-
-                    def add_result(text: str):
-                        if text not in processed_texts:
-                            processed_texts.add(text)
-                            collected_results.append(types.TextContent(type="text", text=text))
-
-                    for run_output in result.outputs:
-                        for component_output in run_output.outputs:
-                            # Handle messages
-                            for msg in component_output.messages or []:
-                                add_result(msg.message)
-                            # Handle results
-                            for value in (component_output.results or {}).values():
-                                if isinstance(value, Message):
-                                    add_result(value.get_text())
-                                else:
-                                    add_result(str(value))
+                    envelope = build_mcp_tool_output_envelope(flow, result, tool_name=name)
+                    return [types.TextContent(type="text", text=json.dumps(envelope, ensure_ascii=False))]
                 except Exception as e:  # noqa: BLE001
                     error_msg = f"Error Executing the {flow.name} tool. Error: {e!s}"
-                    collected_results.append(types.TextContent(type="text", text=error_msg))
-
-                return collected_results
+                    return [
+                        build_mcp_error_content(
+                            flow=flow,
+                            tool_name=name,
+                            code="tool_execution_failed",
+                            message=error_msg,
+                        )
+                    ]
             finally:
                 if progress_task:
                     progress_task.cancel()

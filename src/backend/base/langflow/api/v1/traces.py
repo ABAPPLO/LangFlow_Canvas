@@ -47,6 +47,7 @@ async def get_traces(
     current_user: Annotated[User, Depends(get_current_active_user)],
     flow_id: Annotated[UUID | None, Query()] = None,
     session_id: Annotated[str | None, Query()] = None,
+    task_id: Annotated[str | None, Query()] = None,
     status: Annotated[SpanStatus | None, Query()] = None,
     query: Annotated[str | None, Query()] = None,
     start_time: Annotated[datetime | None, Query()] = None,
@@ -60,6 +61,7 @@ async def get_traces(
         current_user: Authenticated user (required for authorization)
         flow_id: Filter by flow ID
         session_id: Filter by session ID
+        task_id: Filter by request task ID
         status: Filter by trace status
         query: Search query for trace name/id/session id
         start_time: Filter traces starting on/after this time (ISO)
@@ -79,6 +81,7 @@ async def get_traces(
                 current_user.id,
                 flow_id,
                 session_id,
+                task_id,
                 status,
                 sanitized_query,
                 start_time,

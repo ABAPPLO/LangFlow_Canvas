@@ -48,6 +48,7 @@ export interface Trace {
   totalCost: number;
   flowId: string;
   sessionId: string;
+  taskId?: string | null;
   input: Record<string, unknown> | null;
   output: Record<string, unknown> | null;
   spans: Span[];

@@ -16,7 +16,7 @@ export const McpFlowsSection = ({
   <div className="w-full xl:w-2/5">
     <div className="flex flex-row justify-between pt-1">
       <ShadTooltip
-        content="Flows in this project can be exposed as callable MCP tools."
+        content="Flows in this project can be exposed as callable MCP tools with configured inputs."
         side="right"
       >
         <div className="flex items-center text-sm font-medium hover:cursor-help">

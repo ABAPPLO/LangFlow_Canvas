@@ -581,6 +581,18 @@ def setup_static_files(app: FastAPI, static_files_dir: Path) -> None:
         app (FastAPI): FastAPI app.
         static_files_dir (str): Path to the static files directory.
     """
+
+    @app.middleware("http")
+    async def no_cache_frontend_html(request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/api"):
+            content_type = response.headers.get("content-type", "")
+            if "text/html" in content_type:
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+        return response
+
     app.mount(
         "/",
         StaticFiles(directory=static_files_dir, html=True),
@@ -603,7 +615,14 @@ def setup_static_files(app: FastAPI, static_files_dir: Path) -> None:
         if not await path.exists():
             msg = f"File at path {path} does not exist."
             raise RuntimeError(msg)
-        return FileResponse(path)
+        return FileResponse(
+            path,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
 
 def get_static_files_dir():

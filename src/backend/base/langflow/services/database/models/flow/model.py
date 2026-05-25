@@ -3,7 +3,7 @@
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID, uuid4
 
 import emoji
@@ -53,6 +53,11 @@ class FlowBase(SQLModel):
         default=None,
         sa_column=Column(Text, nullable=True),
         description="The description of the action associated with the flow",
+    )
+    mcp_input_parameters: list[dict[str, Any]] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="Input parameter mappings used when the flow is exposed as an MCP tool",
     )
     access_type: AccessTypeEnum = Field(
         default=AccessTypeEnum.PRIVATE,
@@ -244,6 +249,10 @@ class FlowHeader(BaseModel):
     mcp_enabled: bool | None = Field(None, description="Flag indicating whether the flow is exposed in the MCP server")
     action_name: str | None = Field(None, description="The name of the action associated with the flow")
     action_description: str | None = Field(None, description="The description of the action associated with the flow")
+    mcp_input_parameters: list[dict[str, Any]] | None = Field(
+        None,
+        description="Input parameter mappings used when the flow is exposed as an MCP tool",
+    )
 
     @field_validator("data", mode="before")
     @classmethod
@@ -263,6 +272,7 @@ class FlowUpdate(SQLModel):
     locked: bool | None = None
     action_name: str | None = None
     action_description: str | None = None
+    mcp_input_parameters: list[dict[str, Any]] | None = None
     access_type: AccessTypeEnum | None = None
     fs_path: str | None = None
 

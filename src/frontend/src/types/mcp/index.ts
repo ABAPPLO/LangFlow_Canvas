@@ -13,6 +13,16 @@ export type AuthSettingsType = {
   oauth_provider_scope?: string;
 };
 
+export type MCPInputParameterType = {
+  parameter_name: string;
+  parameter_description?: string;
+  parameter_type?: "string";
+  required?: boolean;
+  component_id: string;
+  component_display_name?: string;
+  field?: "input_value";
+};
+
 export type MCPSettingsType = {
   id: string;
   mcp_enabled: boolean;
@@ -20,7 +30,8 @@ export type MCPSettingsType = {
   action_description?: string;
   name?: string;
   description?: string;
-  input_schema?: Record<string, any>;
+  input_schema?: Record<string, unknown>;
+  mcp_input_parameters?: MCPInputParameterType[];
 };
 
 export type MCPProjectResponseType = {

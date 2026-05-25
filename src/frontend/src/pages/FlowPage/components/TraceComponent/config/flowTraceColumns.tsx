@@ -35,6 +35,17 @@ export function createFlowTracesColumns({
       sortable: false,
       editable: false,
     },
+    {
+      headerName: "Task ID",
+      field: "taskId",
+      flex: 0.3,
+      minWidth: 200,
+      filter: false,
+      sortable: false,
+      editable: false,
+      valueGetter: (params) =>
+        params.data?.taskId ?? params.data?.task_id ?? "",
+    },
 
     {
       headerName: "Timestamp (UTC)",

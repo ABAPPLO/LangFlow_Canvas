@@ -71,6 +71,7 @@ def _trace_to_base_fields(
         "total_tokens": total_tokens,
         "flow_id": trace.flow_id,
         "session_id": trace.session_id or str(trace.id),
+        "task_id": trace.task_id,
         "input": summary.input if summary else None,
         "output": summary.output if summary else None,
     }
@@ -135,6 +136,7 @@ async def fetch_traces(
     user_id: UUID,
     flow_id: UUID | None,
     session_id: str | None,
+    task_id: str | None,
     status: SpanStatus | None,
     query: str | None,
     start_time: datetime | None,
@@ -164,6 +166,8 @@ async def fetch_traces(
                 filters.append(TraceTable.flow_id == flow_id)
             if session_id:
                 filters.append(TraceTable.session_id == session_id)
+            if task_id:
+                filters.append(TraceTable.task_id == task_id)
             if status:
                 filters.append(TraceTable.status == status)
             if query:
@@ -173,6 +177,7 @@ async def fetch_traces(
                         sa.cast(TraceTable.name, sa.String).ilike(search_value),
                         sa.cast(TraceTable.id, sa.String).ilike(search_value),
                         sa.cast(TraceTable.session_id, sa.String).ilike(search_value),
+                        sa.cast(TraceTable.task_id, sa.String).ilike(search_value),
                     )
                 )
             if start_time:
