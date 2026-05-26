@@ -507,12 +507,48 @@ http://localhost:7850
 5. MCP Tools 的 tool_call_timeout_minutes 足够覆盖目标业务工作流耗时。
 ```
 
+启动耗时说明：
+
+```text
+1. `LFX_DEV=1` 会动态扫描和加载全部组件；当前项目约加载 379 个组件，`Types cached` 可能超过 70 秒。
+2. 组件代码 hash 变化后，会触发 32 个 starter projects 的组件元数据更新。
+3. 数据库初始化、Alembic 检查、默认用户、MCP Composer、Job Queue 等服务也会消耗少量时间。
+4. `Open Langflow -> http://localhost:7850` 只代表 CLI banner 已打印，不代表服务已经可用。
+5. 最终可用性必须以 `/health_check` 返回 200 为准。
+```
+
 重启时必须完整重启 Langflow 进程，不能只依赖组件热更新：
 
 ```text
-1. 检查 7850 端口占用。
-2. 停止旧 Langflow 进程。
-3. 使用上面的启动命令重新启动，并等待 `/health_check` 正常。
+1. 用 `netstat -ano | Select-String ':7850'` 检查 7850 端口。
+2. 只停止 `LISTENING` 行对应的旧 Langflow PID；`TIME_WAIT` / PID=0 不需要杀。
+3. 如果改过 `src/frontend/src`，先执行 `Push-Location src/frontend; npm.cmd run build; Pop-Location`，并在构建成功后再停旧服务。
+4. 使用脚本方式后台启动，日志写入 `logs/langflow-7850-restart.log`。
+5. 在 Codex 工具中启动时需要 `require_escalated`，否则可能无法访问用户目录下的 uv cache 或 Langflow secret_key。
+6. 等待 `http://localhost:7850/health_check` 返回 200；如果未返回，查看 `logs/langflow-7850-restart.log` 末尾错误。
+```
+
+Windows/Codex 后台启动建议使用脚本方式，避免 `Start-Process -FilePath "uv"` 在当前环境中被 `Path` / `PATH` 重复键问题拦住：
+
+```powershell
+$workspace = "D:\PycharmCodeSpace\langflow-canvas"
+$logDir = Join-Path $workspace "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$scriptPath = Join-Path $logDir "start-langflow-7850.ps1"
+$logPath = Join-Path $logDir "langflow-7850-restart.log"
+
+@"
+Set-Location -LiteralPath '$workspace'
+`$env:ALL_PROXY = ''
+`$env:all_proxy = ''
+`$env:LANGFLOW_DEVELOPER_API_ENABLED = 'true'
+`$env:LFX_DEV = '1'
+`$env:PYTHONIOENCODING = 'utf-8'
+`$env:UV_LINK_MODE = 'copy'
+uv run langflow run --frontend-path src/frontend/build --log-level debug --host 0.0.0.0 --port 7850 --env-file .env --no-open-browser *>&1 | Tee-Object -FilePath '$logPath'
+"@ | Set-Content -LiteralPath $scriptPath -Encoding UTF8
+
+cmd.exe /c start "" /B powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$scriptPath"
 ```
 
 ### 前端 HTML 缓存控制
