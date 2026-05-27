@@ -66,7 +66,7 @@ class TencentMPSURLMergerWatermarkComponent(Component):
             name="output_dir",
             display_name="输出目录",
             info="输出文件目录，如 langflow/videos。组件会自动处理前后斜杠。",
-            value="langflow/videos",
+            value="videos/",
             required=True,
             advanced=True,
         ),
@@ -260,8 +260,8 @@ class TencentMPSURLMergerWatermarkComponent(Component):
 
             output_dir = self._output_dir()
             file_id = uuid4().hex
-            merged_path = f"{output_dir}merged_{file_id}.mp4"
-            final_path = f"{output_dir}watermarked_{file_id}.mp4"
+            merged_path = f"{output_dir}merged_{file_id}"
+            final_path = f"{output_dir}watermarked_{file_id}"
 
             client = self._mps_client()
             output_storage = self._output_storage()
