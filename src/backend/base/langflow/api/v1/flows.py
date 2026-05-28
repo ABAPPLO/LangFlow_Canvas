@@ -480,15 +480,6 @@ async def update_flow(
 
         update_data = flow.model_dump(exclude_unset=True, exclude_none=True)
 
-        if db_flow.locked:
-            update_keys = set(update_data)
-            is_unlock_only = update_keys == {"locked"} and update_data.get("locked") is False
-            if not is_unlock_only:
-                raise HTTPException(
-                    status_code=423,
-                    detail="当前工作流已锁定，请先解锁后再编辑。",  # noqa: RUF001
-                )
-
         # Specifically handle endpoint_name when it's explicitly set to null or empty string
         if flow.endpoint_name is None or flow.endpoint_name == "":
             update_data["endpoint_name"] = None
@@ -530,8 +521,6 @@ async def update_flow(
         # Convert to FlowRead while session is still active to avoid detached instance errors
         flow_read = FlowRead.model_validate(db_flow, from_attributes=True)
 
-    except HTTPException:
-        raise
     except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             # Get the name of the column that failed
