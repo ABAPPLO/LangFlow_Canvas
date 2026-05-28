@@ -16,35 +16,68 @@ interface IPatchUpdateFlow {
   access_type?: "PUBLIC" | "PRIVATE" | "PROTECTED";
 }
 
+type FlowPatchError = Error & {
+  response?: {
+    status?: number;
+    data?: {
+      detail?: unknown;
+    };
+  };
+};
+
 export const usePatchUpdateFlow: useMutationFunctionType<
   undefined,
-  IPatchUpdateFlow
+  IPatchUpdateFlow,
+  IPatchUpdateFlow,
+  FlowPatchError
 > = (options?) => {
   const { mutate, queryClient } = UseRequestProcessor();
 
   const PatchUpdateFlowFn = async ({
     id,
     ...payload
-  }: IPatchUpdateFlow): Promise<any> => {
+  }: IPatchUpdateFlow): Promise<IPatchUpdateFlow> => {
     const response = await api.patch(`${getURL("FLOWS")}/${id}`, payload);
 
     return response.data;
   };
 
-  const mutation: UseMutationResult<IPatchUpdateFlow, any, IPatchUpdateFlow> =
-    mutate(["usePatchUpdateFlow"], PatchUpdateFlowFn, {
-      onSettled: (res) => {
-        if (res) {
-          queryClient.refetchQueries({
-            queryKey: ["useGetFolders", res.folder_id],
-          });
-        }
+  const shouldRetry = (failureCount: number, error: FlowPatchError) => {
+    if (error?.response?.status === 423) {
+      return false;
+    }
+
+    const optionRetry = options?.retry;
+    if (typeof optionRetry === "function") {
+      return optionRetry(failureCount, error);
+    }
+    if (typeof optionRetry === "number") {
+      return failureCount < optionRetry;
+    }
+    if (typeof optionRetry === "boolean") {
+      return optionRetry;
+    }
+    return failureCount < 3;
+  };
+
+  const mutation: UseMutationResult<
+    IPatchUpdateFlow,
+    FlowPatchError,
+    IPatchUpdateFlow
+  > = mutate(["usePatchUpdateFlow"], PatchUpdateFlowFn, {
+    onSettled: (res) => {
+      if (res) {
         queryClient.refetchQueries({
-          queryKey: ["useGetFolder"],
+          queryKey: ["useGetFolders", res.folder_id],
         });
-      },
-      ...options,
-    });
+      }
+      queryClient.refetchQueries({
+        queryKey: ["useGetFolder"],
+      });
+    },
+    ...options,
+    retry: shouldRetry,
+  });
 
   return mutation;
 };
