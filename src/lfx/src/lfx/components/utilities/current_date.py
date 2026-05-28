@@ -44,7 +44,5 @@ class CurrentDateComponent(Component):
             self.status = result
             return Message(text=result)
         except Exception as e:  # noqa: BLE001
-            logger.debug("Error getting current date", exc_info=True)
-            error_message = f"Error: {e}"
-            self.status = error_message
-            return Message(text=error_message)
+            msg = f"Error getting current date for timezone '{self.timezone}': {e}"
+            raise ValueError(msg) from e

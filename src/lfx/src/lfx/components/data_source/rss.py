@@ -52,8 +52,7 @@ class RSSReaderComponent(Component):
             soup = BeautifulSoup(response.content, "xml")
             items = soup.find_all("item")
         except (requests.RequestException, ValueError) as e:
-            self.status = f"Failed to fetch RSS: {e}"
-            return DataFrame(pd.DataFrame([{"title": "Error", "link": "", "published": "", "summary": str(e)}]))
+            raise ConnectionError(f"Failed to fetch RSS feed from '{self.rss_url}': {e}") from e
 
         articles = [
             {

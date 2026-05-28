@@ -10,7 +10,6 @@ from pydantic.v1 import Field, create_model
 from lfx.base.langchain_utilities.model import LCToolComponent
 from lfx.inputs.inputs import DropdownInput, IntInput, MessageTextInput, MultiselectInput
 from lfx.io import Output
-from lfx.log.logger import logger
 from lfx.schema.dotdict import dotdict
 
 
@@ -59,25 +58,32 @@ class SearXNGToolComponent(LCToolComponent):
         if field_name != "url":
             return build_config
 
-        try:
-            url = f"{field_value}/config"
+        url = f"{field_value}/config"
 
+        try:
             response = requests.get(url=url, headers=self.search_headers.copy(), timeout=10)
-            data = None
+        except requests.ConnectionError as e:
+            msg = f"Could not connect to SearXNG instance at '{field_value}': {e}"
+            raise ConnectionError(msg) from e
+        except requests.Timeout as e:
+            msg = f"Timeout connecting to SearXNG instance at '{field_value}': {e}"
+            raise ConnectionError(msg) from e
+
+        try:
             if response.headers.get("Content-Encoding") == "zstd":
                 data = json.loads(response.content)
             else:
                 data = response.json()
-            build_config["categories"]["options"] = data["categories"].copy()
-            for selected_category in build_config["categories"]["value"]:
-                if selected_category not in build_config["categories"]["options"]:
-                    build_config["categories"]["value"].remove(selected_category)
-            languages = list(data["locales"])
-            build_config["language"]["options"] = languages.copy()
-        except Exception as e:  # noqa: BLE001
-            self.status = f"Failed to extract names: {e}"
-            logger.debug(self.status, exc_info=True)
-            build_config["categories"]["options"] = ["Failed to parse", str(e)]
+        except (json.JSONDecodeError, ValueError) as e:
+            msg = f"Failed to parse response from SearXNG instance at '{field_value}': {e}"
+            raise RuntimeError(msg) from e
+
+        build_config["categories"]["options"] = data["categories"].copy()
+        for selected_category in build_config["categories"]["value"]:
+            if selected_category not in build_config["categories"]["options"]:
+                build_config["categories"]["value"].remove(selected_category)
+        languages = list(data["locales"])
+        build_config["language"]["options"] = languages.copy()
         return build_config
 
     def build_tool(self) -> Tool:
@@ -94,10 +100,10 @@ class SearXNGToolComponent(LCToolComponent):
                     msg = "No categories provided."
                     raise ValueError(msg)
                 all_categories = SearxSearch._categories + list(set(categories) - set(SearxSearch._categories))
+                url = f"{SearxSearch._url}/"
+                headers = SearxSearch._headers.copy()
                 try:
-                    url = f"{SearxSearch._url}/"
-                    headers = SearxSearch._headers.copy()
-                    response = requests.get(
+                    http_response = requests.get(
                         url=url,
                         headers=headers,
                         params={
@@ -107,13 +113,24 @@ class SearXNGToolComponent(LCToolComponent):
                             "format": "json",
                         },
                         timeout=10,
-                    ).json()
+                    )
+                    http_response.raise_for_status()
+                    response = http_response.json()
+                except requests.ConnectionError as e:
+                    msg = f"Could not connect to SearXNG instance at '{SearxSearch._url}': {e}"
+                    raise ConnectionError(msg) from e
+                except requests.Timeout as e:
+                    msg = f"Timeout searching SearXNG instance at '{SearxSearch._url}': {e}"
+                    raise ConnectionError(msg) from e
+                except requests.HTTPError as e:
+                    msg = f"HTTP error from SearXNG instance at '{SearxSearch._url}': {e}"
+                    raise ConnectionError(msg) from e
+                except (json.JSONDecodeError, ValueError) as e:
+                    msg = f"Failed to parse SearXNG response from '{SearxSearch._url}': {e}"
+                    raise RuntimeError(msg) from e
 
-                    num_results = min(SearxSearch._max_results, len(response["results"]))
-                    return [response["results"][i] for i in range(num_results)]
-                except Exception as e:  # noqa: BLE001
-                    logger.debug("Error running SearXNG Search", exc_info=True)
-                    return [f"Failed to search: {e}"]
+                num_results = min(SearxSearch._max_results, len(response["results"]))
+                return [response["results"][i] for i in range(num_results)]
 
         SearxSearch._url = self.url
         SearxSearch._categories = self.categories.copy()

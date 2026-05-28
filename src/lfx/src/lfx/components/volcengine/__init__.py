@@ -8,14 +8,21 @@ if TYPE_CHECKING:
     from .seedance import SeedanceVideoComponent
     from .seedance_chain_video import SeedanceChainVideoComponent
     from .seedream import SeedreamImageComponent
+    from .web_search import VolcengineWebSearchComponent
 
 _dynamic_imports = {
     "SeedanceVideoComponent": "seedance",
     "SeedanceChainVideoComponent": "seedance_chain_video",
     "SeedreamImageComponent": "seedream",
+    "VolcengineWebSearchComponent": "web_search",
 }
 
-__all__ = ["SeedanceChainVideoComponent", "SeedanceVideoComponent", "SeedreamImageComponent"]
+__all__ = [
+    "SeedanceChainVideoComponent",
+    "SeedanceVideoComponent",
+    "SeedreamImageComponent",
+    "VolcengineWebSearchComponent",
+]
 
 
 def __getattr__(attr_name: str) -> Any:
@@ -34,4 +41,3 @@ def __getattr__(attr_name: str) -> Any:
 
 def __dir__() -> list[str]:
     return list(__all__)
-

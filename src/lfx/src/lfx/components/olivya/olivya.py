@@ -98,19 +98,17 @@ class OlivyaComponent(Component):
                 # Parse and return the successful response
                 response_data = response.json()
                 await logger.ainfo("Request successful: %s", response_data)
+                return Data(value=response_data)
 
         except httpx.HTTPStatusError as http_err:
-            await logger.aexception("HTTP error occurred")
-            response_data = {"error": f"HTTP error occurred: {http_err}", "response_text": response.text}
+            msg = f"Olivya API HTTP error: {http_err}"
+            raise ConnectionError(msg) from http_err
         except httpx.RequestError as req_err:
-            await logger.aexception("Request failed")
-            response_data = {"error": f"Request failed: {req_err}"}
+            msg = f"Olivya API request failed: {req_err}"
+            raise ConnectionError(msg) from req_err
         except json.JSONDecodeError as json_err:
-            await logger.aexception("Response parsing failed")
-            response_data = {"error": f"Response parsing failed: {json_err}", "raw_response": response.text}
+            msg = f"Olivya API response parsing failed: {json_err}"
+            raise ValueError(msg) from json_err
         except Exception as e:  # noqa: BLE001
-            await logger.aexception("An unexpected error occurred")
-            response_data = {"error": f"An unexpected error occurred: {e!s}"}
-
-        # Return the response as part of the output
-        return Data(value=response_data)
+            msg = f"Olivya API unexpected error: {e}"
+            raise RuntimeError(msg) from e

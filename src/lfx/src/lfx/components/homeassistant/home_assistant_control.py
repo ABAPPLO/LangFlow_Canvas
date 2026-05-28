@@ -98,7 +98,7 @@ class HomeAssistantControl(LCToolComponent):
             args_schema=self.ToolSchema,
         )
 
-    def _control_device_for_tool(self, action: str, entity_id: str) -> dict[str, Any] | str:
+    def _control_device_for_tool(self, action: str, entity_id: str) -> dict[str, Any]:
         """Function called by the agent.
 
         -> Internally calls _control_device.
@@ -116,7 +116,7 @@ class HomeAssistantControl(LCToolComponent):
         base_url: str,
         action: str,
         entity_id: str,
-    ) -> dict[str, Any] | str:
+    ) -> dict[str, Any]:
         """Actual logic to call the Home Assistant service.
 
         The domain is extracted from the beginning of the entity_id.
@@ -137,16 +137,13 @@ class HomeAssistantControl(LCToolComponent):
 
             return response.json()  # HA response JSON on success
         except requests.exceptions.RequestException as e:
-            return f"Error: Failed to call service. {e}"
+            msg = f"Failed to call Home Assistant service '{action}' on '{entity_id}': {e}"
+            raise ConnectionError(msg) from e
         except Exception as e:  # noqa: BLE001
-            return f"An unexpected error occurred: {e}"
+            msg = f"Unexpected error controlling Home Assistant device '{entity_id}': {e}"
+            raise RuntimeError(msg) from e
 
-    def _make_data_response(self, result: dict[str, Any] | str) -> Data:
+    def _make_data_response(self, result: dict[str, Any]) -> Data:
         """Returns a response in the LangFlow Data format."""
-        if isinstance(result, str):
-            # Handle error messages
-            return Data(text=result)
-
-        # Convert dict to JSON string
         formatted_json = json.dumps(result, indent=2, ensure_ascii=False)
         return Data(data=result, text=formatted_json)

@@ -47,6 +47,8 @@ dependencies = [
     "setuptools>=80.0.0,<81.0.0",
     "wheel>=0.46.2,<1.0.0",
     "cos-python-sdk-v5>=1.9.30,<2.0.0",
+    "tencentcloud-sdk-python>=3.0.0,<4.0.0",
+    "tos>=2.9.0,<3.0.0",
 ]
 
 [project.scripts]

@@ -80,19 +80,16 @@ class PythonREPLComponent(Component):
             return Data(data={"result": result})
 
         except ImportError as e:
-            error_message = f"Import Error: {e!s}"
-            self.log(error_message)
-            return Data(data={"error": error_message})
+            msg = f"Import Error: {e}"
+            raise ImportError(msg) from e
 
         except SyntaxError as e:
-            error_message = f"Syntax Error: {e!s}"
-            self.log(error_message)
-            return Data(data={"error": error_message})
+            msg = f"Syntax Error: {e}"
+            raise SyntaxError(msg) from e
 
         except (NameError, TypeError, ValueError) as e:
-            error_message = f"Error during execution: {e!s}"
-            self.log(error_message)
-            return Data(data={"error": error_message})
+            msg = f"Error during execution: {e}"
+            raise RuntimeError(msg) from e
 
     def build(self):
         return self.run_python_repl

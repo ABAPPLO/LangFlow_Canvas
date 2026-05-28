@@ -3,6 +3,26 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
+pause_on_exit() {
+  local status=$?
+  trap - EXIT
+
+  if [[ "${CI:-}" == "true" || "${BUILD_PUSH_NO_PAUSE:-}" == "1" ]]; then
+    exit "$status"
+  fi
+
+  echo
+  if [[ "$status" -eq 0 ]]; then
+    echo "=== 脚本执行成功，按 Enter 关闭窗口 ==="
+  else
+    echo "=== 脚本执行失败，退出码: $status，按 Enter 关闭窗口 ==="
+  fi
+  read -r _ || true
+  exit "$status"
+}
+
+trap pause_on_exit EXIT
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing command: $1"

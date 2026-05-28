@@ -550,16 +550,17 @@ class SeedanceVideoComponent(Component):
                 error_detail = e.response.text
             except Exception:
                 pass
-            error_msg = f"HTTP {e.response.status_code}: {error_detail}"
+            error_msg = f"Volcengine Seedance API HTTP error {e.response.status_code} for model {self.model}: {error_detail}"
             self.log(error_msg, "ERROR")
             self._task_id = None
             self._task_info = None
-            return Message(text=f"Error: {error_msg}")
+            raise ConnectionError(error_msg) from e
         except (httpx.HTTPError, ValueError, KeyError) as e:
-            self.log(f"Error: {e}", "ERROR")
+            error_msg = f"Volcengine Seedance API error for model {self.model}, mode {self.mode}: {e}"
+            self.log(error_msg, "ERROR")
             self._task_id = None
             self._task_info = None
-            return Message(text=f"Error: {e}")
+            raise RuntimeError(error_msg) from e
 
     def get_task_info(self) -> Data:
         """Return task information as Data."""

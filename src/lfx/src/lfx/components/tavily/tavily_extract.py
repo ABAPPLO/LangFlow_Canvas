@@ -59,7 +59,7 @@ class TavilyExtractComponent(Component):
             if not urls:
                 error_message = "No valid URLs provided"
                 logger.error(error_message)
-                return [Data(text=error_message, data={"error": error_message})]
+                raise ValueError(error_message)
 
             url = "https://api.tavily.com/extract"
             headers = {
@@ -80,15 +80,15 @@ class TavilyExtractComponent(Component):
         except httpx.TimeoutException as exc:
             error_message = f"Request timed out (90s): {exc}"
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ConnectionError(error_message) from exc
         except httpx.HTTPStatusError as exc:
             error_message = f"HTTP error occurred: {exc.response.status_code} - {exc.response.text}"
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ConnectionError(error_message) from exc
         except (ValueError, KeyError, AttributeError, httpx.RequestError) as exc:
             error_message = f"Data processing error: {exc}"
             logger.error(error_message)
-            return [Data(text=error_message, data={"error": error_message})]
+            raise ValueError(error_message) from exc
         else:
             extract_results = response.json()
             data_results = []
@@ -109,7 +109,6 @@ class TavilyExtractComponent(Component):
                     )
                 )
 
-            self.status = data_results
             return data_results
 
     def fetch_content_dataframe(self) -> DataFrame:

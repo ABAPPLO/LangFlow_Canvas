@@ -235,7 +235,7 @@ lint: install_backend ## run linters
 
 run_clic: clean_frontend_build install_frontend install_backend build_frontend ## run the CLI with fresh frontend build
 	@echo 'Running the CLI with fresh frontend build'
-	@uv run langflow run \
+	@ALL_PROXY= all_proxy= uv run langflow run \
 		--frontend-path $(path) \
 		--log-level $(log_level) \
 		--host $(host) \
@@ -245,7 +245,7 @@ run_clic: clean_frontend_build install_frontend install_backend build_frontend #
 
 run_cli: install_frontend install_backend build_frontend ## run the CLI quickly (without cleaning build cache)
 	@echo 'Running the CLI quickly (reusing existing build cache if available)'
-	@uv run langflow run \
+	@ALL_PROXY= all_proxy= uv run langflow run \
 		--frontend-path $(path) \
 		--log-level $(log_level) \
 		--host $(host) \

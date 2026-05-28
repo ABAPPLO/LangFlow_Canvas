@@ -70,17 +70,7 @@ class SQLComponent(ComponentWithCache):
             result = self.db.run(self.query, include_columns=self.include_columns)
             self.status = result
         except SQLAlchemyError as e:
-            msg = f"An error occurred while running the SQL Query: {e}"
-            self.log(msg)
-            result = str(e)
-            self.status = result
-            error = repr(e)
-
-        if self.add_error and error is not None:
-            result = f"{result}\n\nError: {error}\n\nQuery: {self.query}"
-        elif error is not None:
-            # Then we won't add the error to the result
-            result = self.query
+            raise RuntimeError(f"SQL query execution failed: {e}") from e
 
         return Message(text=result)
 

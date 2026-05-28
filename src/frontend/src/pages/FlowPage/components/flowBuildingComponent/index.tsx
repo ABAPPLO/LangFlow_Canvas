@@ -27,6 +27,7 @@ export default function FlowBuildingComponent() {
   const setBuildInfo = useFlowStore((state) => state.setBuildInfo);
   const [duration, setDuration] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [errorExpanded, setErrorExpanded] = useState(false);
   const stopBuilding = useFlowStore((state) => state.stopBuilding);
   const prevIsBuilding = useRef(isBuilding);
   const startTimeRef = useRef<number | null>(null);
@@ -50,6 +51,7 @@ export default function FlowBuildingComponent() {
 
     if (isBuilding && !prevIsBuilding.current) {
       setDismissed(false);
+      setErrorExpanded(false);
       setDuration(0);
       startTimeRef.current = Date.now();
     }
@@ -251,31 +253,53 @@ export default function FlowBuildingComponent() {
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <Markdown
-                          remarkPlugins={[remarkGfm]}
-                          className="my-1.5 align-text-top truncate-doubleline"
-                          components={{
-                            a: ({ node, ...props }) => (
-                              <a
-                                {...props}
-                                target="_blank"
-                                className="underline"
-                                rel="noopener noreferrer"
-                              >
-                                {props.children}
-                              </a>
-                            ),
-                            p({ node, ...props }) {
-                              return (
-                                <span className="inline-block w-fit max-w-full align-text-top truncate-doubleline">
-                                  {props.children}
-                                </span>
-                              );
-                            },
-                          }}
+                        <div
+                          className={
+                            errorExpanded
+                              ? "my-1.5 max-h-60 overflow-y-auto"
+                              : "my-1.5"
+                          }
                         >
-                          {buildInfo?.error?.join("\n")}
-                        </Markdown>
+                          <Markdown
+                            remarkPlugins={[remarkGfm]}
+                            className={
+                              errorExpanded
+                                ? "align-text-top"
+                                : "align-text-top line-clamp-2"
+                            }
+                            components={{
+                              a: ({ node, ...props }) => (
+                                <a
+                                  {...props}
+                                  target="_blank"
+                                  className="underline"
+                                  rel="noopener noreferrer"
+                                >
+                                  {props.children}
+                                </a>
+                              ),
+                              p({ node, ...props }) {
+                                return (
+                                  <span className="inline-block w-fit max-w-full align-text-top">
+                                    {props.children}
+                                  </span>
+                                );
+                              },
+                            }}
+                          >
+                            {buildInfo?.error?.join("\n")}
+                          </Markdown>
+                          {buildInfo.error.length > 0 &&
+                            buildInfo.error.join("\n").length > 80 && (
+                              <button
+                                type="button"
+                                onClick={() => setErrorExpanded(!errorExpanded)}
+                                className="mt-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                {errorExpanded ? "Show less" : "Show more"}
+                              </button>
+                            )}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>

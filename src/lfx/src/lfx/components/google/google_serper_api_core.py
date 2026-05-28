@@ -43,24 +43,26 @@ class GoogleSerperAPICore(Component):
         try:
             wrapper = self._build_wrapper()
             results = wrapper.results(query=self.input_value)
-            list_results = results.get("organic", [])
+        except ConnectionError as e:
+            msg = f"Connection error during Google Serper search for query '{self.input_value}': {e}"
+            raise ConnectionError(msg) from e
+        except (ValueError, KeyError) as e:
+            msg = f"Invalid response from Google Serper search for query '{self.input_value}': {e}"
+            raise RuntimeError(msg) from e
 
-            # Convert results to DataFrame using list comprehension
-            df_data = [
-                {
-                    "title": result.get("title", ""),
-                    "link": result.get("link", ""),
-                    "snippet": result.get("snippet", ""),
-                }
-                for result in list_results
-            ]
+        list_results = results.get("organic", [])
 
-            return DataFrame(df_data)
-        except (ValueError, KeyError, ConnectionError) as e:
-            error_message = f"Error occurred while searching: {e!s}"
-            self.status = error_message
-            # Return DataFrame with error as a list of dictionaries
-            return DataFrame([{"error": error_message}])
+        # Convert results to DataFrame using list comprehension
+        df_data = [
+            {
+                "title": result.get("title", ""),
+                "link": result.get("link", ""),
+                "snippet": result.get("snippet", ""),
+            }
+            for result in list_results
+        ]
+
+        return DataFrame(df_data)
 
     def text_search_serper(self) -> Message:
         search_results = self.search_serper()

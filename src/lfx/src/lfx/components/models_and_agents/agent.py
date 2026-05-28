@@ -422,9 +422,8 @@ class AgentComponent(ToolCallingAgentComponent):
             AttributeError,
         ) as e:
             await logger.aerror(f"Error with structured chat agent: {e}")
-            # Fallback to regular agent
-            content_str = "No content returned from agent"
-            return Data(data={"content": content_str, "error": str(e)})
+            msg = f"Error with structured chat agent: {e}"
+            raise RuntimeError(msg) from e
 
         # Process with structured output validation
         try:
@@ -441,7 +440,8 @@ class AgentComponent(ToolCallingAgentComponent):
 
         except (ValueError, TypeError) as e:
             await logger.aerror(f"Error in structured output processing: {e}")
-            return Data(data={"content": content, "error": str(e)})
+            msg = f"Error in structured output processing: {e}"
+            raise ValueError(msg) from e
 
     async def get_memory_data(self):
         # TODO: This is a temporary fix to avoid message duplication. We should develop a function for this.

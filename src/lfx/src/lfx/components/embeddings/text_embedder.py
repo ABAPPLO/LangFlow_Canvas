@@ -59,7 +59,5 @@ class TextEmbedderComponent(Component):
             self.status = {"text": text_content, "embeddings": embedding_vector}
             return Data(data={"text": text_content, "embeddings": embedding_vector})
         except Exception as e:  # noqa: BLE001
-            logger.exception("Error generating embeddings")
-            error_data = Data(data={"text": "", "embeddings": [], "error": str(e)})
-            self.status = {"error": str(e)}
-            return error_data
+            msg = f"Error generating embeddings: {e}"
+            raise RuntimeError(msg) from e

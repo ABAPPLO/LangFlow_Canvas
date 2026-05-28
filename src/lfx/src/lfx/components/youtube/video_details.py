@@ -134,7 +134,8 @@ class YouTubeVideoDetailsComponent(Component):
                 video_response = youtube.videos().list(part=",".join(parts), id=video_id).execute()
 
                 if not video_response["items"]:
-                    return DataFrame(pd.DataFrame({"error": ["Video not found"]}))
+                    msg = f"Video not found for URL '{self.video_url}' (video ID: {video_id})"
+                    raise ValueError(msg)
 
                 video_info = video_response["items"][0]
                 snippet = video_info["snippet"]
@@ -251,13 +252,14 @@ class YouTubeVideoDetailsComponent(Component):
                 return DataFrame(video_df[ordered_cols])
 
         except (HttpError, googleapiclient.errors.HttpError) as e:
-            error_message = f"YouTube API error: {e!s}"
             if e.resp.status == self.API_FORBIDDEN:
-                error_message = "API quota exceeded or access forbidden."
+                error_message = f"YouTube API quota exceeded or access forbidden while fetching video details for '{self.video_url}': {e}"
             elif e.resp.status == self.VIDEO_NOT_FOUND:
-                error_message = "Video not found."
-
-            return DataFrame(pd.DataFrame({"error": [error_message]}))
+                error_message = f"Video not found while fetching details for '{self.video_url}': {e}"
+            else:
+                error_message = f"YouTube API error while fetching video details for '{self.video_url}': {e}"
+            raise ConnectionError(error_message) from e
 
         except KeyError as e:
-            return DataFrame(pd.DataFrame({"error": [str(e)]}))
+            error_message = f"Missing expected field in YouTube API response for '{self.video_url}': {e}"
+            raise RuntimeError(error_message) from e

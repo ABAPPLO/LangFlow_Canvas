@@ -122,7 +122,8 @@ LANGFLOW_DEVELOPER_API_ENABLED=
 - `LANGFLOW_SECRET_KEY` 必须固定，多个实例必须一致
 - `LANGFLOW_SUPERUSER` 和 `LANGFLOW_SUPERUSER_PASSWORD` 建议显式设置
 - 多个 Langflow 实例共用同一个 `APP_DATA_DIR`
-- `APP_LOG_DIR` 会映射到容器内 `/app/logs`，用于保存 `LANGFLOW_LOG_FILE`
+- `APP_LOG_DIR` 会映射到容器内 `/app/logs`
+- 日志文件会按 `/app/logs/YYYYMM/langflow-<service>-YYYY-MM-DD.log` 自动生成
 - 应用容器连接 PostgreSQL 时使用 Docker 网络内端口 `5432`；外部客户端连接测试机时使用宿主机映射端口，例如 `35432`
 - `LFX_DEV` 和 `LANGFLOW_DEVELOPER_API_ENABLED` 默认留空，仅在临时排查组件动态加载或开发接口问题时使用，不建议长期在测试环境开启
 
@@ -147,7 +148,7 @@ chmod -R 775 /www/dk_project/dk_compose/langflow-canvas/app-data
 chmod -R 775 /www/dk_project/dk_compose/langflow-canvas/app-logs
 ```
 
-如果启动日志仍出现 `Permission denied: '/app/langflow/secret_key'` 或 `Permission denied: '/app/logs/langflow.log'`，先查容器用户 UID/GID：
+如果启动日志仍出现 `Permission denied: '/app/langflow/secret_key'` 或 `Permission denied: '/app/logs/202605/langflow-2026-05-14.log'`，先查容器用户 UID/GID：
 
 ```bash
 docker compose --env-file .env.app -f docker-compose.app.yml run --rm --entrypoint id langflow-master
@@ -207,10 +208,11 @@ docker compose --env-file .env.deploy -f docker-compose.app.yml logs -f langflow
 docker compose --env-file .env.deploy -f docker-compose.app.yml logs -f langflow-slave1
 ```
 
-宿主机文件日志：
+日志会按月份目录和 service 日期文件自动生成，例如：
 
 ```bash
-tail -f /www/dk_project/dk_compose/langflow-canvas/app-logs/langflow.log
+tail -f /www/dk_project/dk_compose/langflow-canvas/app-logs/$(date +%Y%m)/langflow-master-$(date +%F).log
+tail -f /www/dk_project/dk_compose/langflow-canvas/app-logs/$(date +%Y%m)/langflow-slave1-$(date +%F).log
 ```
 
 ## 五、验收检查

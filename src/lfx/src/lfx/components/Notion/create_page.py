@@ -42,10 +42,6 @@ class NotionPageCreator(LCToolComponent):
 
     def run_model(self) -> Data:
         result = self._create_notion_page(self.database_id, self.properties_json)
-        if isinstance(result, str):
-            # An error occurred, return it as text
-            return Data(text=result)
-        # Success, return the created page data
         output = "Created page properties:\n"
         for prop_name, prop_value in result.get("properties", {}).items():
             output += f"{prop_name}: {prop_value}\n"
@@ -60,14 +56,14 @@ class NotionPageCreator(LCToolComponent):
             args_schema=self.NotionPageCreatorSchema,
         )
 
-    def _create_notion_page(self, database_id: str, properties_json: str) -> dict[str, Any] | str:
+    def _create_notion_page(self, database_id: str, properties_json: str) -> dict[str, Any]:
         if not database_id or not properties_json:
-            return "Invalid input. Please provide 'database_id' and 'properties_json'."
+            raise ValueError("Both 'database_id' and 'properties_json' are required.")
 
         try:
             properties = json.loads(properties_json)
         except json.JSONDecodeError as e:
-            return f"Invalid properties format. Please provide a valid JSON string. Error: {e}"
+            raise ValueError(f"Invalid JSON format for properties: {e}") from e
 
         headers = {
             "Authorization": f"Bearer {self.notion_secret}",
@@ -85,10 +81,10 @@ class NotionPageCreator(LCToolComponent):
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            error_message = f"Failed to create Notion page. Error: {e}"
+            status_info = ""
             if hasattr(e, "response") and e.response is not None:
-                error_message += f" Status code: {e.response.status_code}, Response: {e.response.text}"
-            return error_message
+                status_info = f" Status code: {e.response.status_code}, Response: {e.response.text}"
+            raise ConnectionError(f"Failed to create Notion page in database '{database_id}': {e}{status_info}") from e
 
     def __call__(self, *args, **kwargs):
         return self._create_notion_page(*args, **kwargs)

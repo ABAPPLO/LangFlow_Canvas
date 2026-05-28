@@ -116,48 +116,46 @@ class ArXivComponent(Component):
 
     def search_papers(self) -> list[Data]:
         """Search arXiv and return results."""
+        # Build the query URL
+        url = self.build_query_url()
+
+        # Validate URL scheme and host
+        parsed_url = urlparse(url)
+        if parsed_url.scheme not in {"http", "https"}:
+            error_msg = f"Invalid URL scheme: {parsed_url.scheme}"
+            raise ValueError(error_msg)
+        if parsed_url.hostname != "export.arxiv.org":
+            error_msg = f"Invalid host: {parsed_url.hostname}"
+            raise ValueError(error_msg)
+
+        # Create a custom opener that only allows http/https schemes
+        class RestrictedHTTPHandler(urllib.request.HTTPHandler):
+            def http_open(self, req):
+                return super().http_open(req)
+
+        class RestrictedHTTPSHandler(urllib.request.HTTPSHandler):
+            def https_open(self, req):
+                return super().https_open(req)
+
+        # Build opener with restricted handlers
+        opener = urllib.request.build_opener(RestrictedHTTPHandler, RestrictedHTTPSHandler)
+        urllib.request.install_opener(opener)
+
         try:
-            # Build the query URL
-            url = self.build_query_url()
-
-            # Validate URL scheme and host
-            parsed_url = urlparse(url)
-            if parsed_url.scheme not in {"http", "https"}:
-                error_msg = f"Invalid URL scheme: {parsed_url.scheme}"
-                raise ValueError(error_msg)
-            if parsed_url.hostname != "export.arxiv.org":
-                error_msg = f"Invalid host: {parsed_url.hostname}"
-                raise ValueError(error_msg)
-
-            # Create a custom opener that only allows http/https schemes
-            class RestrictedHTTPHandler(urllib.request.HTTPHandler):
-                def http_open(self, req):
-                    return super().http_open(req)
-
-            class RestrictedHTTPSHandler(urllib.request.HTTPSHandler):
-                def https_open(self, req):
-                    return super().https_open(req)
-
-            # Build opener with restricted handlers
-            opener = urllib.request.build_opener(RestrictedHTTPHandler, RestrictedHTTPSHandler)
-            urllib.request.install_opener(opener)
-
             # Make the request with validated URL using restricted opener
             response = opener.open(url)
             response_text = response.read().decode("utf-8")
+        except urllib.error.URLError as e:
+            msg = f"Network error fetching arXiv papers for query '{self.search_query}': {e}"
+            raise ConnectionError(msg) from e
 
-            # Parse the response
-            papers = self.parse_atom_response(response_text)
+        # Parse the response
+        papers = self.parse_atom_response(response_text)
 
-            # Convert to Data objects
-            results = [Data(data=paper) for paper in papers]
-            self.status = results
-        except (urllib.error.URLError, ValueError) as e:
-            error_data = Data(data={"error": f"Request error: {e!s}"})
-            self.status = error_data
-            return [error_data]
-        else:
-            return results
+        # Convert to Data objects
+        results = [Data(data=paper) for paper in papers]
+        self.status = results
+        return results
 
     def search_papers_dataframe(self) -> DataFrame:
         """Convert the Arxiv search results to a DataFrame.
