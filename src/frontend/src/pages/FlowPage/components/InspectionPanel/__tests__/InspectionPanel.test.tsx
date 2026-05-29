@@ -1,24 +1,38 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { AllNodeType } from "@/types/flow";
 import InspectionPanel from "../index";
+
+type ChildrenProps = { children?: ReactNode };
+type DivMockProps = ChildrenProps & ComponentPropsWithoutRef<"div">;
+type ButtonMockProps = ChildrenProps & ComponentPropsWithoutRef<"button">;
 
 // Mock framer-motion
 jest.mock("framer-motion", () => ({
   motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    div: ({ children, ...props }: DivMockProps) => (
+      <div {...props}>{children}</div>
+    ),
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: ChildrenProps) => <>{children}</>,
 }));
 
 // Mock @xyflow/react Panel
 jest.mock("@xyflow/react", () => ({
-  Panel: ({ children, ...props }: any) => (
+  Panel: ({ children, ...props }: DivMockProps) => (
     <div data-testid="xyflow-panel" {...props}>
       {children}
     </div>
   ),
 }));
+
+interface MockInspectionPanelHeaderProps {
+  data?: { id?: string };
+  onClose?: () => void;
+  isEditingFields: boolean;
+  setIsEditingFields: (value: boolean) => void;
+}
 
 // Mock InspectionPanelHeader
 jest.mock("../components/InspectionPanelHeader", () => {
@@ -27,7 +41,7 @@ jest.mock("../components/InspectionPanelHeader", () => {
     onClose,
     isEditingFields,
     setIsEditingFields,
-  }: any) {
+  }: MockInspectionPanelHeaderProps) {
     return (
       <div data-testid="inspection-panel-header">
         <span>Header for {data?.id || "unknown"}</span>
@@ -48,9 +62,17 @@ jest.mock("../components/InspectionPanelHeader", () => {
   };
 });
 
+interface MockInspectionPanelFieldsProps {
+  data?: { id?: string };
+  isEditingFields: boolean;
+}
+
 // Mock InspectionPanelFields
 jest.mock("../components/InspectionPanelFields", () => {
-  return function MockInspectionPanelFields({ data, isEditingFields }: any) {
+  return function MockInspectionPanelFields({
+    data,
+    isEditingFields,
+  }: MockInspectionPanelFieldsProps) {
     return (
       <div data-testid="inspection-panel-fields">
         <span>Fields for {data?.id || "unknown"}</span>
@@ -69,7 +91,7 @@ jest.mock("@/components/ui/separator", () => ({
 
 // Mock Button
 jest.mock("@/components/ui/button", () => ({
-  Button: ({ children, onClick, ...props }: any) => (
+  Button: ({ children, onClick, ...props }: ButtonMockProps) => (
     <button onClick={onClick} {...props}>
       {children}
     </button>
@@ -78,26 +100,35 @@ jest.mock("@/components/ui/button", () => ({
 
 // Mock utils
 jest.mock("@/utils/utils", () => ({
-  cn: (...classes: any[]) => classes.filter(Boolean).join(" "),
+  cn: (...classes: unknown[]) => classes.filter(Boolean).join(" "),
 }));
 
 describe("InspectionPanel", () => {
-  const createMockNode = (overrides = {}): AllNodeType => ({
-    id: "test-node-123",
-    type: "genericNode",
-    position: { x: 0, y: 0 },
-    data: {
+  const createMockNode = (overrides = {}): AllNodeType =>
+    ({
       id: "test-node-123",
-      type: "TestComponent",
-      node: {
-        display_name: "Test Node",
-        description: "Test description",
-        documentation: "",
-        template: {},
+      type: "genericNode",
+      position: { x: 0, y: 0 },
+      data: {
+        id: "test-node-123",
+        type: "TestComponent",
+        node: {
+          display_name: "Test Node",
+          description: "Test description",
+          documentation: "",
+          template: {
+            advanced_field: {
+              type: "str",
+              value: "advanced value",
+              advanced: true,
+              show: true,
+              display_name: "Advanced Field",
+            },
+          },
+        },
+        ...overrides,
       },
-      ...overrides,
-    },
-  });
+    }) as unknown as AllNodeType;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -124,11 +155,37 @@ describe("InspectionPanel", () => {
 
     it("should not render for non-genericNode types", () => {
       const mockNode = createMockNode();
-      mockNode.type = "customNode";
+      mockNode.type = "noteNode";
 
       render(<InspectionPanel selectedNode={mockNode} />);
 
       expect(screen.queryByTestId("xyflow-panel")).not.toBeInTheDocument();
+    });
+
+    it("should not render when selected node has no advanced fields", () => {
+      const mockNode = createMockNode({
+        node: {
+          display_name: "Test Node",
+          description: "Test description",
+          documentation: "",
+          template: {
+            basic_field: {
+              type: "str",
+              value: "basic value",
+              advanced: false,
+              show: true,
+              display_name: "Basic Field",
+            },
+          },
+        },
+      });
+
+      render(<InspectionPanel selectedNode={mockNode} />);
+
+      expect(screen.queryByTestId("xyflow-panel")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("inspection-panel-header"),
+      ).not.toBeInTheDocument();
     });
 
     it("should render edit fields button", () => {
@@ -310,7 +367,7 @@ describe("InspectionPanel", () => {
 
     it("should use node id as key for InspectionPanelFields", () => {
       const mockNode = createMockNode();
-      const { container } = render(<InspectionPanel selectedNode={mockNode} />);
+      render(<InspectionPanel selectedNode={mockNode} />);
 
       // The key is used internally by React, we can verify the component renders
       expect(screen.getByTestId("inspection-panel-fields")).toBeInTheDocument();
@@ -323,8 +380,8 @@ describe("InspectionPanel", () => {
         id: "test-node",
         type: "genericNode",
         position: { x: 0, y: 0 },
-        data: null as any,
-      };
+        data: null as unknown as AllNodeType["data"],
+      } as unknown as AllNodeType;
 
       expect(() => {
         render(<InspectionPanel selectedNode={mockNode} />);
