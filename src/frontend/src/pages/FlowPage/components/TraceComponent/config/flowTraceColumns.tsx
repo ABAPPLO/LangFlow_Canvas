@@ -1,5 +1,7 @@
+import { useState, type MouseEvent } from "react";
 import type { ColDef } from "ag-grid-community";
 import IconComponent from "@/components/common/genericIconComponent";
+import useAlertStore from "@/stores/alertStore";
 import { formatSmartTimestamp } from "@/utils/dateTime";
 import { formatTotalLatency, getStatusIconProps } from "../traceViewHelpers";
 import {
@@ -7,6 +9,66 @@ import {
   formatRunValue,
   pickFirstNumber,
 } from "./flowTraceColumnsHelpers";
+
+type TaskIdCellParams = {
+  value?: string | null;
+  data?: {
+    taskId?: string | null;
+    task_id?: string | null;
+  };
+};
+
+function TaskIdCopyCell(params: TaskIdCellParams) {
+  const [copied, setCopied] = useState(false);
+  const setSuccessData = useAlertStore((state) => state.setSuccessData);
+  const setErrorData = useAlertStore((state) => state.setErrorData);
+  const taskId = String(
+    params.value ?? params.data?.taskId ?? params.data?.task_id ?? "",
+  ).trim();
+
+  if (!taskId) {
+    return null;
+  }
+
+  const handleCopy = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      await navigator.clipboard.writeText(taskId);
+      setCopied(true);
+      setSuccessData({ title: "Task ID copied to clipboard" });
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setErrorData({
+        title: "Copy failed",
+        list: ["Unable to copy Task ID. Please copy manually."],
+      });
+    }
+  };
+
+  return (
+    <div className="flex h-full w-full min-w-0 items-center gap-2">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={taskId}>
+        {taskId}
+      </span>
+      <button
+        type="button"
+        className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        aria-label="Copy Task ID"
+        data-testid="copy-task-id-button"
+        title="Copy Task ID"
+        onClick={handleCopy}
+      >
+        <IconComponent
+          name={copied ? "Check" : "Copy"}
+          className="h-3.5 w-3.5"
+          skipFallback
+        />
+      </button>
+    </div>
+  );
+}
 
 export function createFlowTracesColumns({
   flowId,
@@ -45,6 +107,9 @@ export function createFlowTracesColumns({
       editable: false,
       valueGetter: (params) =>
         params.data?.taskId ?? params.data?.task_id ?? "",
+      cellRenderer: (params: TaskIdCellParams) => (
+        <TaskIdCopyCell {...params} />
+      ),
     },
 
     {
