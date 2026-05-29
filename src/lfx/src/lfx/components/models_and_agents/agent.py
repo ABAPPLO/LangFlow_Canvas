@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
 from lfx.components.models_and_agents.memory import MemoryComponent
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import Tool
 
 from lfx.base.agents.agent import LCToolsAgentComponent
+from lfx.base.agents.callback import ToolCallRecorder
 from lfx.base.agents.events import ExceptionWithMessageError
 from lfx.base.models.unified_models import (
     apply_provider_variable_config_to_build_config,
@@ -33,6 +35,203 @@ from lfx.schema.data import Data
 from lfx.schema.dotdict import dotdict
 from lfx.schema.message import Message
 from lfx.schema.table import EditMode
+
+TOOL_RESULT_MODE_DIRECT_SUMMARY = "Direct Tool Summary"
+TOOL_RESULT_MODE_AGENT_LOOP = "Agent Loop"
+DEFAULT_AGENT_SYSTEM_PROMPT = """你是一个严谨的工作流调度 Agent。你的职责是根据用户需求选择最合适的工具，并严格按照工具的 inputSchema 构造参数后调用工具。
+
+你通常会收到一个 JSON 字符串：
+
+{
+  "requirement": "本次要完成的需求",
+  "parameters": {
+    "参数名": "参数值"
+  }
+}
+
+执行规则：
+
+1. 只根据当前请求的 requirement、parameters、可用工具的名称、描述、inputSchema，以及同一 session 的最近历史用户请求来选择工具和准备参数。
+2. 默认只调用一个最匹配的工具；不要调用无关工具。
+3. 工具参数名必须严格来自目标工具的 inputSchema，不要编造 schema 中不存在的参数，不要传入 schema 外参数。
+4. 当前请求中的非空 parameters 优先级最高；如果当前请求提供了非空参数，必须使用当前请求的值，不要用历史值覆盖。
+5. 如果目标工具的 required 参数在当前请求中缺失、为空字符串、纯空白字符串，或语义上没有有效内容，允许从同一 session 最近历史用户请求中查找同名或语义等价的非空参数进行补齐。
+6. 历史补齐只允许用于 required 参数；非 required 参数如果当前请求没有提供有效值，不要从历史补齐，也不要传入工具。
+7. 只能使用历史中的用户请求参数补齐，不要使用历史 AI 回答、Full Response、工具输出、错误提示或示例内容作为参数来源。
+8. 如果历史中存在多个候选参数，使用距离当前请求最近且非空的用户参数。
+9. 必填 string 参数最终必须存在，且不能为空字符串或纯空白字符串。
+10. 如果 required 参数在当前请求中缺失或为空，并且历史请求中也找不到可用的非空值，直接说明缺少哪些参数，不要调用工具。
+11. 当前工作流输入节点只支持 string；如果参数值是对象、数组或其他复杂结构，必须先序列化为 JSON 字符串后再传给工具。
+12. 调用工具前，逐项确认最终参数名与 inputSchema 完全一致，required 参数都已满足，非 required 参数没有被历史补齐，且没有传入 schema 外参数。
+13. 返回结果时，用用户能理解的语言简洁说明执行结果；不要暴露内部工具调用细节，除非用户明确要求。"""
+DEFAULT_TOOL_SUCCESS_SUMMARY_PROMPT = (
+    "你是一个面向终端用户的结果总结助手。\n\n"
+    "工具已经执行成功。请根据用户本次请求、工具名称、工具入参和工具返回结果，"
+    "生成一段清晰、准确、用户友好的中文回复。\n\n"
+    "要求：\n"
+    "1. 只总结工具返回结果中真实存在的信息，不要编造。\n"
+    "2. 不要暴露内部字段名、组件 ID、tool_calls、raw_output、JSON 信封等技术细节。\n"
+    "3. 如果工具返回了多个输出，优先总结与用户需求最相关的内容。\n"
+    "4. 如果工具结果本身已经是完整文本，可以在保持原意的基础上适度整理表达。\n"
+    "5. 回复要简洁，但不能遗漏关键结论。"
+)
+DEFAULT_TOOL_FAILURE_SUMMARY_PROMPT = (
+    "你是一个面向终端用户的错误说明助手。\n\n"
+    "工具调用失败了。请根据用户本次请求、工具名称、工具入参和工具错误信息，"
+    "生成一段清晰、准确、可操作的中文回复。\n\n"
+    "要求：\n"
+    "1. 明确说明本次没有成功完成工具执行，不要说“执行成功”。\n"
+    "2. 如果错误来自缺少必填参数、参数为空或参数格式不正确，请明确指出需要补充或修改的参数。\n"
+    "3. 不要暴露内部字段名、组件 ID、tool_calls、raw_output、JSON 信封等技术细节，"
+    "除非参数名本身就是用户需要填写的业务参数。\n"
+    "4. 不要编造工具没有返回的信息。\n"
+    "5. 回复要给出下一步操作建议，让用户知道应该如何修正后重试。"
+)
+
+
+def _agent_input_text(input_value) -> str:
+    if isinstance(input_value, Message):
+        return input_value.get_text()
+    return str(input_value or "")
+
+
+def _parse_agent_task(input_value) -> dict:
+    text = _agent_input_text(input_value)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _message_text(message: Message) -> str:
+    if hasattr(message, "get_text"):
+        return message.get_text()
+    return getattr(message, "text", "") or str(message)
+
+
+def _lc_message_text(message: Any) -> str:
+    content = getattr(message, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    text_parts.append(str(text))
+            elif item is not None:
+                text_parts.append(str(item))
+        return "\n".join(text_parts)
+    if content is not None:
+        return str(content)
+    return str(message or "")
+
+
+def _parse_tool_args(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {"input": value}
+        return parsed if isinstance(parsed, dict) else {"input": value}
+    return {}
+
+
+def _tool_output_text(output: Any) -> str:
+    if isinstance(output, str):
+        return output
+    if isinstance(output, dict):
+        return json.dumps(output, ensure_ascii=False)
+    content = getattr(output, "content", None)
+    if isinstance(content, str):
+        return content
+    if content is not None:
+        text_parts = []
+        for item in content:
+            text = getattr(item, "text", None)
+            text_parts.append(text if isinstance(text, str) else str(item))
+        return "\n".join(text_parts)
+    if hasattr(output, "model_dump"):
+        return json.dumps(output.model_dump(), ensure_ascii=False)
+    return str(output)
+
+
+def _extract_final_outputs(tool_calls: list[dict]) -> dict:
+    data_outputs: dict[str, object] = {}
+    for tool_call in tool_calls:
+        raw_output = tool_call.get("raw_output")
+        if not isinstance(raw_output, dict):
+            continue
+        outputs = raw_output.get("outputs")
+        if not isinstance(outputs, dict):
+            continue
+        for component_id, output in outputs.items():
+            if isinstance(output, dict) and output.get("type") == "data":
+                data_outputs[component_id] = output.get("content")
+
+    if len(data_outputs) == 1:
+        only_output = next(iter(data_outputs.values()))
+        return only_output if isinstance(only_output, dict) else {"result": only_output}
+    return data_outputs
+
+
+def _extract_errors(tool_calls: list[dict]) -> list[dict]:
+    errors: list[dict] = []
+    for tool_call in tool_calls:
+        error = tool_call.get("error")
+        raw_output = tool_call.get("raw_output")
+        if not error and isinstance(raw_output, dict):
+            error = raw_output.get("error")
+        if error:
+            if isinstance(error, dict):
+                errors.append({"tool_name": tool_call.get("tool_name"), **error})
+            else:
+                errors.append(
+                    {
+                        "tool_name": tool_call.get("tool_name"),
+                        "code": "tool_execution_failed",
+                        "message": str(error),
+                    }
+                )
+    return errors
+
+
+def _latest_tool_error(recorder: ToolCallRecorder | None) -> dict | None:
+    if not recorder or not recorder.tool_calls:
+        return None
+    latest_call = recorder.tool_calls[-1]
+    if latest_call.get("success") is False:
+        error = latest_call.get("error")
+        if isinstance(error, dict):
+            return error
+        if error:
+            return {"code": "tool_execution_failed", "message": str(error)}
+    return None
+
+
+def build_full_response(
+    result: Message,
+    tool_calls: list[dict],
+    input_value,
+    request_variables: dict | None = None,
+) -> dict:
+    task = _parse_agent_task(input_value)
+    request_id = task.get("request_id")
+    if not request_id and request_variables:
+        request_id = request_variables.get("TASK-ID") or request_variables.get("TASK_ID")
+    selected_call = next((call for call in tool_calls if call.get("success")), tool_calls[0] if tool_calls else None)
+    return {
+        "request_id": request_id,
+        "answer": _message_text(result),
+        "selected_tool": selected_call.get("tool_name") if selected_call else None,
+        "tool_calls": tool_calls,
+        "final_outputs": _extract_final_outputs(tool_calls),
+        "errors": _extract_errors(tool_calls),
+    }
 
 
 def set_advanced_true(component_input):
@@ -85,7 +284,35 @@ class AgentComponent(ToolCallingAgentComponent):
             name="system_prompt",
             display_name="Agent Instructions",
             info="System Prompt: Initial instructions and context provided to guide the agent's behavior.",
-            value="You are a helpful assistant that can use tools to answer questions and perform tasks.",
+            value=DEFAULT_AGENT_SYSTEM_PROMPT,
+            advanced=False,
+        ),
+        DropdownInput(
+            name="tool_result_mode",
+            display_name="Tool Result Mode",
+            info=(
+                "Agent Loop keeps the original LangChain tool loop. Direct Tool Summary runs one tool call, "
+                "stores the full tool result, then calls the same model once more to summarize it."
+            ),
+            options=[TOOL_RESULT_MODE_DIRECT_SUMMARY, TOOL_RESULT_MODE_AGENT_LOOP],
+            value=TOOL_RESULT_MODE_DIRECT_SUMMARY,
+            real_time_refresh=True,
+            advanced=False,
+        ),
+        MultilineInput(
+            name="tool_success_summary_prompt",
+            display_name="Tool Success Summary Prompt",
+            info="Instructions used when Direct Tool Summary mode receives a successful tool result.",
+            value=DEFAULT_TOOL_SUCCESS_SUMMARY_PROMPT,
+            show=True,
+            advanced=False,
+        ),
+        MultilineInput(
+            name="tool_failure_summary_prompt",
+            display_name="Tool Failure Summary Prompt",
+            info="Instructions used when Direct Tool Summary mode receives a failed tool result.",
+            value=DEFAULT_TOOL_FAILURE_SUMMARY_PROMPT,
+            show=True,
             advanced=False,
         ),
         MessageTextInput(
@@ -98,10 +325,11 @@ class AgentComponent(ToolCallingAgentComponent):
         IntInput(
             name="n_messages",
             display_name="Number of Chat History Messages",
-            value=100,
+            value=0,
             info="Number of chat history messages to retrieve.",
-            advanced=True,
+            advanced=False,
             show=True,
+            range_spec=RangeSpec(min=0, step=1, step_type="int"),
         ),
         IntInput(
             name="max_tokens",
@@ -183,7 +411,14 @@ class AgentComponent(ToolCallingAgentComponent):
         ),
     ]
     outputs = [
-        Output(name="response", display_name="Response", method="message_response"),
+        Output(name="response", display_name="Response", method="message_response", group_outputs=True),
+        Output(
+            name="full_response",
+            display_name="Full Response",
+            method="full_response",
+            group_outputs=True,
+            tool_mode=False,
+        ),
     ]
 
     def _get_max_tokens_value(self):
@@ -194,7 +429,20 @@ class AgentComponent(ToolCallingAgentComponent):
         return val
 
     def _get_llm(self):
-        """Override parent to include max_tokens from the Agent's input field."""
+        """Override parent to include Agent fields and request-level model headers."""
+        wallet_id = getattr(self, "user_wallet_id", None)
+        task_id = getattr(self, "task_id", None)
+        if not wallet_id or not task_id:
+            request_variables = None
+            if hasattr(self, "graph") and self.graph and hasattr(self.graph, "context"):
+                request_variables = self.graph.context.get("request_variables")
+            if request_variables:
+                if not wallet_id:
+                    wallet_id = request_variables.get("USER-WALLET-ID")
+                if not task_id:
+                    task_id = request_variables.get("TASK-ID")
+
+        self.log(f"user_wallet_id={wallet_id}, task_id={task_id}")
         return get_llm(
             model=self.model,
             user_id=self.user_id,
@@ -202,6 +450,8 @@ class AgentComponent(ToolCallingAgentComponent):
             max_tokens=self._get_max_tokens_value(),
             watsonx_url=getattr(self, "base_url_ibm_watsonx", None),
             watsonx_project_id=getattr(self, "project_id", None),
+            user_wallet_id=wallet_id,
+            task_id=task_id,
         )
 
     async def get_agent_requirements(self):
@@ -235,9 +485,150 @@ class AgentComponent(ToolCallingAgentComponent):
 
         return llm_model, self.chat_history, self.tools
 
-    async def message_response(self) -> Message:
+    def _build_direct_tool_messages(self, input_text: str):
+        messages = []
+        system_prompt = getattr(self, "system_prompt", "") or ""
+        if system_prompt.strip():
+            messages.append(SystemMessage(content=system_prompt))
+
+        if hasattr(self, "chat_history") and self.chat_history:
+            if isinstance(self.chat_history, Data):
+                messages.extend(self._data_to_messages_skip_empty([self.chat_history]))
+            elif all(isinstance(message, Message) for message in self.chat_history):
+                messages.extend(self._data_to_messages_skip_empty([message.to_data() for message in self.chat_history]))
+            elif all(isinstance(message, Data) for message in self.chat_history):
+                messages.extend(self._data_to_messages_skip_empty(self.chat_history))
+
+        messages.append(HumanMessage(content=input_text.strip() or "Continue the conversation."))
+        return messages
+
+    async def _summarize_direct_tool_result(
+        self,
+        llm_model,
+        input_text: str,
+        tool_name: str | None,
+        tool_args: dict,
+        tool_result: str,
+        summary_prompt: str,
+        result_label: str,
+    ) -> str:
+        summary_messages = [
+            SystemMessage(content=summary_prompt),
+            HumanMessage(
+                content=(
+                    "User request:\n"
+                    f"{input_text}\n\n"
+                    "Tool name:\n"
+                    f"{tool_name or ''}\n\n"
+                    "Tool arguments:\n"
+                    f"{json.dumps(tool_args, ensure_ascii=False)}\n\n"
+                    f"{result_label}:\n"
+                    f"{tool_result}"
+                )
+            ),
+        ]
+        summary = await llm_model.ainvoke(summary_messages, config={"callbacks": self.get_langchain_callbacks()})
+        return _lc_message_text(summary).strip()
+
+    async def _run_direct_tool_summary(self) -> Message:
         try:
+            self._tool_call_recorder = ToolCallRecorder()
+            callbacks = [self._tool_call_recorder, *self.get_langchain_callbacks()]
+            self.shared_callbacks = callbacks
             llm_model, self.chat_history, self.tools = await self.get_agent_requirements()
+            self.set_tools_callbacks(self.tools, callbacks)
+
+            if not self.tools:
+                msg = "Direct Tool Summary mode requires at least one tool."
+                raise ValueError(msg)
+            if not hasattr(llm_model, "bind_tools"):
+                msg = "The selected language model does not support tool calling."
+                raise NotImplementedError(msg)
+
+            input_text = _agent_input_text(self.input_value)
+            tool_selector = llm_model.bind_tools(self.tools or [])
+            tool_selection = await tool_selector.ainvoke(
+                self._build_direct_tool_messages(input_text),
+                config={"callbacks": self.get_langchain_callbacks()},
+            )
+            tool_calls = getattr(tool_selection, "tool_calls", None) or []
+
+            if not tool_calls:
+                result = Message(text=_lc_message_text(tool_selection).strip())
+                self._agent_result = result
+                self.status = result
+                return result
+
+            tool_call = tool_calls[0]
+            tool_name = tool_call.get("name")
+            tool_args = _parse_tool_args(tool_call.get("args"))
+            selected_tool = next((tool for tool in self.tools if getattr(tool, "name", None) == tool_name), None)
+            if selected_tool is None:
+                msg = f"Tool '{tool_name}' was selected by the model but is not available."
+                raise ValueError(msg)
+
+            tool_output = await selected_tool.ainvoke(tool_args, config={"callbacks": callbacks})
+            tool_output_text = _tool_output_text(tool_output)
+            tool_error = _latest_tool_error(self._tool_call_recorder)
+
+            if tool_error:
+                error_text = tool_error.get("message") or tool_output_text or "Tool execution failed."
+                failure_prompt = getattr(self, "tool_failure_summary_prompt", "") or ""
+                try:
+                    summary_text = await self._summarize_direct_tool_result(
+                        llm_model,
+                        input_text,
+                        tool_name,
+                        tool_args,
+                        error_text,
+                        failure_prompt,
+                        "Tool error",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    await logger.aerror(f"Direct tool failure summary failed: {e!s}")
+                    summary_text = f"Tool execution failed: {error_text}"
+                result = Message(text=summary_text)
+                self._agent_result = result
+                self.status = result
+                return result
+
+            try:
+                success_prompt = getattr(self, "tool_success_summary_prompt", "") or ""
+                summary_text = await self._summarize_direct_tool_result(
+                    llm_model,
+                    input_text,
+                    tool_name,
+                    tool_args,
+                    tool_output_text,
+                    success_prompt,
+                    "Tool result",
+                )
+            except Exception as e:  # noqa: BLE001
+                await logger.aerror(f"Direct tool summary failed: {e!s}")
+                summary_text = "The tool completed successfully, but the summary could not be generated."
+
+            result = Message(text=summary_text)
+            self._agent_result = result
+            self.status = result
+        except (ValueError, TypeError, KeyError) as e:
+            await logger.aerror(f"{type(e).__name__}: {e!s}")
+            raise
+        except ExceptionWithMessageError as e:
+            await logger.aerror(f"ExceptionWithMessageError occurred: {e}")
+            raise
+        except Exception as e:
+            await logger.aerror(f"Unexpected error: {e!s}")
+            raise
+        else:
+            return result
+
+    async def _run_agent_loop(self) -> Message:
+        try:
+            self._tool_call_recorder = ToolCallRecorder()
+            callbacks = [self._tool_call_recorder, *self.get_langchain_callbacks()]
+            self.shared_callbacks = callbacks
+            llm_model, self.chat_history, self.tools = await self.get_agent_requirements()
+            self.set_tools_callbacks(self.tools, callbacks)
             # Set up and run agent
             self.set(
                 llm=llm_model,
@@ -264,6 +655,29 @@ class AgentComponent(ToolCallingAgentComponent):
             raise
         else:
             return result
+
+    async def _run_agent_once(self) -> Message:
+        mode = getattr(self, "tool_result_mode", TOOL_RESULT_MODE_DIRECT_SUMMARY) or TOOL_RESULT_MODE_DIRECT_SUMMARY
+        if mode == TOOL_RESULT_MODE_AGENT_LOOP:
+            return await self._run_agent_loop()
+        return await self._run_direct_tool_summary()
+
+    async def _ensure_agent_result(self) -> Message:
+        if hasattr(self, "_agent_result"):
+            return self._agent_result
+        return await self._run_agent_once()
+
+    async def message_response(self) -> Message:
+        return await self._ensure_agent_result()
+
+    async def full_response(self) -> Data:
+        result = await self._ensure_agent_result()
+        recorder = getattr(self, "_tool_call_recorder", None)
+        tool_calls = recorder.tool_calls if recorder else []
+        request_variables = None
+        if hasattr(self, "graph") and self.graph and hasattr(self.graph, "context"):
+            request_variables = self.graph.context.get("request_variables")
+        return Data(data=build_full_response(result, tool_calls, self.input_value, request_variables))
 
     def _preprocess_schema(self, schema):
         """Preprocess schema to ensure correct data types for build_model_from_schema."""
@@ -469,6 +883,24 @@ class AgentComponent(ToolCallingAgentComponent):
                 value.input_types = []
         return build_config
 
+    def update_direct_tool_prompt_visibility(
+        self, build_config: dotdict, field_value, field_name: str | None
+    ) -> dotdict:
+        current_mode = (
+            field_value
+            if field_name == "tool_result_mode"
+            else build_config.get("tool_result_mode", {}).get("value", TOOL_RESULT_MODE_DIRECT_SUMMARY)
+        )
+        if isinstance(current_mode, list) and current_mode:
+            current_mode = current_mode[0]
+
+        show_summary_prompts = current_mode == TOOL_RESULT_MODE_DIRECT_SUMMARY
+        for prompt_field in ("tool_success_summary_prompt", "tool_failure_summary_prompt"):
+            if prompt_field in build_config:
+                build_config[prompt_field]["show"] = show_summary_prompts
+
+        return build_config
+
     async def update_build_config(
         self,
         build_config: dotdict,
@@ -489,6 +921,7 @@ class AgentComponent(ToolCallingAgentComponent):
             field_value=field_value,
         )
         build_config = dotdict(build_config)
+        build_config = self.update_direct_tool_prompt_visibility(build_config, field_value, field_name)
 
         if field_name == "model":
             build_config = self.update_input_types(build_config)

@@ -84,6 +84,7 @@ class TraceContext:
         user_id: str | None,
         session_id: str | None,
         flow_id: str | None = None,
+        task_id: str | None = None,
     ):
         self.run_id: UUID | None = run_id
         self.run_name: str | None = run_name
@@ -91,6 +92,7 @@ class TraceContext:
         self.user_id: str | None = user_id
         self.session_id: str | None = session_id
         self.flow_id: str | None = flow_id
+        self.task_id: str | None = task_id
         self.tracers: dict[str, BaseTracer] = {}
         self.all_inputs: dict[str, dict] = defaultdict(dict)
         self.all_outputs: dict[str, dict] = defaultdict(dict)
@@ -246,6 +248,7 @@ class TracingService(Service):
             flow_id=trace_context.flow_id,
             user_id=trace_context.user_id,
             session_id=trace_context.session_id,
+            task_id=trace_context.task_id,
         )
 
     def _initialize_openlayer_tracer(self, trace_context: TraceContext) -> None:
@@ -261,6 +264,12 @@ class TracingService(Service):
             session_id=trace_context.session_id,
         )
 
+    async def _safe_initialize_tracer(self, trace_context: TraceContext, tracer_name: str, initializer) -> None:
+        try:
+            initializer(trace_context)
+        except Exception as e:  # noqa: BLE001
+            await logger.adebug(f"Error initializing {tracer_name} tracer: {e}")
+
     async def start_tracers(
         self,
         run_id: UUID,
@@ -269,6 +278,7 @@ class TracingService(Service):
         session_id: str | None,
         project_name: str | None = None,
         flow_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Start a trace for a graph run.
 
@@ -280,19 +290,21 @@ class TracingService(Service):
             return
         try:
             project_name = project_name or os.getenv("LANGCHAIN_PROJECT", "Langflow")
-            trace_context = TraceContext(run_id, run_name, project_name, user_id, session_id, flow_id)
+            trace_context = TraceContext(run_id, run_name, project_name, user_id, session_id, flow_id, task_id)
             trace_context_var.set(trace_context)
             await self._start(trace_context)
-            self._initialize_langsmith_tracer(trace_context)
-            self._initialize_langwatch_tracer(trace_context)
-            self._initialize_langfuse_tracer(trace_context)
-            self._initialize_arize_phoenix_tracer(trace_context)
-            self._initialize_opik_tracer(trace_context)
-            self._initialize_traceloop_tracer(trace_context)
-            self._initialize_native_tracer(trace_context)
-            self._initialize_openlayer_tracer(trace_context)
         except Exception as e:  # noqa: BLE001
             await logger.adebug(f"Error initializing tracers: {e}")
+            return
+
+        await self._safe_initialize_tracer(trace_context, "native", self._initialize_native_tracer)
+        await self._safe_initialize_tracer(trace_context, "langsmith", self._initialize_langsmith_tracer)
+        await self._safe_initialize_tracer(trace_context, "langwatch", self._initialize_langwatch_tracer)
+        await self._safe_initialize_tracer(trace_context, "langfuse", self._initialize_langfuse_tracer)
+        await self._safe_initialize_tracer(trace_context, "arize_phoenix", self._initialize_arize_phoenix_tracer)
+        await self._safe_initialize_tracer(trace_context, "opik", self._initialize_opik_tracer)
+        await self._safe_initialize_tracer(trace_context, "traceloop", self._initialize_traceloop_tracer)
+        await self._safe_initialize_tracer(trace_context, "openlayer", self._initialize_openlayer_tracer)
 
     async def _stop(self, trace_context: TraceContext) -> None:
         try:

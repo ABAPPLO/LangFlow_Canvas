@@ -72,6 +72,9 @@ export default function IntComponent({
   };
 
   const getMaxValue = () => {
+    if (name === "n_messages") {
+      return undefined;
+    }
     return rangeSpec?.max ?? undefined;
   };
 

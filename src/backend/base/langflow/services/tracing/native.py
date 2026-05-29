@@ -64,6 +64,7 @@ class NativeTracer(BaseTracer):
         flow_id: str | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Initialize the native tracer.
 
@@ -75,6 +76,7 @@ class NativeTracer(BaseTracer):
             flow_id: Flow ID (if not provided, extracted from trace_name)
             user_id: Optional user ID
             session_id: Session ID for grouping traces (defaults to trace_id if not provided)
+            task_id: Request task ID used to correlate traces across chained workflow runs
         """
         self.trace_name = trace_name
         self.trace_type = trace_type
@@ -83,6 +85,7 @@ class NativeTracer(BaseTracer):
         self.user_id = user_id
         # Fallback to trace_id so session grouping always has a value in the DB.
         self.session_id = session_id or str(trace_id)
+        self.task_id = task_id
         # Prefer the explicit flow_id; fall back to parsing trace_name so callers
         # that don't pass flow_id separately still produce a usable value.
         self.flow_id = flow_id or (trace_name.split(" - ")[-1] if " - " in trace_name else trace_name)
@@ -313,6 +316,7 @@ class NativeTracer(BaseTracer):
                     name=self.trace_name,
                     flow_id=flow_uuid,
                     session_id=self.session_id,
+                    task_id=self.task_id,
                     status=trace_status,
                     start_time=self._start_time,
                     end_time=end_time,

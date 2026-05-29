@@ -144,6 +144,13 @@ export function FlowInsightsContent({
   );
 
   const handleCellClicked = useCallback((event: CellClickedEvent) => {
+    const target = event.event?.target as HTMLElement | null;
+    if (target?.closest?.('[data-testid="copy-task-id-button"]')) {
+      event.event?.preventDefault?.();
+      event.event?.stopPropagation?.();
+      return;
+    }
+
     event.event?.preventDefault?.();
     event.event?.stopPropagation?.();
 
