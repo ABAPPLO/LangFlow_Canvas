@@ -14,17 +14,30 @@ ARG LANGFLOW_AUTO_LOGIN=false
 ENV LANGFLOW_AUTO_LOGIN=${LANGFLOW_AUTO_LOGIN}
 
 COPY src/frontend/package.json src/frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 COPY src/frontend/ ./
 RUN npm run build
 
 # Stage 2: Python dependencies + app
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS python-builder
+FROM python:3.12-slim-bookworm AS python-builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libaio-dev curl ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --index-url https://mirrors.cloud.tencent.com/pypi/simple uv
+
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i \
+        -e 's|http://deb.debian.org/debian-security|http://mirrors.cloud.tencent.com/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|http://mirrors.cloud.tencent.com/debian|g' \
+        /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libaio-dev curl ffmpeg
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
@@ -45,7 +58,8 @@ COPY src/lfx/README.md /app/src/lfx/README.md
 RUN mkdir -p /app/src/backend/langflow && touch /app/src/backend/langflow/__init__.py
 
 # 安装依赖（只要 pyproject.toml/uv.lock 不变，此层被缓存）
-RUN uv sync --frozen --no-dev --no-editable --extra postgresql --package langflow
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --extra postgresql --package langflow
 
 # 再复制真实源码（此层在依赖安装之后，源码变更只重建此层）
 COPY scripts/build_component_index.py /app/scripts/build_component_index.py
@@ -63,9 +77,18 @@ COPY --from=frontend-builder /app/frontend/build /app/src/backend/base/langflow/
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i \
+        -e 's|http://deb.debian.org/debian-security|http://mirrors.cloud.tencent.com/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|http://mirrors.cloud.tencent.com/debian|g' \
+        /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update && apt-get install -y --no-install-recommends \
     curl libpq5 ffmpeg \
-    && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 langflow
 
 # 从 builder 复制 venv 和源码

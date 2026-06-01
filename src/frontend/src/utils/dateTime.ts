@@ -1,7 +1,34 @@
 const pad2 = (num: number): string => String(num).padStart(2, "0");
 
+const DEFAULT_TIME_ZONE = "UTC";
+
 const hasExplicitTimezone = (value: string): boolean =>
   /([zZ]|[+-]\d{2}:?\d{2})$/.test(value);
+
+type DateParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
+const getDateParts = (date: Date, timeZone: string): DateParts => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone,
+    year: "numeric",
+  }).formatToParts(date);
+
+  const valueByType = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+
+  return {
+    day: Number(valueByType.day),
+    month: Number(valueByType.month),
+    year: Number(valueByType.year),
+  };
+};
 
 export const parseApiTimestamp = (value: unknown): Date | null => {
   if (value === null || value === undefined) return null;
@@ -22,28 +49,38 @@ export const parseApiTimestamp = (value: unknown): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-export const formatSmartTimestamp = (value: unknown): string => {
+type FormatSmartTimestampOptions = {
+  timeZone?: string;
+};
+
+export const formatSmartTimestamp = (
+  value: unknown,
+  options: FormatSmartTimestampOptions = {},
+): string => {
   const date = parseApiTimestamp(value);
   if (!date) return value ? String(value) : "";
 
+  const timeZone = options.timeZone ?? DEFAULT_TIME_ZONE;
   const now = new Date();
+  const dateParts = getDateParts(date, timeZone);
+  const nowParts = getDateParts(now, timeZone);
 
   const time = new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
     hour12: false,
     minute: "2-digit",
     second: "2-digit",
-    timeZone: "UTC",
+    timeZone,
   }).format(date);
 
   const isToday =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
+    dateParts.year === nowParts.year &&
+    dateParts.month === nowParts.month &&
+    dateParts.day === nowParts.day;
 
   if (isToday) return time;
 
-  const sameYear = date.getFullYear() === now.getFullYear();
+  const sameYear = dateParts.year === nowParts.year;
   if (sameYear) {
     return new Intl.DateTimeFormat(undefined, {
       day: "2-digit",
@@ -52,10 +89,14 @@ export const formatSmartTimestamp = (value: unknown): string => {
       hour12: false,
       minute: "2-digit",
       second: "2-digit",
-      timeZone: "UTC",
+      timeZone,
     }).format(date);
   }
 
-  const ddmmyyyy = `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+  const ddmmyyyy = [
+    pad2(dateParts.day),
+    pad2(dateParts.month),
+    dateParts.year,
+  ].join("/");
   return `${ddmmyyyy} ${time}`;
 };

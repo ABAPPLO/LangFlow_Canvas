@@ -10,6 +10,8 @@ import {
   pickFirstNumber,
 } from "./flowTraceColumnsHelpers";
 
+const FLOW_TRACE_TIME_ZONE = "Asia/Shanghai";
+
 type TaskIdCellParams = {
   value?: string | null;
   data?: {
@@ -113,14 +115,17 @@ export function createFlowTracesColumns({
     },
 
     {
-      headerName: "Timestamp (UTC)",
+      headerName: "Timestamp (UTC+8)",
       field: "startTime",
       flex: 0.5,
       minWidth: 70,
       filter: false,
       sortable: false,
       editable: false,
-      valueGetter: (params) => formatSmartTimestamp(params.data?.startTime),
+      valueGetter: (params) =>
+        formatSmartTimestamp(params.data?.startTime, {
+          timeZone: FLOW_TRACE_TIME_ZONE,
+        }),
     },
     {
       headerName: "Input",

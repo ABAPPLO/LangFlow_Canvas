@@ -1,3 +1,12 @@
+.git
+.github
+.venv
+node_modules
+docs
+deploy
+docker
+docker_example
+scripts/aws
 src/frontend/node_modules
 src/frontend/build
 src/frontend/coverage
