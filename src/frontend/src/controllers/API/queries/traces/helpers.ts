@@ -86,6 +86,7 @@ function convertTrace(apiTrace: TraceApiResponse): Trace | null {
     totalCost: apiTrace.totalCost,
     flowId: apiTrace.flowId,
     sessionId: apiTrace.sessionId,
+    taskId: apiTrace.taskId,
     input: apiTrace.input,
     output: apiTrace.output,
     spans: apiTrace.spans.map(convertSpan),

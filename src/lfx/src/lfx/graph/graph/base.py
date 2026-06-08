@@ -658,6 +658,13 @@ class Graph:
 
         self._run_id = str(run_id)
 
+    def _get_request_task_id(self) -> str | None:
+        request_variables = self.context.get("request_variables") if self.context else None
+        if not isinstance(request_variables, dict):
+            return None
+        task_id = request_variables.get("TASK-ID") or request_variables.get("TASK_ID")
+        return task_id if isinstance(task_id, str) and task_id else None
+
     async def initialize_run(self) -> None:
         if not self._run_id:
             self.set_run_id()
@@ -669,6 +676,7 @@ class Graph:
                 user_id=self.user_id,
                 session_id=self.session_id,
                 flow_id=self.flow_id,
+                task_id=self._get_request_task_id(),
             )
 
     def _end_all_traces_async(self, outputs: dict[str, Any] | None = None, error: Exception | None = None) -> None:

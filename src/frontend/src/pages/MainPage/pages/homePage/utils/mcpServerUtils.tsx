@@ -1,4 +1,5 @@
 import type { MCPTransport } from "@/controllers/API/queries/mcp/use-patch-install-mcp";
+import type { MCPInputParameterType } from "@/types/mcp";
 import { parseString } from "@/utils/stringManipulation";
 
 type RawFlow = {
@@ -8,6 +9,7 @@ type RawFlow = {
   name?: string;
   description?: string;
   mcp_enabled?: boolean;
+  mcp_input_parameters?: MCPInputParameterType[];
 };
 
 export type ToolFlow = {
@@ -18,6 +20,7 @@ export type ToolFlow = {
   display_description?: string;
   status: boolean;
   tags?: string[];
+  mcp_input_parameters?: MCPInputParameterType[];
 };
 
 type InstalledClient = { installed?: boolean; name?: string };
@@ -168,6 +171,7 @@ export const mapFlowsToTools = (flows: RawFlow[] = []): ToolFlow[] =>
     display_description: flow.description,
     status: flow.mcp_enabled ?? false,
     tags: [flow.name ?? ""],
+    mcp_input_parameters: flow.mcp_input_parameters ?? [],
   }));
 
 export const extractInstalledClientNames = (

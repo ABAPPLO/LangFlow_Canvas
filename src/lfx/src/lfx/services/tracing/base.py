@@ -37,6 +37,7 @@ class BaseTracingService(Service, ABC):
         session_id: str | None,
         project_name: str | None = None,
         flow_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Start tracers for a graph run.
 
@@ -47,6 +48,7 @@ class BaseTracingService(Service, ABC):
             session_id: Session identifier (optional)
             project_name: Project name (optional)
             flow_id: Flow identifier (optional)
+            task_id: Request task identifier (optional)
         """
 
     @abstractmethod

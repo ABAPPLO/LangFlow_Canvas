@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -31,6 +32,10 @@ SORT_DISPATCHER = {
     "asc": asc,
     "desc": desc,
 }
+DEFAULT_MCP_PARAMETER_NAME = "default_parameter"
+DEFAULT_MCP_PARAMETER_DESCRIPTION = (
+    "请填入参数描述, 例如说明该参数应传入什么内容, 格式要求, 以及复杂对象是否需要先序列化为 JSON 字符串。"
+)
 
 
 async def list_flows(*, user_id: str | None = None) -> list[Data]:
@@ -437,44 +442,187 @@ async def generate_unique_flow_name(flow_name, user_id, session):
         n += 1
 
 
-def json_schema_from_flow(flow: Flow) -> dict:
-    """Generate JSON schema from flow input nodes."""
+def _snake_case_parameter_name(value: str | None, fallback: str) -> str:
+    if value:
+        normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value.strip())
+        normalized = re.sub(r"[^\w]+", "_", normalized.lower(), flags=re.UNICODE)
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+        if normalized:
+            return normalized
+    return fallback
+
+
+def _unique_parameter_name(base_name: str, used_names: set[str]) -> str:
+    candidate = base_name
+    suffix = 2
+    while candidate in used_names:
+        candidate = f"{base_name}_{suffix}"
+        suffix += 1
+    used_names.add(candidate)
+    return candidate
+
+
+def _is_defaultish_parameter_name(parameter: dict[str, Any], workflow_parameter_name: str | None = None) -> bool:
+    parameter_name = parameter.get("parameter_name")
+    component_display_name = parameter.get("component_display_name")
+    if not isinstance(parameter_name, str):
+        return False
+    if re.fullmatch(rf"{DEFAULT_MCP_PARAMETER_NAME}(?:_\d+)?", parameter_name):
+        return True
+    if isinstance(workflow_parameter_name, str) and re.sub(r"_+", "_", parameter_name) == workflow_parameter_name:
+        return True
+    if not isinstance(component_display_name, str):
+        return False
+    expected_name = _snake_case_parameter_name(component_display_name, "")
+    return re.sub(r"_+", "_", parameter_name) == expected_name
+
+
+def _is_defaultish_parameter_description(
+    parameter: dict[str, Any], workflow_parameter_description: str | None = None
+) -> bool:
+    description = parameter.get("parameter_description")
+    if not isinstance(description, str) or not description:
+        return True
+    if isinstance(workflow_parameter_description, str) and description == workflow_parameter_description:
+        return True
+    generic_descriptions = {
+        "Get chat inputs from the Playground.",
+        "Get user text inputs.",
+        "Text to be passed as input.",
+        DEFAULT_MCP_PARAMETER_DESCRIPTION,
+    }
+    component_id = parameter.get("component_id")
+    component_display_name = parameter.get("component_display_name")
+    return description in {
+        *generic_descriptions,
+        component_display_name,
+        f"Input for {component_id}",
+    }
+
+
+def _get_input_node_type(node) -> str:
+    return str(node.id).split("-", maxsplit=1)[0]
+
+
+def _generate_default_mcp_input_parameters(flow: Flow, *, include_workflow_defaults: bool) -> list[dict[str, Any]]:
+    """Generate first-use MCP input mappings for ChatInput and TextInput nodes."""
     from lfx.graph.graph.base import Graph
 
-    # Get the flow's data which contains the nodes and their configurations
     flow_data = flow.data or {}
-
     graph = Graph.from_payload(flow_data)
-    input_nodes = [vertex for vertex in graph.vertices if vertex.is_input]
+    input_nodes = [
+        vertex
+        for vertex in graph.vertices
+        if vertex.is_input and _get_input_node_type(vertex) in {"ChatInput", "TextInput"}
+    ]
+
+    parameters: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+    for node in input_nodes:
+        node_data = node.data["node"]
+        template = node_data.get("template") or {}
+        input_value = template.get("input_value") if isinstance(template, dict) else None
+        input_value = input_value if isinstance(input_value, dict) else {}
+        component_type = _get_input_node_type(node)
+        display_name = node_data.get("display_name") or input_value.get("display_name") or component_type
+        parameter_name = _unique_parameter_name(DEFAULT_MCP_PARAMETER_NAME, used_names)
+        parameter = {
+            "parameter_name": parameter_name,
+            "parameter_description": DEFAULT_MCP_PARAMETER_DESCRIPTION,
+            "parameter_type": "string",
+            "required": True,
+            "component_id": node.id,
+            "component_display_name": display_name,
+            "field": "input_value",
+        }
+        if include_workflow_defaults:
+            parameter["_workflow_parameter_name"] = _snake_case_parameter_name(display_name, "")
+            parameter["_workflow_parameter_description"] = (
+                node_data.get("description")
+                or input_value.get("info")
+                or input_value.get("display_name")
+                or display_name
+                or f"Input for {node.id}"
+            )
+
+        parameters.append(parameter)
+
+    return parameters
+
+
+def generate_default_mcp_input_parameters(flow: Flow) -> list[dict[str, Any]]:
+    return _generate_default_mcp_input_parameters(flow, include_workflow_defaults=False)
+
+
+def get_mcp_input_parameters(flow: Flow) -> list[dict[str, Any]]:
+    defaults = _generate_default_mcp_input_parameters(flow, include_workflow_defaults=True)
+    parameters = flow.mcp_input_parameters or []
+    if not parameters:
+        return [
+            {key: value for key, value in default_parameter.items() if not key.startswith("_workflow_")}
+            for default_parameter in defaults
+        ]
+
+    saved_by_component_id = {
+        parameter.get("component_id"): parameter
+        for parameter in parameters
+        if isinstance(parameter, dict) and parameter.get("component_id")
+    }
+    reconciled: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+
+    for default_parameter in defaults:
+        workflow_parameter_name = default_parameter.pop("_workflow_parameter_name", None)
+        workflow_parameter_description = default_parameter.pop("_workflow_parameter_description", None)
+        component_id = default_parameter["component_id"]
+        saved_parameter = saved_by_component_id.get(component_id)
+        if not isinstance(saved_parameter, dict):
+            parameter = default_parameter.copy()
+        else:
+            parameter = {**default_parameter, **saved_parameter}
+            parameter["component_display_name"] = default_parameter["component_display_name"]
+            parameter["field"] = "input_value"
+            parameter["parameter_type"] = "string"
+            if _is_defaultish_parameter_name(saved_parameter, workflow_parameter_name):
+                parameter["parameter_name"] = default_parameter["parameter_name"]
+            if _is_defaultish_parameter_description(saved_parameter, workflow_parameter_description):
+                parameter["parameter_description"] = default_parameter["parameter_description"]
+
+        parameter["parameter_name"] = _unique_parameter_name(str(parameter["parameter_name"]), used_names)
+        reconciled.append(parameter)
+
+    return reconciled
+
+
+def json_schema_from_flow(flow: Flow) -> dict:
+    """Generate MCP input schema from saved MCP parameter mappings."""
+    parameters = get_mcp_input_parameters(flow)
 
     properties = {}
     required = []
-    for node in input_nodes:
-        node_data = node.data["node"]
-        template = node_data["template"]
+    for parameter in parameters:
+        if not isinstance(parameter, dict):
+            continue
+        parameter_name = parameter.get("parameter_name")
+        component_id = parameter.get("component_id")
+        if not parameter_name or not component_id:
+            continue
+        parameter_type = parameter.get("parameter_type") or "string"
+        if parameter_type != "string":
+            logger.warning(f"Unsupported MCP parameter type '{parameter_type}' for {flow.id}; defaulting to string")
+            parameter_type = "string"
+        property_schema = {
+            "type": "string",
+            "description": parameter.get("parameter_description") or f"Input for {parameter_name}",
+        }
+        if parameter.get("required", False):
+            property_schema["minLength"] = 1
+            required.append(parameter_name)
+        properties[parameter_name] = property_schema
 
-        for field_name, field_data in template.items():
-            if isinstance(field_data, dict) and field_data.get("show", False) and not field_data.get("advanced", False):
-                field_type = field_data.get("type", "string")
-                properties[field_name] = {
-                    "type": field_type,
-                    "description": field_data.get("info", f"Input for {field_name}"),
-                }
-                # Update field_type in properties after determining the JSON Schema type
-                if field_type == "str":
-                    field_type = "string"
-                elif field_type == "int":
-                    field_type = "integer"
-                elif field_type == "float":
-                    field_type = "number"
-                elif field_type == "bool":
-                    field_type = "boolean"
-                else:
-                    logger.warning(f"Unknown field type: {field_type} defaulting to string")
-                    field_type = "string"
-                properties[field_name]["type"] = field_type
-
-                if field_data.get("required", False):
-                    required.append(field_name)
-
-    return {"type": "object", "properties": properties, "required": required}
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }

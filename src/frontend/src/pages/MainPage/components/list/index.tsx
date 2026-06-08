@@ -178,6 +178,9 @@ const ListComponent = ({
         </div>
 
         <div className="ml-5 flex items-center gap-2">
+          <span className="font-mono text-xs text-muted-foreground">
+            {flowData.folder_id ?? folderId ?? ""}/{flowData.id}
+          </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

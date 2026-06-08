@@ -27,7 +27,7 @@ class OriginalVideoURLComponent(Component):
         MessageTextInput(
             name="api_url",
             display_name="Parse API URL",
-            value="http://119.45.237.10:12006/parse_content",
+            value="http://43.139.175.114:12007/api/v1/parse_content",
             advanced=True,
         ),
         IntInput(
@@ -43,11 +43,14 @@ class OriginalVideoURLComponent(Component):
     ]
 
     def _extract_video_url(self, payload: dict[str, Any]) -> str:
-        top_level_url = payload.get("url")
+        response_data = payload.get("data")
+        source = response_data if isinstance(response_data, dict) else payload
+
+        top_level_url = source.get("url")
         if isinstance(top_level_url, str) and top_level_url.strip():
             return top_level_url.strip()
 
-        videos = payload.get("videos")
+        videos = source.get("videos")
         if isinstance(videos, list):
             for video in videos:
                 if not isinstance(video, dict):

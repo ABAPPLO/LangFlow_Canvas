@@ -77,6 +77,38 @@ describe("dateTime", () => {
       expect(formatSmartTimestamp(date)).toBe(`31/12/2024 ${time}`);
     });
 
+    it("formats timestamps in the requested timezone", () => {
+      const date = new Date("2025-02-25T08:15:00Z");
+      const expected = new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit",
+        hour12: false,
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "Asia/Shanghai",
+      }).format(date);
+
+      expect(
+        formatSmartTimestamp(date, { timeZone: "Asia/Shanghai" }),
+      ).toBe(expected);
+    });
+
+    it("uses the requested timezone for calendar comparisons", () => {
+      const date = new Date("2024-12-31T23:59:00Z");
+      const expected = new Intl.DateTimeFormat(undefined, {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        hour12: false,
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "Asia/Shanghai",
+      }).format(date);
+
+      expect(
+        formatSmartTimestamp(date, { timeZone: "Asia/Shanghai" }),
+      ).toBe(expected);
+    });
+
     it("returns original string for invalid input", () => {
       expect(formatSmartTimestamp("not-a-date")).toBe("not-a-date");
     });

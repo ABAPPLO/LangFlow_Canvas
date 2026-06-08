@@ -9,13 +9,15 @@ from lfx.components._importing import import_mod
 if TYPE_CHECKING:
     from lfx.components.tencent.cos_uploader import COSUploaderComponent
     from lfx.components.tencent.remote_video_to_cos import RemoteVideoToCOSComponent
+    from lfx.components.tencent.tencent_mps_url_merger_watermark import TencentMPSURLMergerWatermarkComponent
 
 _dynamic_imports = {
     "COSUploaderComponent": "cos_uploader",
     "RemoteVideoToCOSComponent": "remote_video_to_cos",
+    "TencentMPSURLMergerWatermarkComponent": "tencent_mps_url_merger_watermark",
 }
 
-__all__ = ["COSUploaderComponent", "RemoteVideoToCOSComponent"]
+__all__ = ["COSUploaderComponent", "RemoteVideoToCOSComponent", "TencentMPSURLMergerWatermarkComponent"]
 
 
 def __getattr__(attr_name: str) -> Any:

@@ -80,6 +80,12 @@ class TraceBase(SQLModel):
         index=True,
         description="Session ID for grouping traces",
     )
+    task_id: str | None = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Request task ID used to correlate traces across chained workflow runs",
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -154,6 +160,7 @@ class TraceRead(BaseModel):
     total_tokens: int
     flow_id: UUID
     session_id: str
+    task_id: str | None = None
     input: dict[str, Any] | None = None
     output: dict[str, Any] | None = None
     spans: list[SpanReadResponse] = PydanticField(default_factory=list)
@@ -179,6 +186,7 @@ class TraceSummaryRead(BaseModel):
     total_tokens: int
     flow_id: UUID
     session_id: str
+    task_id: str | None = None
     input: dict[str, Any] | None = None
     output: dict[str, Any] | None = None
 
@@ -197,6 +205,7 @@ class TraceCreate(SQLModel):
     name: str
     flow_id: UUID
     session_id: str | None = None
+    task_id: str | None = None
 
 
 class SpanBase(SQLModel):

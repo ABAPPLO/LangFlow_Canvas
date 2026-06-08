@@ -11,16 +11,25 @@ from lfx.base.mcp.util import (
     MCPStdioClient,
     MCPStreamableHttpClient,
     create_input_schema_from_json_schema,
+    normalize_headers,
     update_tools,
 )
 from lfx.custom.custom_component.component_with_cache import ComponentWithCache
+from lfx.field_typing.range_spec import RangeSpec
 from lfx.inputs.inputs import InputTypes  # noqa: TC001
-from lfx.io import BoolInput, DictInput, DropdownInput, McpInput, MessageTextInput, Output
+from lfx.io import BoolInput, DictInput, DropdownInput, IntInput, McpInput, MessageTextInput, Output
 from lfx.io.schema import flatten_schema, schema_to_langflow_inputs
 from lfx.log.logger import logger
 from lfx.schema.dataframe import DataFrame
 from lfx.schema.message import Message
 from lfx.services.deps import get_storage_service, session_scope
+
+REQUEST_CONTEXT_HEADER_NAMES = {
+    "x-langflow-global-var-user-wallet-id",
+    "x-langflow-global-var-task-id",
+}
+DEFAULT_TOOL_CALL_TIMEOUT_MINUTES = 30
+DEFAULT_TOOL_CALL_MAX_RETRIES = 0
 
 
 def resolve_mcp_config(
@@ -46,6 +55,24 @@ def resolve_mcp_config(
     if server_config_from_db:
         return server_config_from_db
     return server_config_from_value
+
+
+def is_internal_project_mcp_server(server_config: dict | None) -> bool:
+    if not server_config:
+        return False
+    candidates: list[str] = []
+    if server_config.get("url"):
+        candidates.append(str(server_config["url"]))
+    candidates.extend(str(arg) for arg in server_config.get("args", []) or [])
+    return any("/api/v1/mcp/project/" in candidate for candidate in candidates)
+
+
+def remove_request_context_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {key: value for key, value in headers.items() if key.lower() not in REQUEST_CONTEXT_HEADER_NAMES}
+
+
+def headers_involve_request_context(headers: dict[str, str]) -> bool:
+    return any(key.lower() in REQUEST_CONTEXT_HEADER_NAMES for key in headers)
 
 
 class MCPToolsComponent(ComponentWithCache):
@@ -84,6 +111,8 @@ class MCPToolsComponent(ComponentWithCache):
         "tool_mode",
         "tool_placeholder",
         "mcp_server",
+        "tool_call_timeout_minutes",
+        "tool_call_max_retries",
         "tool",
         "use_cache",
         "verify_ssl",
@@ -102,6 +131,22 @@ class MCPToolsComponent(ComponentWithCache):
             display_name="MCP Server",
             info="Select the MCP Server that will be used by this component",
             real_time_refresh=True,
+        ),
+        IntInput(
+            name="tool_call_timeout_minutes",
+            display_name="Tool Timeout (minutes)",
+            info="Maximum time to wait for a single MCP tool call before it is treated as failed.",
+            value=DEFAULT_TOOL_CALL_TIMEOUT_MINUTES,
+            range_spec=RangeSpec(min=1, step=1, step_type="int"),
+            advanced=False,
+        ),
+        IntInput(
+            name="tool_call_max_retries",
+            display_name="Tool Max Retries",
+            info="Number of times to retry after the first MCP tool call attempt fails. Use 0 for long-running tools.",
+            value=DEFAULT_TOOL_CALL_MAX_RETRIES,
+            range_spec=RangeSpec(min=0, step=1, step_type="int"),
+            advanced=False,
         ),
         BoolInput(
             name="use_cache",
@@ -158,6 +203,32 @@ class MCPToolsComponent(ComponentWithCache):
         Output(display_name="Response", name="response", method="build_output"),
     ]
 
+    def _get_tool_call_timeout_seconds(self) -> float:
+        timeout_minutes_value = getattr(self, "tool_call_timeout_minutes", DEFAULT_TOOL_CALL_TIMEOUT_MINUTES)
+        try:
+            timeout_minutes = (
+                DEFAULT_TOOL_CALL_TIMEOUT_MINUTES
+                if timeout_minutes_value in (None, "")
+                else int(timeout_minutes_value)
+            )
+        except (TypeError, ValueError):
+            timeout_minutes = DEFAULT_TOOL_CALL_TIMEOUT_MINUTES
+        return float(max(1, timeout_minutes) * 60)
+
+    def _get_tool_call_max_retries(self) -> int:
+        max_retries_value = getattr(self, "tool_call_max_retries", DEFAULT_TOOL_CALL_MAX_RETRIES)
+        try:
+            max_retries = DEFAULT_TOOL_CALL_MAX_RETRIES if max_retries_value in (None, "") else int(max_retries_value)
+        except (TypeError, ValueError):
+            max_retries = DEFAULT_TOOL_CALL_MAX_RETRIES
+        return max(0, max_retries)
+
+    def _get_tool_call_options(self) -> dict[str, int | float]:
+        return {
+            "tool_call_timeout_seconds": self._get_tool_call_timeout_seconds(),
+            "tool_call_max_retries": self._get_tool_call_max_retries(),
+        }
+
     async def _validate_schema_inputs(self, tool_obj) -> list[InputTypes]:
         """Validate and process schema inputs for a tool."""
         try:
@@ -200,30 +271,7 @@ class MCPToolsComponent(ComponentWithCache):
 
         # Check if caching is enabled, default to False
         use_cache = getattr(self, "use_cache", False)
-
-        # Use shared cache if available and caching is enabled
-        cached = None
-        if use_cache:
-            servers_cache = safe_cache_get(self._shared_component_cache, "servers", {})
-            cached = servers_cache.get(server_name) if isinstance(servers_cache, dict) else None
-
-        if cached is not None:
-            try:
-                self.tools = cached["tools"]
-                self.tool_names = cached["tool_names"]
-                self._tool_cache = cached["tool_cache"]
-                server_config_from_value = cached["config"]
-            except (TypeError, KeyError, AttributeError) as e:
-                # Handle corrupted cache data by clearing it and continuing to fetch fresh tools
-                msg = f"Unable to use cached data for MCP Server{server_name}: {e}"
-                await logger.awarning(msg)
-                # Clear the corrupted cache entry
-                current_servers_cache = safe_cache_get(self._shared_component_cache, "servers", {})
-                if isinstance(current_servers_cache, dict) and server_name in current_servers_cache:
-                    current_servers_cache.pop(server_name)
-                    safe_cache_set(self._shared_component_cache, "servers", current_servers_cache)
-            else:
-                return self.tools, {"name": server_name, "config": server_config_from_value}
+        disable_session_cache = False
 
         try:
             # Try to fetch from database first to ensure we have the latest config
@@ -272,34 +320,58 @@ class MCPToolsComponent(ComponentWithCache):
                 verify_ssl = getattr(self, "verify_ssl", True)
                 server_config["verify_ssl"] = verify_ssl
 
-            # Merge headers from component input with server config headers
-            # Component headers take precedence over server config headers
+            # Merge headers from component input with server config headers.
+            # Component headers take precedence for ordinary headers.
+            existing_headers = normalize_headers(server_config.get("headers", {}) or {})
             component_headers = getattr(self, "headers", None) or []
-            if component_headers:
-                # Convert list of {"key": k, "value": v} to dict
-                component_headers_dict = {}
-                if isinstance(component_headers, list):
-                    for item in component_headers:
-                        if isinstance(item, dict) and "key" in item and "value" in item:
-                            component_headers_dict[item["key"]] = item["value"]
-                elif isinstance(component_headers, dict):
-                    component_headers_dict = component_headers
+            component_headers_dict = normalize_headers(component_headers)
+            server_config["headers"] = {**existing_headers, **component_headers_dict}
 
-                if component_headers_dict:
-                    existing_headers = server_config.get("headers", {}) or {}
-                    # Ensure existing_headers is a dict (convert from list if needed)
-                    if isinstance(existing_headers, list):
-                        existing_dict = {}
-                        for item in existing_headers:
-                            if isinstance(item, dict) and "key" in item and "value" in item:
-                                existing_dict[item["key"]] = item["value"]
-                        existing_headers = existing_dict
-                    merged_headers = {**existing_headers, **component_headers_dict}
-                    server_config["headers"] = merged_headers
             # Get request_variables from graph context for global variable resolution
             request_variables = None
             if hasattr(self, "graph") and self.graph and hasattr(self.graph, "context"):
-                request_variables = self.graph.context.get("request_variables")
+                request_variables = self.graph.context.get("request_variables") or None
+
+            if is_internal_project_mcp_server(server_config):
+                headers = remove_request_context_headers(normalize_headers(server_config.get("headers", {})))
+                if request_variables and request_variables.get("USER-WALLET-ID"):
+                    headers["x-langflow-global-var-user-wallet-id"] = "USER-WALLET-ID"
+                if request_variables and request_variables.get("TASK-ID"):
+                    headers["x-langflow-global-var-task-id"] = "TASK-ID"
+                server_config["headers"] = headers
+
+            final_headers = normalize_headers(server_config.get("headers", {}))
+            if headers_involve_request_context(final_headers):
+                use_cache = False
+                disable_session_cache = True
+            tool_call_options = self._get_tool_call_options()
+
+            if use_cache:
+                servers_cache = safe_cache_get(self._shared_component_cache, "servers", {})
+                cached = servers_cache.get(server_name) if isinstance(servers_cache, dict) else None
+                if cached is not None and cached.get("tool_call_options") != tool_call_options:
+                    msg = f"Ignoring cached tools for MCP Server {server_name}: tool call options changed"
+                    await logger.adebug(msg)
+                    current_servers_cache = safe_cache_get(self._shared_component_cache, "servers", {})
+                    if isinstance(current_servers_cache, dict) and server_name in current_servers_cache:
+                        current_servers_cache.pop(server_name)
+                        safe_cache_set(self._shared_component_cache, "servers", current_servers_cache)
+                    cached = None
+                if cached is not None:
+                    try:
+                        self.tools = cached["tools"]
+                        self.tool_names = cached["tool_names"]
+                        self._tool_cache = cached["tool_cache"]
+                        server_config = cached["config"]
+                    except (TypeError, KeyError, AttributeError) as e:
+                        msg = f"Unable to use cached data for MCP Server{server_name}: {e}"
+                        await logger.awarning(msg)
+                        current_servers_cache = safe_cache_get(self._shared_component_cache, "servers", {})
+                        if isinstance(current_servers_cache, dict) and server_name in current_servers_cache:
+                            current_servers_cache.pop(server_name)
+                            safe_cache_set(self._shared_component_cache, "servers", current_servers_cache)
+                    else:
+                        return self.tools, {"name": server_name, "config": server_config}
 
             # Only load global variables from database if we have headers that might use them
             # This avoids unnecessary database queries when headers are empty
@@ -323,6 +395,8 @@ class MCPToolsComponent(ComponentWithCache):
                 mcp_stdio_client=self.stdio_client,
                 mcp_streamable_http_client=self.streamable_http_client,
                 request_variables=request_variables,
+                disable_session_cache=disable_session_cache,
+                **tool_call_options,
             )
 
             self.tool_names = [tool.name for tool in tool_list if hasattr(tool, "name")]
@@ -336,6 +410,7 @@ class MCPToolsComponent(ComponentWithCache):
                     "tool_names": self.tool_names,
                     "tool_cache": tool_cache,
                     "config": server_config,
+                    "tool_call_options": tool_call_options,
                 }
 
                 # Safely update the servers cache

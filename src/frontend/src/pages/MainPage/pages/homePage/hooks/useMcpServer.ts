@@ -207,6 +207,7 @@ export const useMcpServer = ({
           action_name: flow.name,
           action_description: flow.description,
           mcp_enabled: !!flow.status,
+          mcp_input_parameters: flow.mcp_input_parameters ?? [],
         }),
       );
       patchFlowsMCP({
@@ -226,6 +227,7 @@ export const useMcpServer = ({
         action_name: f.action_name,
         action_description: f.action_description,
         mcp_enabled: f.mcp_enabled,
+        mcp_input_parameters: f.mcp_input_parameters,
       }));
 
       // Clear cached composer URL data BEFORE making the request to ensure fresh errors are fetched
