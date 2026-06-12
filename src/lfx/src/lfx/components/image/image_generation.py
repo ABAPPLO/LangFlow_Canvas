@@ -11,9 +11,8 @@ from lfx.base.models.unified_models import (
 from lfx.custom import Component
 from lfx.inputs import (
     DropdownInput,
-    IntInput,
 )
-from lfx.io import MessageInput, ModelInput, MultilineInput, Output
+from lfx.io import MessageInput, MessageTextInput, ModelInput, MultilineInput, Output
 from lfx.schema.data import Data
 from lfx.schema.message import Message
 
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # Default timeout for image generation requests (5 minutes)
 IMAGE_GEN_TIMEOUT = 300
-SIZE_OPTION_PART_COUNT = 3
 MAX_REFERENCE_IMAGES = 14
 
 MODE_TEXT = "Text to Image"
@@ -223,21 +221,11 @@ class ImageGenerationComponent(Component):
         ),
         # --- Generation parameters ---
         DropdownInput(
-            name="image_size",
-            display_name="Size",
-            info="Output size. Options change according to the selected image model.",
-            options=DEFAULT_SIZE_OPTIONS,
-            value=DEFAULT_GENERIC_SIZE,
-            real_time_refresh=True,
-        ),
-        DropdownInput(
             name="resolution",
             display_name="Resolution",
-            info="Output image resolution level.",
+            info="Output image resolution.",
             options=["1K", "2K", "4K"],
             value="2K",
-            advanced=True,
-            show=False,
         ),
         DropdownInput(
             name="ratio",
@@ -245,14 +233,13 @@ class ImageGenerationComponent(Component):
             info="Output image aspect ratio.",
             options=["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"],
             value="1:1",
-            advanced=True,
-            show=False,
         ),
-        IntInput(
-            name="n",
-            display_name="Number of Images",
-            info="Number of images to generate.",
-            value=1,
+        MessageTextInput(
+            name="custom_size",
+            display_name="Custom Size (WxH)",
+            info="Override resolution + ratio with a custom size, e.g. 1920x1080. Leave empty to use resolution + ratio.",
+            placeholder="e.g. 1920x1080",
+            advanced=True,
         ),
         DropdownInput(
             name="response_format",
@@ -353,42 +340,85 @@ class ImageGenerationComponent(Component):
         compact = normalized.replace("-", "")
         return any(keyword in normalized or keyword in compact for keyword in GPT_IMAGE_2_MODEL_KEYWORDS)
 
+    @staticmethod
+    def _parse_size_options(options: list[str]) -> tuple[list[str], list[str], dict[tuple[str, str], str]]:
+        """Parse 'RES | RATIO | WxH' options into ordered resolution/ratio lists and size map."""
+        resolutions: list[str] = []
+        ratios: list[str] = []
+        size_map: dict[tuple[str, str], str] = {}
+        seen_res: set[str] = set()
+        seen_ratio: set[str] = set()
+
+        for opt in options:
+            opt = opt.strip()
+            if "|" not in opt:
+                continue
+            parts = [p.strip() for p in opt.split("|")]
+            if len(parts) < 3:
+                continue
+            res, ratio, size = parts[0], parts[1], parts[2]
+            if res not in seen_res:
+                seen_res.add(res)
+                resolutions.append(res)
+            if ratio not in seen_ratio:
+                seen_ratio.add(ratio)
+                ratios.append(ratio)
+            size_map[(res, ratio)] = size
+
+        return resolutions, ratios, size_map
+
+    def _get_model_size_options(self) -> list[str]:
+        """Get the current model's size options list."""
+        model_name = self._get_model_name_from_value(self.model)
+        if self._is_seedream_5_model(model_name):
+            return SEEDREAM_5_SIZE_OPTIONS
+        if self._is_gemini_31_flash_image_model(model_name):
+            return GEMINI_31_FLASH_IMAGE_SIZE_OPTIONS
+        if self._is_gemini_3_pro_image_model(model_name):
+            return GEMINI_3_PRO_IMAGE_SIZE_OPTIONS
+        if self._is_gpt_image_2_model(model_name):
+            return GPT_IMAGE_2_COMMON_SIZE_OPTIONS
+        return DEFAULT_SIZE_OPTIONS
+
     def _update_generation_parameter_options(self, build_config: dict, model_value=None) -> None:
         model_value = model_value if model_value is not None else build_config.get("model", {}).get("value")
         model_name = self._get_model_name_from_value(model_value)
 
         if self._is_seedream_5_model(model_name):
             options = SEEDREAM_5_SIZE_OPTIONS
-            default = DEFAULT_SEEDREAM_SIZE
         elif self._is_gemini_31_flash_image_model(model_name):
             options = GEMINI_31_FLASH_IMAGE_SIZE_OPTIONS
-            default = DEFAULT_GEMINI_IMAGE_SIZE
         elif self._is_gemini_3_pro_image_model(model_name):
             options = GEMINI_3_PRO_IMAGE_SIZE_OPTIONS
-            default = DEFAULT_GEMINI_IMAGE_SIZE
         elif self._is_gpt_image_2_model(model_name):
             options = GPT_IMAGE_2_COMMON_SIZE_OPTIONS
-            default = DEFAULT_GPT_IMAGE_2_SIZE
         else:
             options = DEFAULT_SIZE_OPTIONS
-            default = DEFAULT_GENERIC_SIZE
 
-        if "image_size" in build_config:
-            current_value = build_config["image_size"].get("value")
-            build_config["image_size"]["options"] = options
-            build_config["image_size"]["value"] = current_value if current_value in options else default
-            build_config["image_size"]["show"] = True
-            build_config["image_size"]["advanced"] = False
+        resolutions, ratios, _ = self._parse_size_options(options)
 
-        if "n" in build_config:
-            build_config["n"]["show"] = True
-            build_config["n"]["advanced"] = False
+        # Handle "auto" for GPT Image 2
+        has_auto = any(opt.strip() == "auto" for opt in options)
+        if has_auto:
+            resolutions = ["Auto"] + resolutions
+
+        # Fallback for options without structured "RES | RATIO | SIZE" format
+        if not resolutions:
+            resolutions = ["1K", "2K", "4K"]
+        if not ratios:
+            ratios = ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"]
 
         if "resolution" in build_config:
-            build_config["resolution"]["show"] = False
+            current = build_config["resolution"].get("value")
+            build_config["resolution"]["options"] = resolutions
+            build_config["resolution"]["value"] = current if current in resolutions else resolutions[0]
+            build_config["resolution"]["show"] = True
 
         if "ratio" in build_config:
-            build_config["ratio"]["show"] = False
+            current = build_config["ratio"].get("value")
+            build_config["ratio"]["options"] = ratios
+            build_config["ratio"]["value"] = current if current in ratios else ratios[0]
+            build_config["ratio"]["show"] = True
 
         if "response_format" in build_config:
             build_config["response_format"]["show"] = False
@@ -527,33 +557,30 @@ class ImageGenerationComponent(Component):
             raise ValueError(msg)
         return urls
 
-    @staticmethod
-    def _extract_api_size(size_value: str) -> str:
-        value = size_value.strip()
-        if value == "auto":
-            return value
-        if "|" in value:
-            return value.rsplit("|", 1)[-1].strip()
-        return value.split()[0]
-
-    @staticmethod
-    def _extract_image_size_config(size_value: str) -> tuple[str | None, str | None]:
-        value = size_value.strip()
-        if "|" not in value:
-            return None, None
-        parts = [part.strip() for part in value.split("|")]
-        if len(parts) < SIZE_OPTION_PART_COUNT:
-            return None, None
-        image_size, aspect_ratio = parts[0], parts[1]
-        return image_size, aspect_ratio
-
     def _resolve_size(self) -> str:
-        """Compute actual size string from resolution + aspect ratio."""
-        image_size = getattr(self, "image_size", None)
-        if isinstance(image_size, str) and image_size.strip():
-            return self._extract_api_size(image_size)
+        """Resolve actual pixel size from custom_size, or resolution + ratio via model-specific size map."""
+        # Custom size takes priority
+        custom = getattr(self, "custom_size", "")
+        if isinstance(custom, str):
+            custom = custom.strip()
+        if custom:
+            return custom
 
-        res_base = {"1K": 1024, "2K": 2048, "4K": 4096}.get(self.resolution, 2048)
+        resolution = getattr(self, "resolution", "2K")
+        ratio = getattr(self, "ratio", "1:1")
+
+        if resolution == "Auto":
+            return "auto"
+
+        # Try model-specific size map
+        options = self._get_model_size_options()
+        _, _, size_map = self._parse_size_options(options)
+        size = size_map.get((resolution, ratio))
+        if size:
+            return size
+
+        # Fall back: compute from resolution + ratio
+        res_base = {"512": 512, "1K": 1024, "2K": 2048, "3K": 3072, "4K": 4096}.get(resolution, 2048)
         ratio_sizes = {
             "1:1": (res_base, res_base),
             "16:9": (res_base, int(res_base * 9 / 16)),
@@ -561,31 +588,19 @@ class ImageGenerationComponent(Component):
             "4:3": (res_base, int(res_base * 3 / 4)),
             "3:4": (int(res_base * 3 / 4), res_base),
             "21:9": (res_base, int(res_base * 9 / 21)),
+            "3:2": (res_base, int(res_base * 2 / 3)),
+            "2:3": (int(res_base * 2 / 3), res_base),
         }
-        w, h = ratio_sizes.get(self.ratio, (res_base, res_base))
-        # Round to nearest 64 for compatibility
+        w, h = ratio_sizes.get(ratio, (res_base, res_base))
         w = max(512, round(w / 64) * 64)
         h = max(512, round(h / 64) * 64)
         return f"{w}x{h}"
 
-    def _resolve_gpt_image_size(self) -> str:
-        """Map aspect ratio to valid gpt-image size (1024x1024, 1536x1024, 1024x1536)."""
-        image_size = getattr(self, "image_size", None)
-        if isinstance(image_size, str) and image_size.strip():
-            return self._extract_api_size(image_size)
-
-        landscape = {"16:9", "4:3", "21:9"}
-        portrait = {"9:16", "3:4"}
-        if self.ratio in landscape:
-            return "1536x1024"
-        if self.ratio in portrait:
-            return "1024x1536"
-        return "1024x1024"
-
     def _resolve_gemini_image_config(self) -> tuple[str | None, str | None]:
-        image_size = getattr(self, "image_size", None)
-        if isinstance(image_size, str) and image_size.strip():
-            return self._extract_image_size_config(image_size)
+        resolution = getattr(self, "resolution", None)
+        ratio = getattr(self, "ratio", None)
+        if resolution and resolution != "Auto" and ratio:
+            return resolution, ratio
         return None, None
 
     @staticmethod
@@ -742,11 +757,11 @@ class ImageGenerationComponent(Component):
                 self.log(msg, "ERROR")
                 raise ValueError(msg) from e
 
-        size = self._resolve_gpt_image_size()
+        size = self._resolve_size()
         data = {
             "prompt": prompt,
             "model": model_name,
-            "n": str(max(1, self.n)),
+            "n": "1",
             "size": size,
         }
 
@@ -842,13 +857,13 @@ class ImageGenerationComponent(Component):
 
         # --- Standard OpenAI images/generations flow ---
         is_gpt_image = self._is_gpt_image_model(model_name)
-        size = self._resolve_gpt_image_size() if is_gpt_image else self._resolve_size()
+        size = self._resolve_size()
 
         # Build request payload
         payload: dict = {
             "model": model_name,
             "prompt": prompt,
-            "n": max(1, self.n),
+            "n": 1,
             "size": size,
         }
 

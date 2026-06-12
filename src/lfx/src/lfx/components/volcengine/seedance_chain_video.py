@@ -1,4 +1,4 @@
-# ruff: noqa: BLE001, EM101, EM102, PERF401, PLR2004, RUF001, RUF003, S110, SIM105, TRY003, TRY004
+# ruff: noqa: BLE001, EM101, EM102, PERF401, PLR2004, RUF001, RUF003, TRY003, TRY004
 
 import json
 import time
@@ -15,8 +15,8 @@ from lfx.inputs import (
     MessageTextInput,
     MultilineInput,
     SecretStrInput,
+    StrInput,
 )
-from lfx.inputs.inputs import StrInput
 from lfx.io import ModelInput, Output
 from lfx.schema.data import Data
 from lfx.schema.message import Message
@@ -30,6 +30,15 @@ MAX_RETRY_DELAY = 30
 
 # 任务终态：含 cancelled，避免主动取消的任务被轮询到超时
 TERMINAL_FAIL_STATUSES = ("failed", "error", "expired", "cancelled")
+
+STAGE_NAMES = {
+    "parse_prompts": "解析提示词",
+    "parse_reference_images": "解析主体参考图",
+    "create_task": "提交生成任务",
+    "poll_task": "查询任务状态",
+    "extract_video_url": "解析视频 URL",
+    "client": "客户端请求",
+}
 
 
 class TaskError(Exception):
@@ -193,20 +202,12 @@ class SeedanceChainVideoComponent(Component):
             field_value=field_value,
         )
 
-    def _debug_log(self, message: str, name: str = "Seedance") -> None:
-        timestamp = time.strftime("%H:%M:%S")
-        self.log(f"[{timestamp}] {message}", name=name)
+    def _debug_log(self, message: str) -> None:
+        self.log(message)
 
-    def _stage_name(self, stage: str) -> str:
-        names = {
-            "parse_prompts": "解析提示词",
-            "parse_reference_images": "解析主体参考图",
-            "create_task": "提交生成任务",
-            "poll_task": "查询任务状态",
-            "extract_video_url": "解析视频 URL",
-            "client": "客户端请求",
-        }
-        return names.get(stage, stage)
+    @staticmethod
+    def _stage_name(stage: str) -> str:
+        return STAGE_NAMES.get(stage, stage)
 
     def _set_failure(
         self,
@@ -252,7 +253,6 @@ class SeedanceChainVideoComponent(Component):
         self._debug_log(
             f"Failure details: stage={stage}, segment={segment or 'none'}, total={total_segments or 'none'}, "
             f"task_id={task_id or 'none'}, error={type(error).__name__}: {error}",
-            name="ERROR",
         )
         return details
 
@@ -481,23 +481,19 @@ class SeedanceChainVideoComponent(Component):
                 elapsed = time.perf_counter() - start
                 code = e.response.status_code
                 detail = ""
-                try:
-                    detail = e.response.text
-                except Exception:
-                    pass
+                detail = getattr(e.response, "text", "")
                 if self._is_retryable_status_code(code) and attempt < max_attempts:
                     delay = self._retry_delay(attempt)
                     self._debug_log(
                         f"Create task transient HTTP error: status_code={code}, elapsed={elapsed:.1f}s, "
                         f"retry={attempt}/{MAX_CREATE_TASK_RETRIES}, sleep={delay}s",
-                        name="WARNING",
                     )
                     self.log(f"Create task HTTP {code}, retrying in {delay}s...", "WARNING")
                     time.sleep(delay)
                     continue
 
                 error_msg = f"API error {code}: {detail}"
-                self._debug_log(f"Create task HTTP error: status_code={code}, elapsed={elapsed:.1f}s", name="ERROR")
+                self._debug_log(f"Create task HTTP error: status_code={code}, elapsed={elapsed:.1f}s")
                 self.log(error_msg, "ERROR")
                 raise TaskError(error_msg) from e
             except (httpx.TimeoutException, httpx.TransportError) as e:
@@ -508,7 +504,6 @@ class SeedanceChainVideoComponent(Component):
                         f"Create task transport error: error={type(e).__name__}: {e}, elapsed={elapsed:.1f}s, "
                         f"retry={attempt}/{MAX_CREATE_TASK_RETRIES}, sleep={delay}s, "
                         f"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s",
-                        name="WARNING",
                     )
                     self.log(f"Create task {type(e).__name__}, retrying in {delay}s...", "WARNING")
                     time.sleep(delay)
@@ -583,7 +578,6 @@ class SeedanceChainVideoComponent(Component):
                     f"Poll read timeout: task_id={task_label}, attempt={attempt}, elapsed={elapsed:.1f}s, "
                     f"consecutive_errors={consecutive_errors}/{max_consecutive_errors}, "
                     f"timeout={getattr(self, 'request_timeout', DEFAULT_REQUEST_TIMEOUT)}s",
-                    name="WARNING",
                 )
                 self.log(
                     f"Polling read timeout, retrying... ({consecutive_errors}/{max_consecutive_errors})",
@@ -597,11 +591,7 @@ class SeedanceChainVideoComponent(Component):
                 # 400/401 等参数或鉴权错误不会自愈；429 与 5xx 按瞬时错误重试
                 code = e.response.status_code
                 if not self._is_retryable_status_code(code):
-                    detail = ""
-                    try:
-                        detail = e.response.text
-                    except Exception:
-                        pass
+                    detail = getattr(e.response, "text", "")
                     self._debug_log(
                         f"Poll task fatal HTTP error: task_id={task_label}, status_code={code}, "
                         f"elapsed={elapsed:.1f}s",
@@ -612,7 +602,6 @@ class SeedanceChainVideoComponent(Component):
                 self._debug_log(
                     f"Poll task transient HTTP error: task_id={task_label}, status_code={code}, "
                     f"elapsed={elapsed:.1f}s, consecutive_errors={consecutive_errors}/{max_consecutive_errors}",
-                    name="WARNING",
                 )
                 self.log(f"HTTP {code} (transient), retry...", "WARNING")
                 if consecutive_errors >= max_consecutive_errors:
@@ -624,7 +613,6 @@ class SeedanceChainVideoComponent(Component):
                 self._debug_log(
                     f"Poll task error: task_id={task_label}, error={type(e).__name__}: {e}, "
                     f"elapsed={elapsed:.1f}s, consecutive_errors={consecutive_errors}/{max_consecutive_errors}",
-                    name="WARNING",
                 )
                 self.log(f"Polling error: {e}", "WARNING")
                 if consecutive_errors >= max_consecutive_errors:
